@@ -1,0 +1,45 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      args:
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
+    container_name: itsm-app
+    restart: unless-stopped
+    entrypoint: ["php", "artisan", "octane:frankenphp", "--host=0.0.0.0", "--port=8000", "--max-requests=1000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    networks:
+      - rede-itsm
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: itsm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-itsm}
+      POSTGRES_USER: ${DB_USERNAME:-itsm}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    ports:
+      - "5432:5432" # apenas dev local — remover/restringir em staging/produção
+    volumes:
+      - dados_postgres:/var/lib/postgresql/data
+    networks:
+      - rede-itsm
+
+volumes:
+  dados_postgres:
+    name: dados_postgres
+
+networks:
+  rede-itsm:
+    name: rede-itsm
+    driver: bridge
