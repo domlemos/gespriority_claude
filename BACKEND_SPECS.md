@@ -402,6 +402,13 @@ Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenti
 
 ### 3.4.3. Endpoints — CRUD de `User` e `Customer`, e listagem de `Role`
 
+> 📌 **Se `/api/users`, `/api/customers` ou `/api/roles` responderem `404` mesmo com
+> `php artisan route:list` mostrando a rota registrada:** o worker do Octane que já estava de pé
+> subiu antes dessas rotas existirem no código e continua servindo o router antigo em memória (ver
+> aviso geral na seção 1.1). Rode `docker compose exec app php artisan octane:reload` (ou
+> `docker compose restart app`) para o worker recarregar o código atual — aconteceu exatamente isso
+> ao testar manualmente este CRUD pela primeira vez.
+
 `Route::apiResource('users', UserController::class)` + `Route::get('/roles', ...)`, ambas sob
 `auth:web` + `can:users.manage`.
 
