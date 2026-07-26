@@ -400,6 +400,45 @@ Todas as respostas passam por `App\Http\Resources\ClientResource` (mesmo formato
 
 Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenticado sem a permissão `clients.manage` → `403`.
 
+### 3.4.3. Endpoints — CRUD de `User` e `Customer`, e listagem de `Role`
+
+`Route::apiResource('users', UserController::class)` + `Route::get('/roles', ...)`, ambas sob
+`auth:web` + `can:users.manage`.
+
+| Método | Rota | Body | Resposta |
+|---|---|---|---|
+| `GET` | `/users` | — | `200` — paginado (`?per_page=`), `UserResource::collection` com `roles`/`permissions` carregados |
+| `POST` | `/users` | `{name, email, password, role_ids?: number[]}` | `201` — `UserResource` |
+| `GET` | `/users/{user}` | — | `200` — `UserResource` |
+| `PUT`/`PATCH` | `/users/{user}` | `{name, email, password?, role_ids?: number[]}` | `200` — `UserResource`; `password` omitido/vazio mantém o hash atual |
+| `DELETE` | `/users/{user}` | — | `204`; **`409`** se `$user->id` for o do próprio autenticado |
+| `GET` | `/roles` | — | `200` — `{data: [{id, name, slug}, ...]}`, sem paginação |
+
+Validação de `User`: `name` obrigatório; `email` obrigatório, único (ignorando o próprio id no
+update); `password` obrigatório (`min:8`) na criação, opcional (`min:8` se presente) no update;
+`role_ids` opcional, array de ids existentes em `roles` (sincronizado via `roles()->sync()`).
+
+`Route::apiResource('customers', CustomerController::class)`, sob `auth:web` +
+`can:customers.manage` (nova permission — `Customer` do guard `customer` não participa desse
+gate, só `User` do guard `web` gerencia).
+
+| Método | Rota | Body | Resposta |
+|---|---|---|---|
+| `GET` | `/customers` | — | `200` — paginado (`?per_page=`), `CustomerResource::collection` com `client` carregado |
+| `POST` | `/customers` | `{name, email, password, client_id}` | `201` — `CustomerResource` |
+| `GET` | `/customers/{customer}` | — | `200` — `CustomerResource` |
+| `PUT`/`PATCH` | `/customers/{customer}` | `{name, email, password?, client_id}` | `200` — `CustomerResource`; `password` omitido/vazio mantém o hash atual |
+| `DELETE` | `/customers/{customer}` | — | `204` — sem trava adicional (sem dependentes no schema atual) |
+
+Validação de `Customer`: mesmas regras de `name`/`email`/`password` do `User` (email único na
+tabela `customers`); `client_id` obrigatório, `exists:clients,id`.
+
+`App\Http\Resources\CustomerResource`: `{id, name, email, email_verified_at, client: {id, name},
+created_at, updated_at}`.
+
+Todas as respostas seguem o mesmo envelope `{data: ...}` do `ClientController`. Validação: campo
+ausente/inválido → `422`; sem token → `401`; sem a permission correspondente → `403`.
+
 ### 3.5. Outras decisões de implementação
 
 - **`AppServiceProvider::boot()`**:
@@ -424,7 +463,7 @@ Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenti
 
 ### 3.7. Seed padrão (`RolesAndPermissionsSeeder` + `DatabaseSeeder`)
 
-Permissions: `users.manage`, `roles.manage`, `tickets.view`, `tickets.assign` (as duas últimas são placeholders para o futuro módulo de Tickets).
+Permissions: `users.manage`, `roles.manage`, `clients.manage`, `customers.manage`, `tickets.view`, `tickets.assign` (as duas últimas são placeholders para o futuro módulo de Tickets; `clients.manage` já existia mas não estava listada aqui).
 
 | Role (`slug`) | Permissions atribuídas |
 |---|---|
@@ -469,5 +508,17 @@ Rodar com `docker compose exec app php artisan test` (ou `./vendor/bin/phpunit`)
 > **Fix:** todo `<env>` em `phpunit.xml` tem agora um `<server>` espelhado com o mesmo nome/valor/`force="true"` — o `PhpHandler` do PHPUnit escreve `<server>` direto em `$_SERVER` incondicionalmente, cobrindo a lacuna. Validado forçando um dump de `getenv()`/`$_ENV`/`$_SERVER`/`Env::getRepository()->get()`/`config('database.default')` dentro de um teste até os 5 baterem em `sqlite`.
 >
 > **Lição para qualquer novo ambiente Docker + PHPUnit deste tipo:** `env_file` no `docker-compose.yml` é exatamente o tipo de configuração que faz esse problema aparecer — não é geral a todo projeto Laravel, é específico de rodar os testes dentro de um container cujas variáveis já vêm setadas no processo antes do PHP iniciar. Se decidir buildar contra Postgres real em vez de sqlite no futuro, usar um banco `_testing` dedicado (nunca o mesmo `DB_DATABASE` do dev) reduziria o dano de uma futura recorrência desse tipo de bug de configuração.
+
+### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles}`)
+
+Mesmo padrão do §3.8: `RefreshDatabase`, dados via factories, permissions/roles montadas ad-hoc por
+teste (nunca via `RolesAndPermissionsSeeder`).
+
+| Arquivo | Cobre |
+|---|---|
+| `Clients/ClientCrudTest.php` | CRUD completo de `Client`, `409` ao excluir com `Customer`s vinculados, `?per_page=` |
+| `Users/UserCrudTest.php` | CRUD completo de `User`, roles via `role_ids`, senha opcional no update, `409` ao tentar excluir a própria conta, `403`/`401` |
+| `Customers/CustomerCrudTest.php` | CRUD completo de `Customer`, `client_id` obrigatório/validado, senha opcional no update, `403`/`401` |
+| `Roles/RoleIndexTest.php` | Listagem de roles (sem paginação), `403`/`401` |
 
 ---
