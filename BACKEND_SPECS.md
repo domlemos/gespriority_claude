@@ -416,7 +416,12 @@ Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenti
 
 Validação de `User`: `name` obrigatório; `email` obrigatório, único (ignorando o próprio id no
 update); `password` obrigatório (`min:8`) na criação, opcional (`min:8` se presente) no update;
-`role_ids` opcional, array de ids existentes em `roles` (sincronizado via `roles()->sync()`).
+`role_ids` opcional, array de ids existentes em `roles`. No `update()`, o comportamento é
+condicionado à presença da chave no payload (`array_key_exists('role_ids', $data)`): se `role_ids`
+estiver ausente do request, as roles atuais do usuário não são tocadas; se vier como array vazio
+(`role_ids: []`), todas as roles são removidas; se vier com valores, sincroniza exatamente para
+esses ids (`roles()->sync()`). Corrigido no commit `b311d63` — antes, a ausência de `role_ids`
+zerava as roles do usuário.
 
 `Route::apiResource('customers', CustomerController::class)`, sob `auth:web` +
 `can:customers.manage` (nova permission — `Customer` do guard `customer` não participa desse
@@ -464,6 +469,8 @@ ausente/inválido → `422`; sem token → `401`; sem a permission correspondent
 ### 3.7. Seed padrão (`RolesAndPermissionsSeeder` + `DatabaseSeeder`)
 
 Permissions: `users.manage`, `roles.manage`, `clients.manage`, `customers.manage`, `tickets.view`, `tickets.assign` (as duas últimas são placeholders para o futuro módulo de Tickets; `clients.manage` já existia mas não estava listada aqui).
+
+> 📌 **Deploy em ambiente já semeado:** `customers.manage` é permission nova desta feature. Em qualquer ambiente onde `db:seed` já rodou antes dela existir, é preciso rodar `php artisan db:seed` de novo após o deploy para que a role `admin` receba essa permission — do contrário o item de menu "Usuários de Clientes" do frontend (que é liberado pela role `admin`, não por essa permission) já aparece, mas as chamadas à API de `Customer` retornam `403` até o reseed.
 
 | Role (`slug`) | Permissions atribuídas |
 |---|---|
