@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
+use App\Http\Controllers\Api\RoleController;
 use Illuminate\Support\Facades\Route;
 
 // Staff (guard "web") e Cliente (guard "customer") têm login e recuperação de
@@ -37,3 +38,5 @@ Route::middleware('auth:web,customer')->group(function () {
 // Cliente (empresa contratante) — só staff (guard "web") com a permissão
 // dedicada gerencia; Customer nunca acessa (ver BACKEND_SPECS.md seção 3.1).
 Route::middleware(['auth:web', 'can:clients.manage'])->apiResource('clients', ClientController::class);
+
+Route::middleware(['auth:web', 'can:users.manage'])->get('/roles', [RoleController::class, 'index']);
