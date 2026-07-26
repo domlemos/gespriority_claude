@@ -100,6 +100,22 @@ class UserCrudTest extends TestCase
         $this->assertSame($originalPassword, $user->fresh()->password);
     }
 
+    public function test_updating_a_user_without_role_ids_key_preserves_existing_roles(): void
+    {
+        [$token] = $this->staffToken();
+        $user = User::factory()->create(['name' => 'Old Name']);
+        $role = Role::factory()->create();
+        $user->roles()->attach($role);
+
+        $response = $this->putJson("/api/users/{$user->id}", [
+            'name' => 'New Name',
+            'email' => $user->email,
+        ], $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('data.name', 'New Name');
+        $this->assertSame([$role->id], $user->fresh()->roles->pluck('id')->all());
+    }
+
     public function test_admin_can_delete_another_user(): void
     {
         [$token] = $this->staffToken();

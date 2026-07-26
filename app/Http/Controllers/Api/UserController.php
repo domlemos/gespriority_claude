@@ -57,7 +57,10 @@ class UserController extends Controller
         }
 
         $user->save();
-        $user->roles()->sync($data['role_ids'] ?? []);
+
+        if (array_key_exists('role_ids', $data)) {
+            $user->roles()->sync($data['role_ids']);
+        }
 
         return new UserResource($user->load('roles.permissions'));
     }
