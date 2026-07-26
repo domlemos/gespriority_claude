@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ClientController;
 use Illuminate\Support\Facades\Route;
 
 // Staff (guard "web") e Cliente (guard "customer") têm login e recuperação de
@@ -32,3 +33,7 @@ Route::middleware('auth:web,customer')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
 });
+
+// Cliente (empresa contratante) — só staff (guard "web") com a permissão
+// dedicada gerencia; Customer nunca acessa (ver BACKEND_SPECS.md seção 3.1).
+Route::middleware(['auth:web', 'can:clients.manage'])->apiResource('clients', ClientController::class);

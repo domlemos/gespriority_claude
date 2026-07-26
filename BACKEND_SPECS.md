@@ -233,10 +233,20 @@ Esta seção documenta, com precisão de coluna e payload, o que foi efetivament
 | `token` | `string` | |
 | `created_at` | `timestamp` nullable | |
 
-#### `customers` (guard `customer` — clientes do portal)
+#### `clients` (empresa que assina o serviço — **não confundir com `Customer`**)
+> 📌 **Terminologia:** `Client` é a empresa contratante (quem assina o serviço); `Customer` é a pessoa do portal que abre chamados, e pertence a um `Client`. O texto em português desta spec usa "cliente" de forma solta em alguns pontos (ex. seção 1.3) para se referir ao `Customer` — isso é anterior à existência deste model e não deve ser confundido com a entidade `Client` aqui descrita.
+
 | Coluna | Tipo | Notas |
 |---|---|---|
 | `id` | `bigint` PK | |
+| `name` | `string` | |
+| `created_at`, `updated_at` | `timestamp` | |
+
+#### `customers` (guard `customer` — usuários do portal, vinculados a um `Client`)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `client_id` | `bigint` FK → `clients.id` | **obrigatório** (`NOT NULL`); `onDelete('restrict')` — não é possível deletar um `Client` com `customers` vinculados |
 | `name` | `string` | |
 | `email` | `string` | `unique` |
 | `email_verified_at` | `timestamp` nullable | |
@@ -306,7 +316,8 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | Model | Traits/relations relevantes |
 |---|---|
 | `App\Models\User` | `HasApiTokens`, `Notifiable`; `roles(): BelongsToMany` → `Role`; `hasPermission(string $slug): bool` (via `loadMissing('roles.permissions')`) |
-| `App\Models\Customer` | `HasApiTokens`, `Notifiable`; **sem** `roles()`/`hasPermission()` |
+| `App\Models\Client` | `customers(): HasMany` → `Customer` |
+| `App\Models\Customer` | `HasApiTokens`, `Notifiable`; `client(): BelongsTo` → `Client`; **sem** `roles()`/`hasPermission()` |
 | `App\Models\Role` | `permissions(): BelongsToMany` → `Permission`; `users(): BelongsToMany` → `User` |
 | `App\Models\Permission` | `roles(): BelongsToMany` → `Role` |
 | `App\Models\TokenAuditLog` | `tokenable(): MorphTo`; `const UPDATED_AT = null` |
@@ -367,11 +378,27 @@ O campo `user` de `/login` e o corpo de `/me` (quando o guard é `web`) passam p
   "created_at": "2026-07-09T21:52:23.000000Z",
   "updated_at": "2026-07-09T21:52:23.000000Z",
   "roles": ["admin"],
-  "permissions": ["users.manage", "roles.manage", "tickets.view", "tickets.assign"]
+  "permissions": ["users.manage", "roles.manage", "clients.manage", "tickets.view", "tickets.assign"]
 }
 ```
 
 `Customer` não tem `UserResource` equivalente — é devolvido como model puro (sem roles/permissions, que não se aplicam a esse guard).
+
+### 3.4.2. Endpoints — CRUD de `Client` (`App\Http\Controllers\Api\ClientController`)
+
+`Route::apiResource('clients', ClientController::class)`, sob `auth:web` + `can:clients.manage` (só `User` com a permissão `clients.manage` — por padrão, só a role Admin a possui; `Customer` nunca autentica no guard `web`, então nunca acessa essas rotas).
+
+| Método | Rota | Body | Resposta |
+|---|---|---|---|
+| `GET` | `/clients` | — | `200` — paginado, `{data: [{id, name, created_at, updated_at}, ...], links, meta}` |
+| `POST` | `/clients` | `{name}` | `201` — `{data: {id, name, created_at, updated_at}}` |
+| `GET` | `/clients/{client}` | — | `200` — `{data: {...}}` |
+| `PUT`/`PATCH` | `/clients/{client}` | `{name}` | `200` — `{data: {...}}` |
+| `DELETE` | `/clients/{client}` | — | `204` sem corpo; **`409`** se o `Client` ainda tiver `Customer`s vinculados (checado explicitamente no controller antes do `delete()`, não depende de capturar a exceção do banco) |
+
+Todas as respostas passam por `App\Http\Resources\ClientResource` (mesmo formato do model, sem campos extras — existe como Resource, não serialização crua, só para manter o padrão de envelope `{data: ...}` do restante da API).
+
+Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenticado sem a permissão `clients.manage` → `403`.
 
 ### 3.5. Outras decisões de implementação
 

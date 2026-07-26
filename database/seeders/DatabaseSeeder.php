@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Client;
 use App\Models\Customer;
 use App\Models\Role;
 use App\Models\User;
@@ -39,16 +40,18 @@ class DatabaseSeeder extends Seeder
             $user->roles()->sync([Role::query()->where('slug', $data['role'])->value('id')]);
         }
 
+        $client = Client::query()->firstOrCreate(['name' => 'Empresa Teste']);
+
         Customer::query()->updateOrCreate(
             ['email' => 'cliente@example.com'],
-            ['name' => 'Cliente Teste', 'password' => Hash::make('password')]
+            ['name' => 'Cliente Teste', 'client_id' => $client->id, 'password' => Hash::make('password')]
         );
 
         // Customers extras com dados aleatórios, só na primeira vez (senão
         // cresceria a cada `db:seed` — o de e-mail fixo acima já cobre o caso
         // de login previsível, isso aqui é só massa pra testar listagem/paginação).
         if (Customer::query()->count() <= 1) {
-            Customer::factory()->count(3)->create();
+            Customer::factory()->count(3)->create(['client_id' => $client->id]);
         }
     }
 }
