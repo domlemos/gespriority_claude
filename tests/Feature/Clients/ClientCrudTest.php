@@ -41,6 +41,16 @@ class ClientCrudTest extends TestCase
         $response->assertOk()->assertJsonCount(2, 'data');
     }
 
+    public function test_admin_can_request_a_larger_page_size(): void
+    {
+        Client::factory()->count(20)->create();
+        $token = $this->staffToken();
+
+        $response = $this->getJson('/api/clients?per_page=20', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(20, 'data');
+    }
+
     public function test_admin_can_create_a_client(): void
     {
         $token = $this->staffToken();

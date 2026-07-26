@@ -9,10 +9,10 @@ use Illuminate\Http\Request;
 
 class ClientController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         return ClientResource::collection(
-            Client::query()->orderBy('name')->paginate()
+            Client::query()->orderBy('name')->paginate($request->integer('per_page', 15))
         );
     }
 
