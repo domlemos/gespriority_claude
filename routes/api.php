@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
+use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
@@ -44,3 +45,5 @@ Route::middleware(['auth:web', 'can:users.manage'])->group(function () {
     Route::apiResource('users', UserController::class);
     Route::get('/roles', [RoleController::class, 'index']);
 });
+
+Route::middleware(['auth:web', 'can:customers.manage'])->apiResource('customers', CustomerController::class);
