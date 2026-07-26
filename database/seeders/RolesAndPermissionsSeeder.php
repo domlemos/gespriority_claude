@@ -20,6 +20,7 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'Gerenciar usuários', 'slug' => 'users.manage'],
             ['name' => 'Gerenciar papéis e permissões', 'slug' => 'roles.manage'],
             ['name' => 'Gerenciar clientes', 'slug' => 'clients.manage'],
+            ['name' => 'Gerenciar usuários de clientes', 'slug' => 'customers.manage'],
             ['name' => 'Visualizar chamados', 'slug' => 'tickets.view'],
             ['name' => 'Atribuir chamados', 'slug' => 'tickets.assign'],
         ])->mapWithKeys(fn (array $data) => [
