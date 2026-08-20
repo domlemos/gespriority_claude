@@ -92,6 +92,23 @@ class LoginTest extends TestCase
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
+    public function test_deactivated_staff_cannot_login(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'staff@example.com',
+            'password' => Hash::make('secret123'),
+        ]);
+        $user->delete();
+
+        $response = $this->postJson('/api/login', [
+            'email' => 'staff@example.com',
+            'password' => 'secret123',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('email');
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
     public function test_customer_login_fails_for_unknown_email(): void
     {
         $response = $this->postJson('/api/customer/login', [

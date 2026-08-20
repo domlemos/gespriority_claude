@@ -51,6 +51,27 @@ class ClientCrudTest extends TestCase
         $response->assertOk()->assertJsonCount(20, 'data');
     }
 
+    public function test_admin_can_filter_clients_by_partial_name(): void
+    {
+        Client::factory()->create(['name' => 'Acme Corp']);
+        Client::factory()->create(['name' => 'Globex Inc']);
+        $token = $this->staffToken();
+
+        $response = $this->getJson('/api/clients?name=acme', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Acme Corp');
+    }
+
+    public function test_filtering_clients_by_name_with_no_match_returns_empty(): void
+    {
+        Client::factory()->create(['name' => 'Acme Corp']);
+        $token = $this->staffToken();
+
+        $response = $this->getJson('/api/clients?name=nonexistent', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_admin_can_create_a_client(): void
     {
         $token = $this->staffToken();

@@ -2,7 +2,10 @@
 
 namespace Tests\Feature\Users;
 
+use App\Models\Anexo;
 use App\Models\Customer;
+use App\Models\GrupoSolucao;
+use App\Models\Incidente;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -44,31 +47,148 @@ class UserCrudTest extends TestCase
         $response->assertOk()->assertJsonCount(3, 'data');
     }
 
+    public function test_admin_can_filter_users_by_partial_name(): void
+    {
+        [$token] = $this->staffToken();
+        User::factory()->create(['name' => 'Ana Silva']);
+        User::factory()->create(['name' => 'Bruno Costa']);
+
+        $response = $this->getJson('/api/users?name=ana', $this->authHeader($token));
+
+        $response->assertOk();
+        $names = collect($response->json('data'))->pluck('name')->all();
+        $this->assertContains('Ana Silva', $names);
+        $this->assertNotContains('Bruno Costa', $names);
+    }
+
+    public function test_admin_can_filter_users_by_partial_email(): void
+    {
+        [$token] = $this->staffToken();
+        User::factory()->create(['email' => 'ana@example.com']);
+        User::factory()->create(['email' => 'bruno@example.com']);
+
+        $response = $this->getJson('/api/users?email=ana@', $this->authHeader($token));
+
+        $response->assertOk();
+        $emails = collect($response->json('data'))->pluck('email')->all();
+        $this->assertContains('ana@example.com', $emails);
+        $this->assertNotContains('bruno@example.com', $emails);
+    }
+
+    public function test_filtering_users_by_name_with_no_match_returns_empty(): void
+    {
+        [$token] = $this->staffToken();
+        User::factory()->create(['name' => 'Ana Silva']);
+
+        $response = $this->getJson('/api/users?name=zzznomatch', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_admin_can_filter_users_by_grupo_solucao_id(): void
+    {
+        [$token] = $this->staffToken();
+        $grupoA = GrupoSolucao::factory()->create();
+        $grupoB = GrupoSolucao::factory()->create();
+        $userA = User::factory()->create(['grupo_solucao_id' => $grupoA->id]);
+        User::factory()->create(['grupo_solucao_id' => $grupoB->id]);
+
+        $response = $this->getJson("/api/users?grupo_solucao_id={$grupoA->id}", $this->authHeader($token));
+
+        $response->assertOk();
+        $ids = collect($response->json('data'))->pluck('id')->all();
+        $this->assertContains($userA->id, $ids);
+    }
+
+    public function test_admin_can_filter_users_by_role_id(): void
+    {
+        [$token] = $this->staffToken();
+        $role = Role::factory()->create();
+        $userWithRole = User::factory()->create();
+        $userWithRole->roles()->attach($role);
+        User::factory()->create();
+
+        $response = $this->getJson("/api/users?role_id={$role->id}", $this->authHeader($token));
+
+        $response->assertOk();
+        $ids = collect($response->json('data'))->pluck('id')->all();
+        $this->assertContains($userWithRole->id, $ids);
+    }
+
+    public function test_filtering_users_by_nonexistent_grupo_solucao_id_returns_422(): void
+    {
+        [$token] = $this->staffToken();
+
+        $response = $this->getJson('/api/users?grupo_solucao_id=999999', $this->authHeader($token));
+
+        $response->assertStatus(422)->assertJsonValidationErrors('grupo_solucao_id');
+    }
+
+    public function test_filtering_users_by_nonexistent_role_id_returns_422(): void
+    {
+        [$token] = $this->staffToken();
+
+        $response = $this->getJson('/api/users?role_id=999999', $this->authHeader($token));
+
+        $response->assertStatus(422)->assertJsonValidationErrors('role_id');
+    }
+
     public function test_admin_can_create_a_user_with_roles(): void
     {
         [$token] = $this->staffToken();
         $role = Role::factory()->create();
+        $grupoSolucao = GrupoSolucao::factory()->create();
 
         $response = $this->postJson('/api/users', [
             'name' => 'Ana Silva',
             'email' => 'ana@example.com',
             'password' => 'password123',
+            'grupo_solucao_id' => $grupoSolucao->id,
             'role_ids' => [$role->id],
         ], $this->authHeader($token));
 
         $response->assertCreated()
             ->assertJsonPath('data.name', 'Ana Silva')
+            ->assertJsonPath('data.grupo_solucao_id', $grupoSolucao->id)
+            ->assertJsonPath('data.grupo_solucao.nome', $grupoSolucao->nome)
             ->assertJsonPath('data.roles.0', $role->slug);
-        $this->assertDatabaseHas('users', ['email' => 'ana@example.com']);
+        $this->assertDatabaseHas('users', ['email' => 'ana@example.com', 'grupo_solucao_id' => $grupoSolucao->id]);
     }
 
-    public function test_creating_user_requires_name_email_and_password(): void
+    public function test_creating_user_requires_name_email_password_and_grupo_solucao_id(): void
     {
         [$token] = $this->staffToken();
 
         $response = $this->postJson('/api/users', [], $this->authHeader($token));
 
-        $response->assertStatus(422)->assertJsonValidationErrors(['name', 'email', 'password']);
+        $response->assertStatus(422)->assertJsonValidationErrors(['name', 'email', 'password', 'grupo_solucao_id']);
+    }
+
+    public function test_creating_user_requires_grupo_solucao_id(): void
+    {
+        [$token] = $this->staffToken();
+
+        $response = $this->postJson('/api/users', [
+            'name' => 'Ana Silva',
+            'email' => 'ana@example.com',
+            'password' => 'password123',
+        ], $this->authHeader($token));
+
+        $response->assertStatus(422)->assertJsonValidationErrors('grupo_solucao_id');
+    }
+
+    public function test_creating_user_rejects_nonexistent_grupo_solucao_id(): void
+    {
+        [$token] = $this->staffToken();
+
+        $response = $this->postJson('/api/users', [
+            'name' => 'Ana Silva',
+            'email' => 'ana@example.com',
+            'password' => 'password123',
+            'grupo_solucao_id' => 999999,
+        ], $this->authHeader($token));
+
+        $response->assertStatus(422)->assertJsonValidationErrors('grupo_solucao_id');
     }
 
     public function test_creating_user_requires_unique_email(): void
@@ -80,6 +200,7 @@ class UserCrudTest extends TestCase
             'name' => 'Novo',
             'email' => 'dup@example.com',
             'password' => 'password123',
+            'grupo_solucao_id' => GrupoSolucao::factory()->create()->id,
         ], $this->authHeader($token));
 
         $response->assertStatus(422)->assertJsonValidationErrors('email');
@@ -94,6 +215,7 @@ class UserCrudTest extends TestCase
         $response = $this->putJson("/api/users/{$user->id}", [
             'name' => 'New Name',
             'email' => $user->email,
+            'grupo_solucao_id' => $user->grupo_solucao_id,
         ], $this->authHeader($token));
 
         $response->assertOk()->assertJsonPath('data.name', 'New Name');
@@ -110,6 +232,7 @@ class UserCrudTest extends TestCase
         $response = $this->putJson("/api/users/{$user->id}", [
             'name' => 'New Name',
             'email' => $user->email,
+            'grupo_solucao_id' => $user->grupo_solucao_id,
         ], $this->authHeader($token));
 
         $response->assertOk()->assertJsonPath('data.name', 'New Name');
@@ -124,7 +247,7 @@ class UserCrudTest extends TestCase
         $response = $this->deleteJson("/api/users/{$user->id}", [], $this->authHeader($token));
 
         $response->assertNoContent();
-        $this->assertDatabaseMissing('users', ['id' => $user->id]);
+        $this->assertSoftDeleted('users', ['id' => $user->id]);
     }
 
     public function test_admin_cannot_delete_own_account(): void
@@ -135,6 +258,52 @@ class UserCrudTest extends TestCase
 
         $response->assertStatus(409);
         $this->assertDatabaseHas('users', ['id' => $admin->id]);
+    }
+
+    public function test_deactivating_a_user_that_is_responsavel_for_an_incidente_still_succeeds(): void
+    {
+        [$token] = $this->staffToken();
+        $user = User::factory()->create();
+        Incidente::factory()->create(['responsavel_id' => $user->id]);
+
+        $response = $this->deleteJson("/api/users/{$user->id}", [], $this->authHeader($token));
+
+        $response->assertNoContent();
+        $this->assertSoftDeleted('users', ['id' => $user->id]);
+    }
+
+    public function test_deactivating_a_user_that_uploaded_an_anexo_still_succeeds(): void
+    {
+        [$token] = $this->staffToken();
+        $user = User::factory()->create();
+        Anexo::factory()->create(['user_id' => $user->id]);
+
+        $response = $this->deleteJson("/api/users/{$user->id}", [], $this->authHeader($token));
+
+        $response->assertNoContent();
+        $this->assertSoftDeleted('users', ['id' => $user->id]);
+    }
+
+    public function test_deactivated_users_do_not_appear_in_the_listing(): void
+    {
+        [$token] = $this->staffToken();
+        $user = User::factory()->create();
+        $user->delete();
+
+        $response = $this->getJson('/api/users', $this->authHeader($token));
+
+        $response->assertOk();
+        $this->assertNotContains($user->id, collect($response->json('data'))->pluck('id')->all());
+    }
+
+    public function test_active_user_is_marked_as_ativo_in_the_resource(): void
+    {
+        [$token] = $this->staffToken();
+        $user = User::factory()->create();
+
+        $response = $this->getJson("/api/users/{$user->id}", $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('data.ativo', true);
     }
 
     public function test_staff_without_users_manage_permission_is_forbidden(): void

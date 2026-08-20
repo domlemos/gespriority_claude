@@ -11,18 +11,30 @@ ARG GROUP_ID=1000
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # Pacotes de sistema (NÃO são extensões PHP)
+# libjpeg-turbo-dev/libpng-dev/freetype-dev — build deps da extensão gd.
+# libzip-dev — build dep da extensão zip.
 RUN apk add --no-cache \
     bash \
     shadow \
     icu-dev \
     postgresql-dev \
+    libjpeg-turbo-dev \
+    libpng-dev \
+    freetype-dev \
+    libzip-dev \
     $PHPIZE_DEPS
 
 # Extensões PHP
 # pcntl não está listada na especificação original, mas é exigida pelo
 # Laravel Octane (InteractsWithServers::getSubscribedSignals) para tratar
 # SIGINT/SIGTERM/SIGHUP — sem ela o worker falha ao iniciar.
-RUN docker-php-ext-install pdo pdo_pgsql intl pcntl
+# gd — necessária pra remover metadados EXIF de anexos de imagem
+# (AnexoController::removerMetadadosSeImagem()): reencodar via GD descarta
+# EXIF/GPS como efeito colateral, sem precisar de uma lib de EXIF dedicada.
+# zip — exigida por phpoffice/phpspreadsheet (via maatwebsite/excel), usada
+# pra gerar os relatórios em .xlsx (que é, por baixo, um contêiner zip).
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install pdo pdo_pgsql intl pcntl gd zip
 
 # Remapeamento de UID/GID do usuário da imagem para o usuário do host
 # ⚠️ Confirmado: a imagem base usa `www-data` (uid/gid 82, Alpine).

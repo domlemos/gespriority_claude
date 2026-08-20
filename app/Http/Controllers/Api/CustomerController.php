@@ -13,8 +13,15 @@ class CustomerController extends Controller
 {
     public function index(Request $request)
     {
+        $filtros = $request->validate([
+            'name' => ['sometimes', 'string'],
+            'email' => ['sometimes', 'string'],
+            'client_id' => ['sometimes', 'integer', 'exists:clients,id'],
+        ]);
+
         return CustomerResource::collection(
             Customer::query()
+                ->filtros($filtros)
                 ->with('client')
                 ->orderBy('name')
                 ->paginate($request->integer('per_page', 15))
@@ -63,6 +70,12 @@ class CustomerController extends Controller
 
     public function destroy(Customer $customer)
     {
+        if ($customer->incidentes()->exists()) {
+            return response()->json([
+                'message' => 'Não é possível excluir um customer com incidentes vinculados.',
+            ], 409);
+        }
+
         $customer->delete();
 
         return response()->noContent();

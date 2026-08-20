@@ -11,8 +11,15 @@ class ClientController extends Controller
 {
     public function index(Request $request)
     {
+        $filtros = $request->validate([
+            'name' => ['sometimes', 'string'],
+        ]);
+
         return ClientResource::collection(
-            Client::query()->orderBy('name')->paginate($request->integer('per_page', 15))
+            Client::query()
+                ->filtros($filtros)
+                ->orderBy('name')
+                ->paginate($request->integer('per_page', 15))
         );
     }
 

@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Client;
 use App\Models\Customer;
+use App\Models\GrupoSolucao;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -19,9 +20,9 @@ class DatabaseSeeder extends Seeder
      * para facilitar login manual/QA de cada nível de permissão.
      */
     private const ROLE_USERS = [
-        'admin@example.com' => ['name' => 'Admin', 'role' => 'admin'],
-        'supervisor@example.com' => ['name' => 'Supervisor', 'role' => 'supervisor'],
-        'agente@example.com' => ['name' => 'Agente', 'role' => 'agente'],
+        'admin@example.com' => ['name' => 'Admin', 'role' => 'admin', 'grupo_solucao' => 'Administração'],
+        'supervisor@example.com' => ['name' => 'Supervisor', 'role' => 'supervisor', 'grupo_solucao' => 'Suporte N2'],
+        'agente@example.com' => ['name' => 'Agente', 'role' => 'agente', 'grupo_solucao' => 'Suporte N1'],
     ];
 
     /**
@@ -30,11 +31,16 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(RolesAndPermissionsSeeder::class);
+        $this->call(PoliticasSlaSeeder::class);
+        $this->call(CategoriasSeeder::class);
+        $this->call(GruposSolucaoSeeder::class);
 
         foreach (self::ROLE_USERS as $email => $data) {
+            $grupoSolucaoId = GrupoSolucao::query()->where('nome', $data['grupo_solucao'])->value('id');
+
             $user = User::query()->updateOrCreate(
                 ['email' => $email],
-                ['name' => $data['name'], 'password' => Hash::make('password')]
+                ['name' => $data['name'], 'password' => Hash::make('password'), 'grupo_solucao_id' => $grupoSolucaoId]
             );
 
             $user->roles()->sync([Role::query()->where('slug', $data['role'])->value('id')]);
@@ -53,5 +59,7 @@ class DatabaseSeeder extends Seeder
         if (Customer::query()->count() <= 1) {
             Customer::factory()->count(3)->create(['client_id' => $client->id]);
         }
+
+        $this->call(IncidentesSeeder::class);
     }
 }

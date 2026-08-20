@@ -219,12 +219,20 @@ Esta seção documenta, com precisão de coluna e payload, o que foi efetivament
 | Coluna | Tipo | Notas |
 |---|---|---|
 | `id` | `bigint` PK | |
+| `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` | **obrigatório** (`NOT NULL`); `onDelete('restrict')` — não é possível deletar um `GrupoSolucao` com `User`s vinculados. Adicionado via migration separada (`add_grupo_solucao_id_to_users_table`) porque `users` já existia desde o boilerplate inicial do Laravel |
 | `name` | `string` | |
 | `email` | `string` | `unique` |
 | `email_verified_at` | `timestamp` nullable | |
 | `password` | `string` | `bcrypt` via cast `'hashed'` no model |
 | `remember_token` | `string` nullable | padrão do Laravel |
+| `deleted_at` | `timestamp` nullable | soft delete (`SoftDeletes`) — "excluir" um `User` é desativação, não remoção; ver §3.4.3 |
 | `created_at`, `updated_at` | `timestamp` | |
+
+> 📌 **Todo `User` pertence a um grupo, sem exceção — `Customer` é sempre isento.** A obrigatoriedade
+> é por model, não por role: mesmo `admin` precisa de um `grupo_solucao_id` (seedado como
+> "Administração", ver §3.7). `Customer` (guard/tabela separados) nunca tem essa coluna — a isenção
+> mencionada no requisito original ("exceto os usuários da aplicação") se refere à distinção
+> `User`×`Customer`, não a um subconjunto de `User`.
 
 #### `password_reset_tokens` (broker `users`)
 | Coluna | Tipo | Notas |
@@ -311,16 +319,298 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `user_agent` | `text` nullable | de `$request->userAgent()` |
 | `created_at` | `timestamp` (`useCurrent()`) | **sem** `updated_at` (`const UPDATED_AT = null` no model — é um log append-only) |
 
+#### `politicas_sla` (`App\Models\PoliticaSla` — política de SLA, em horas expressas via campos `_minutos`)
+> 📌 **"SLA em horas" vs. colunas `_minutos`:** o requisito de negócio expressa a SLA em horas
+> (ex. "4 horas de resposta"), mas as colunas guardam minutos (`tempo_resposta_minutos`,
+> `tempo_resolucao_minutos`) — granularidade mais fina que "hora inteira" sem precisar de coluna
+> decimal (ex. SLA de 15 minutos pra prioridade `urgente` não é representável em horas inteiras). A
+> conversão pra exibição em horas, se necessário, fica a cargo do consumidor da API.
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `nome` | `string` | |
+| `prioridade` | `string` | um de `PoliticaSla::PRIORIDADES` = `baixa`\|`media`\|`alta`\|`urgente` — validado na aplicação (`Rule::in`), sem enum/check nativo do banco (portabilidade Postgres/SQLite) |
+| `tempo_resposta_minutos` | `unsignedInteger` | |
+| `tempo_resolucao_minutos` | `unsignedInteger` | validado (`gte:tempo_resposta_minutos`) — resolução não pode ser mais curta que a resposta |
+| `apenas_horas_uteis` | `boolean` | default `false` — se `true`, a contagem do SLA (quando existir motor de contagem, ainda não implementado) considera só horário comercial |
+| `ativo` | `boolean` | default `true` — permite desativar uma política sem excluí-la |
+| `client_id` | `bigint` FK → `clients.id` nullable | `cascadeOnDelete` — política é config/metadado do cliente, não um registro primário como `Customer`; some junto se o `Client` for excluído. **`NULL` = "padrão global"** dessa prioridade (ver nota de resolução abaixo) |
+| `created_at`, `updated_at` | `timestamp` | |
+| índice | `(client_id, prioridade)` | não é `unique` — `NULL` não colide de forma confiável entre Postgres/SQLite em unique composta; unicidade é garantida via `Rule::unique(...)->where(...)` condicional no controller, não no banco |
+
+> 📌 **Resolução do "SLA padrão" (`Client::resolvedSlaFor(string $prioridade)`):** para uma
+> prioridade, o cliente usa sua própria política (`client_id` = do cliente) se existir uma
+> `ativo = true`; caso contrário, cai automaticamente na política global da mesma prioridade
+> (`client_id IS NULL`). Não há coluna `sla_padrao_id` em `clients` — a "SLA padrão" é resolvida
+> implicitamente por prioridade, não por um vínculo explícito único por cliente.
+
+#### `categorias` (taxonomia de incidentes — nível 1)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `nome` | `string` | `unique` |
+| `ativo` | `boolean` | default `true` |
+| `created_at`, `updated_at` | `timestamp` | |
+
+#### `subcategorias` (taxonomia de incidentes — nível 2, sempre vinculada a uma `categoria`)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `categoria_id` | `bigint` FK → `categorias.id` | **obrigatório** (`NOT NULL`); `onDelete('restrict')` — não é possível deletar uma `Categoria` com `subcategorias` vinculadas |
+| `nome` | `string` | |
+| `ativo` | `boolean` | default `true` |
+| `created_at`, `updated_at` | `timestamp` | |
+| índice | `unique(categoria_id, nome)` | **é `unique` de verdade no banco** (diferente do índice de `politicas_sla`) — `categoria_id` nunca é nulo aqui, então não tem a pegadinha de `NULL` não colidir consigo mesmo entre Postgres/SQLite |
+
+#### `itens` (taxonomia de incidentes — nível 3, sempre vinculado a uma `subcategoria`)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `subcategoria_id` | `bigint` FK → `subcategorias.id` | **obrigatório** (`NOT NULL`); `onDelete('restrict')` — não é possível deletar uma `Subcategoria` com `itens` vinculados |
+| `nome` | `string` | |
+| `ativo` | `boolean` | default `true` |
+| `created_at`, `updated_at` | `timestamp` | |
+| índice | `unique(subcategoria_id, nome)` | mesmo raciocínio de `subcategorias` — `subcategoria_id` nunca é nulo, unique real no banco |
+
+> 📌 **3 níveis: Categoria → Subcategoria → Item.** Prática recomendada de ITSM (ITIL, e o que
+> ferramentas como ServiceNow/Jira Service Management usam) — 2 níveis costuma ser raso demais pra
+> relatório/roteamento (ex. "Hardware > Impressora" não diferencia "sem toner" de "atolamento de
+> papel", causas raiz bem diferentes). Continua sendo hierarquia fixa (não auto-referenciada) porque
+> o domínio pedido tem profundidade fixa em 3, mesmo padrão de forma usado em `Client`→`Customer`.
+
+#### `grupos_solucao` (grupo de solução — todo `User` pertence a um, ver nota em `users` acima)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `nome` | `string` | `unique` |
+| `ativo` | `boolean` | default `true` |
+| `created_at`, `updated_at` | `timestamp` | |
+
+#### `incidentes` (chamado)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `customer_id` | `bigint` FK → `customers.id` | **obrigatório**; `onDelete('restrict')` — quem abriu/é o afetado é sempre um `Customer` (nunca um `User`, ver seção 1.3); registro histórico, não pode sumir com o cliente |
+| `item_id` | `bigint` FK → `itens.id` nullable | `onDelete('restrict')` — classificação (Categoria/Subcategoria deriváveis via `item->subcategoria->categoria`, sem FKs redundantes); nullable porque a triagem pode acontecer depois da abertura, não necessariamente no ato |
+| `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | `onDelete('restrict')` — equipe responsável; nullable pelo mesmo motivo de `item_id` (roteamento pode ser posterior) |
+| `responsavel_id` | `bigint` FK → `users.id` nullable | `onDelete('restrict')` — agente atribuído; nullable, atribuição individual normalmente vem depois do roteamento pro grupo |
+| `titulo` | `string` | |
+| `prioridade` | `string` | reaproveita `PoliticaSla::PRIORIDADES` (`baixa`\|`media`\|`alta`\|`urgente`) — sem duplicar a lista de constantes |
+| `origem` | `string` | um de `Incidente::ORIGENS` — constante própria do incidente (ver nota abaixo) |
+| `status` | `string` | um de `Incidente::STATUSES`; default `'aberto'` — **forçado no `store()`, ignora qualquer `status` enviado pelo cliente na criação** |
+| `prazo_resposta` | `timestamp` nullable | calculado **uma única vez** no `store()` (`created_at + tempo_resposta_minutos` da `PoliticaSla` aplicável via `Client::resolvedSlaFor()`) e **congelado** — nunca recalculado, nem que a política mude depois. `null` se não houver política aplicável pra essa prioridade (sem override do cliente nem padrão global) |
+| `prazo_resolucao` | `timestamp` nullable | mesmo raciocínio de `prazo_resposta`, com `tempo_resolucao_minutos` |
+| `respondido_em` | `timestamp` nullable | setado automaticamente na 1ª vez que `status` sai de `'aberto'` (qualquer que seja o novo status, mesmo direto pra um concluído) — nunca sobrescrito depois |
+| `concluido_em` | `timestamp` nullable | setado automaticamente na 1ª vez que `status` entra em `Incidente::STATUS_CONCLUIDOS`; **limpo de volta pra `null`** se o incidente for reaberto (status volta pra um não-concluído) — ver nota de reabertura abaixo |
+| `created_at`, `updated_at` | `timestamp` | |
+| índices | `status`, `grupo_solucao_id`, `responsavel_id` | não únicos, só performance de filtro (ainda não expostos como query params nesta entrega) |
+
+> 📌 **Cálculo de SLA — prazos congelados na abertura, status computado sob demanda.** Requisito
+> original: "o sistema deve calcular as datas limites de atendimento e resolução no momento da
+> abertura"; "se o incidente estiver aberto, o status do SLA compara agora com o prazo"; "se já
+> concluído, compara a data da conclusão com o prazo histórico". Implementado assim:
+> - `prazo_resposta`/`prazo_resolucao`: colunas reais, calculadas e persistidas no `store()` (ver
+>   `IncidenteController::calcularPrazosSla()`) — **congeladas**, para não mudar retroativamente se
+>   alguém editar a `PoliticaSla` depois.
+> - `status_sla_resposta`/`status_sla_resolucao` (`dentro_prazo`\|`estourado`\|`sem_sla`) e
+>   `tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos()`: **não são colunas**, são
+>   métodos calculados em `Incidente` (`statusSlaResposta()`, etc.) toda vez que são lidos —
+>   comparam contra `now()` se `respondido_em`/`concluido_em` ainda for `null` (incidente em
+>   andamento), ou contra o timestamp congelado se já setado (resultado fica histórico e não muda
+>   mais, mesmo consultado dias depois).
+> - **Pausas ("considerando eventuais pausas") ficam de fora desta entrega** — pausar/retomar a
+>   contagem quando `status = 'pendente'` exige rastrear quando cada período de pausa começou/acabou
+>   (nova estrutura, ainda não implementada). Decisão explícita de fazer a base funcionar primeiro
+>   e tratar pausas como uma entrega separada — mesma disciplina já usada entre "cadastral" e
+>   "relação com SLA" do `Incidente` em si.
+>
+> **Bug real corrigido — reabertura deixava o status de SLA congelado.** Como nada impede um
+> `Incidente` de voltar de um status concluído pra um ativo (`status → status` é livre, ver nota
+> abaixo), `concluido_em` ficava preso no valor da conclusão original mesmo com o incidente
+> reaberto — `statusSlaResolucao()` continuava comparando contra essa data congelada em vez de
+> voltar a comparar com `now()`, dando `dentro_prazo` pra um incidente na prática já estourado.
+> `IncidenteController::registrarTransicaoDeStatus()` agora **limpa `concluido_em`** quando
+> `$anterior` está em `STATUS_CONCLUIDOS` e `$novo` não está — `respondido_em` **não** é limpo
+> (é fato histórico: "quando foi respondido pela primeira vez" não é desfeito por reabertura).
+> Se o incidente for resolvido de novo depois, `concluido_em` é setado com o novo timestamp
+> normalmente (a regra "não sobrescreve" só vale enquanto o valor não foi limpo).
+
+> 📌 **`status` e `origem` são constantes do `Incidente`, não cadastros.** Diferente de
+> Categoria/Subcategoria/Item (taxonomia de negócio, muda com frequência, sem acoplamento a lógica),
+> `status` dirige workflow real (pausa/retoma SLA quando existir, controla transições válidas) e
+> `origem` é uma lista fechada atrelada a integrações de sistema (adicionar uma origem nova exige
+> código, não só um cadastro) — mesmo raciocínio já usado pra `prioridade` em `PoliticaSla`.
+>
+> `Incidente::STATUSES` = `aberto`, `em_andamento`, `pendente`, `resolvido`, `fechado`, `cancelado`.
+> `Incidente::ORIGENS` = `portal`, `email`, `telefone`, `chat`, `presencial`, `monitoramento`.
+> Nenhuma regra de transição entre status é validada nesta entrega (qualquer status → qualquer
+> status) — fica pra quando o motor de workflow for implementado.
+
+> 📌 **`customers`, `itens`, `grupos_solucao` e `users` ganharam checagem de dependentes no
+> `destroy()`** por causa do `restrict` de `incidentes` (mesmo padrão 409 já usado em
+> `Client`/`Categoria`/etc.) — bug real pego durante esta implementação: sem a checagem
+> explícita, excluir um desses registros com `incidentes` vinculados quebrava com
+> `QueryException` bruta (500) em vez de `409` limpo, igual ao que já tinha acontecido com
+> `Subcategoria`→`Item` (ver §3.4.5).
+
+#### `incidente_descricoes` (feed do incidente — substitui o campo `descricao` único)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `incidente_id` | `bigint` FK → `incidentes.id` | obrigatório; `onDelete('cascade')` — diferente do resto do schema (que usa `restrict`): esta linha não tem valor/sentido independente do `Incidente` que descreve, então some junto se o incidente sumir (nunca acontece via API, já que não há `DELETE` de `Incidente`, mas a FK cobre o caso de exclusão direta no banco) |
+| `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; autor — quem escreveu o comentário, ou quem disparou a ação que gerou o `escalonamento` (nunca um valor "sistema"/nulo) |
+| `tipo` | `string` | um de `IncidenteDescricao::TIPOS` = `comentario` \| `escalonamento` \| `alteracao` (ver nota abaixo) |
+| `descricao` | `text` | conteúdo — texto livre do agente (`comentario`) ou gerado automaticamente (`escalonamento`/`alteracao`) |
+| `deleted_at` | `timestamp` nullable | soft delete (`SoftDeletes`) — excluir um `comentario` não apaga, só marca (auditoria); ver nota abaixo |
+| `created_at`, `updated_at` | `timestamp` | |
+| índice | `incidente_id` | não único, só performance de listagem do feed |
+
+> 📌 **Por que virou tabela e não JSON:** cresce sem limite (chamado escalado várias vezes ao longo
+> de semanas), precisa de FK de verdade com `users` (integridade referencial que JSON não garante),
+> e precisa de `UPDATE`/`DELETE` de uma entrada específica sem reescrever um blob inteiro — mesmo
+> raciocínio de `token_audit_logs` (já implementado como tabela desde o módulo de autenticação, ver
+> §1.3), que é o mesmo tipo de problema (quem fez o quê, quando, relacionado a quê).
+>
+> **`tipo = 'comentario'`**: criado explicitamente por um agente via `POST
+> /incidentes/{incidente}/descricoes`. Editável/excluível **só pelo próprio autor**
+> (`user_id === $request->user()->id`), sem limite de tempo — nem depois do incidente ser
+> escalonado pra outro agente (decisão explícita: simplicidade sobre trava de auditoria mais
+> restritiva, ver histórico da conversa que originou esta feature).
+>
+> **`tipo = 'escalonamento'`**: gerado **automaticamente** por `IncidenteController::update()`
+> sempre que `grupo_solucao_id` e/ou `responsavel_id` mudam pra um valor não-nulo diferente do
+> anterior (não loga quando o campo é apenas limpo/setado pra `null`) — texto no formato "Encaminhado
+> para o grupo '{nome}' às {hora} do dia {data}." ou "Atribuído para {nome} às {hora} do dia {data}.".
+> Se os dois campos mudam no mesmo `PUT`, geram **duas** entradas separadas, não uma combinada.
+> **Nunca** editável/excluível por ninguém via API, nem pelo autor — é log de sistema, não anotação
+> de agente (`IncidenteDescricaoController::ensureCanModify()` bloqueia com `403` incondicionalmente
+> quando `tipo !== 'comentario'`).
+>
+> **`{hora}`/`{data}` no texto são horário de Brasília, não UTC.** `config('app.timezone')` do app é
+> `UTC` (mantido de propósito — `created_at`/`updated_at`/cálculo de prazo de SLA continuam em UTC,
+> não é pra mexer nisso). Só o texto exibido nas mensagens de `escalonamento`/`alteracao` é gerado via
+> `IncidenteController::agoraLocal()` (`now('America/Sao_Paulo')`), porque é conteúdo lido por um
+> agente no Brasil — sem isso, o log mostrava a hora UTC (3h à frente do horário local). Bug real
+> encontrado depois da entrega inicial dessa feature.
+>
+> **`tipo = 'alteracao'`**: gerado **automaticamente** por `IncidenteController::update()` (helper
+> `logAlteracaoSeMudou()`) pra qualquer campo "simples" que mudar num `PUT`/`PATCH` — `titulo`,
+> `prioridade`, `origem`, `status`, `customer_id` e `item_id` — **fora** `grupo_solucao_id`/
+> `responsavel_id`, que continuam gerando a entrada `escalonamento` mais específica ("Encaminhado
+> para.../Atribuído para..."), não uma `alteracao` duplicada. Motivação: auditoria de ITSM completa —
+> precisa dar pra reconstruir o histórico inteiro de mudanças de um chamado (quem mudou o quê,
+> quando), não só reatribuições. Texto no formato "Campo '{nome}' alterado de '{antigo}' para
+> '{novo}' às {hora} do dia {data}." — o prefixo "Campo '...'" é de propósito (evita ter que
+> concordar género em português por campo: "Prioridade"/"Origem" são femininos, "Status"/"Título" não;
+> "Campo" é sempre masculino, a frase concorda certo não importa qual campo mudou). Para
+> `customer_id`/`item_id`, `{antigo}`/`{novo}` são os **nomes** resolvidos (`Customer.name`/
+> `Item.nome`), não os ids crus; `item_id` nulo aparece como `'(nenhum)'`. Sem mudança de valor
+> (reenviar o mesmo valor), **não gera entrada** — evita spam no feed. Múltiplos campos alterados no
+> mesmo `PUT` geram uma entrada `alteracao` **por campo**, não uma combinada. Mesma trava de
+> `403`/imutabilidade de `escalonamento` acima — `alteracao` também nunca é editável/excluível por
+> ninguém.
+>
+> **Excluir um `comentario` é soft delete, de propósito — fica no feed, marcado.** Diferente de
+> `Anexo`/`Client`/etc. (onde "excluir" remove de verdade ou bloqueia com `409`), aqui a exclusão
+> preserva a linha (auditoria: o histórico de comunicação de um chamado não deve poder ser apagado
+> de verdade por um agente). Efeitos concretos:
+> - `Incidente::descricoes()` usa `->withTrashed()` — o comentário excluído **continua aparecendo**
+>   na listagem do feed (`GET /incidentes/{incidente}/descricoes`), não só no banco.
+> - `IncidenteDescricaoResource` ganhou `excluido_em` (= `deleted_at`, `null` se não excluído) — é
+>   assim que o cliente da API sabe que aquela entrada foi excluída.
+> - **Uma vez excluído, fica congelado**: `IncidenteDescricaoController::ensureCanModify()` bloqueia
+>   com `403` uma segunda tentativa de `PUT` ou `DELETE` sobre o mesmo comentário (mesmo pelo
+>   próprio autor) — não dá pra "reeditar" nem "re-excluir".
+> - `IncidenteDescricao::resolveRouteBinding()` foi sobrescrito pra também resolver via
+>   `withTrashed()` — sem isso, o binding de rota trataria um comentário já excluído como
+>   inexistente (`404`) em vez de aplicar as regras acima.
+> - O texto do comentário **não é redigido/ocultado** ao ser excluído — continua visível como
+>   estava, só com `excluido_em` preenchido. Não foi pedido um "conteúdo removido" genérico no lugar.
+
+#### `anexos` (arquivos anexados a um incidente)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `incidente_id` | `bigint` FK → `incidentes.id` | obrigatório; `onDelete('cascade')` — mesmo raciocínio de `incidente_descricoes`: registro sem vida própria fora do incidente |
+| `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; quem enviou o arquivo |
+| `nome_original` | `string` | nome do arquivo como enviado pelo cliente (exibição/download) |
+| `caminho` | `string` | nome/caminho gerado no disco ao salvar (`Storage::store()`) — **não** é o `nome_original`, evita colisão e path traversal; não é fillable, nunca vem do request |
+| `mime_type` | `string` | detectado via magic number (`UploadedFile::getMimeType()`, `finfo` nos bytes reais), nunca o `Content-Type` declarado pelo cliente — é esse mesmo valor que `AnexoController::validarConteudoRealDoArquivo()` valida contra a extensão no `store()`, ver §3.4.7.2 |
+| `tamanho` | `bigint unsigned` | bytes, de `UploadedFile::getSize()` |
+| `created_at`, `updated_at` | `timestamp` | |
+| índice | `incidente_id` | não único, só performance de listagem |
+
+> 📌 **Armazenamento em disco local por ora** (`Storage::disk('local')`, driver `local` do
+> `config/filesystems.php`, raiz `storage/app/private`) — arquivo físico vive em
+> `anexos/incidentes/{incidente_id}/{nome-gerado}`, fora da pasta pública (`storage/app/public`), só
+> acessível via `GET /incidentes/{incidente}/anexos/{anexo}/download` autenticado. Trocar pra S3/cloud
+> depois é uma troca de disk no `AnexoController` (`private const DISK`), sem mudança de schema. Ver
+> §3.4.7.2.
+
+#### `relatorios_salvos` (configuração de relatório salva pra reexecutar)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; autor — sem guard extra em `UserController::destroy()`, `User` é soft delete (ver §3.4.3), a FK nunca é violada |
+| `nome` | `string` | dado pelo usuário, ex. "SLA mensal por agente" |
+| `filtros` | `json` | espelha o payload de `GET /relatorios/incidentes` (status, data_inicio, data_fim, categoria_id, subcategoria_id, item_id, grupo_solucao_id, responsavel_id, client_id, customer_id) — schema-less de propósito, evita coluna nova por filtro novo |
+| `agrupar_por` | `string` | um de `RelatorioSalvo::AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
+| `created_at`, `updated_at` | `timestamp` | |
+| índice | `user_id` | não único, só performance |
+
+> 📌 **Guarda a configuração, não um snapshot do resultado.** Decisão explícita: rodar de novo
+> (`GET /relatorios-salvos/{id}/executar`) sempre reflete os dados atuais, nunca um resultado
+> congelado do momento em que foi salvo — diferente, por exemplo, de `prazo_resposta`/
+> `prazo_resolucao` em `Incidente`, que são deliberadamente congelados. Ver §3.4.9.
+
+#### `incidente_resolucoes` (um registro por transição de Incidente pra status `resolvido`)
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | `bigint` PK | |
+| `incidente_id` | `bigint` FK → `incidentes.id` | obrigatório; `onDelete('cascade')` — mesmo raciocínio de `incidente_descricoes` |
+| `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; quem fez a transição (`$request->user()` no momento do `PUT`) |
+| `created_at` | `timestamp` | quando a resolução aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `TokenAuditLog`) — a linha nunca é alterada depois de criada |
+| índice | `incidente_id` | não único, só performance |
+
+> 📌 **Log de eventos, não uma coluna em `Incidente` — de propósito.** Motivação: um chamado
+> resolvido, reaberto (volta pra `em_andamento`/`aberto`/`pendente`) e resolvido de novo — por
+> agentes diferentes ou não — precisa preservar **as duas** resoluções num relatório, não só a mais
+> recente. Uma coluna única tipo `Incidente.resolvido_por_id` só conseguiria guardar um valor por
+> vez, e teria que decidir entre (a) ser limpa na reabertura (mesmo padrão de `concluido_em`,
+> perderia a resolução anterior) ou (b) nunca ser limpa (mostraria só a *primeira* resolução, não a
+> mais recente nem o histórico completo) — as duas opções perdem informação. Uma tabela
+> insert-only, um registro por evento, não perde nada: `IncidenteController::registrarResolucaoSeAplicavel()`
+> cria uma linha nova a cada transição pra `resolvido` (`$anterior !== $novo && $novo === 'resolvido'`),
+> nunca atualiza nem apaga uma existente. `RelatorioController` (`agrupar_por=resolvido_por`, ver
+> §3.4.9) agrega direto sobre essa tabela, não sobre `Incidente`.
+>
+> **Só `resolvido`, não `fechado`/`cancelado`.** O pedido original era especificamente sobre "quem
+> resolveu" como um fato distinto de "quem fechou" — se um chamado pula `resolvido` e vai direto de
+> `aberto` pra `fechado`, não há resolução nenhuma pra registrar, e nenhuma linha é criada. Estender
+> pra `fechado`/`cancelado` (uma tabela `incidente_conclusoes` genérica, por exemplo) é possível
+> depois sem redesenhar nada — não foi pedido ainda.
+
 ### 3.2. Models e relacionamentos
 
 | Model | Traits/relations relevantes |
 |---|---|
-| `App\Models\User` | `HasApiTokens`, `Notifiable`; `roles(): BelongsToMany` → `Role`; `hasPermission(string $slug): bool` (via `loadMissing('roles.permissions')`) |
-| `App\Models\Client` | `customers(): HasMany` → `Customer` |
-| `App\Models\Customer` | `HasApiTokens`, `Notifiable`; `client(): BelongsTo` → `Client`; **sem** `roles()`/`hasPermission()` |
+| `App\Models\User` | `HasApiTokens`, `Notifiable`, `SoftDeletes` (`deleted_at` — "excluir" = desativar, ver §3.4.3); `roles(): BelongsToMany` → `Role`; `grupoSolucao(): BelongsTo` → `GrupoSolucao`; `incidentesResponsavel(): HasMany` → `Incidente` (FK `responsavel_id`); `anexos(): HasMany` → `Anexo`; `hasPermission(string $slug): bool` (via `loadMissing('roles.permissions')`); `scopeFiltros(array $filtros): Builder` — `name`/`email` busca parcial (`LIKE`), `grupo_solucao_id` igualdade exata, `role_id` via `whereHas('roles', ...)`, ver §3.4.3 |
+| `App\Models\Client` | `customers(): HasMany` → `Customer`; `politicasSla(): HasMany` → `PoliticaSla`; `resolvedSlaFor(string $prioridade): ?PoliticaSla` (resolução padrão-por-prioridade, ver §3.1); `scopeFiltros(array $filtros): Builder` — só `name`, busca parcial (`LIKE '%valor%'`), ver §3.4.2 |
+| `App\Models\Customer` | `HasApiTokens`, `Notifiable`; `client(): BelongsTo` → `Client`; `incidentes(): HasMany` → `Incidente`; **sem** `roles()`/`hasPermission()`; `scopeFiltros(array $filtros): Builder` — `name`/`email` busca parcial (`LIKE`), `client_id` igualdade exata, ver §3.4.3 |
 | `App\Models\Role` | `permissions(): BelongsToMany` → `Permission`; `users(): BelongsToMany` → `User` |
 | `App\Models\Permission` | `roles(): BelongsToMany` → `Role` |
 | `App\Models\TokenAuditLog` | `tokenable(): MorphTo`; `const UPDATED_AT = null` |
+| `App\Models\PoliticaSla` | `$table = 'politicas_sla'` (pluralização automática do Eloquent não bate com o nome em português); `client(): BelongsTo` → `Client`; `const PRIORIDADES = ['baixa','media','alta','urgente']`; `scopeFiltros(array $filtros): Builder` — `nome` (parcial), `prioridade` (exata), `ativo`/`apenas_horas_uteis` (exatos, via `array_key_exists()` pra não perder `false` explícito), `client_id` (exato, com sentinel `'global'` pra `client_id IS NULL`), ver §3.4.4 |
+| `App\Models\Categoria` | `subcategorias(): HasMany` → `Subcategoria` (sem `$table` explícito — `categoria`→`categorias` é o único caso em português onde a pluralização automática do Eloquent acerta por coincidência); `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `ativo` (via `array_key_exists`, não `??`, ver §3.4.5) |
+| `App\Models\Subcategoria` | `categoria(): BelongsTo` → `Categoria`; `itens(): HasMany` → `Item`; `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `categoria_id` (igualdade exata), `ativo` (via `array_key_exists`) |
+| `App\Models\GrupoSolucao` | `$table = 'grupos_solucao'` (mesma pegadinha de pluralização de `PoliticaSla`); `users(): HasMany` → `User`; `incidentes(): HasMany` → `Incidente`; `scopeFiltros(array $filtros): Builder` — `nome` busca parcial (`LIKE '%valor%'`, mesmo estilo de `Client::scopeFiltros()`), `ativo` igualdade exata via `array_key_exists()` (não `?? null` — `false ?? null` também vira `false` e faria `when()` pular o filtro, ver §3.4.6) |
+| `App\Models\Item` | `$table = 'itens'` (pluralização automática do Eloquent faria `items`, em inglês); `subcategoria(): BelongsTo` → `Subcategoria`; `incidentes(): HasMany` → `Incidente`; `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `subcategoria_id` (igualdade exata), `ativo` (via `array_key_exists`) |
+| `App\Models\Incidente` | sem `$table` explícito (`incidente`→`incidentes` acerta por coincidência, como `Categoria`); `customer(): BelongsTo` → `Customer`; `item(): BelongsTo` → `Item`; `grupoSolucao(): BelongsTo` → `GrupoSolucao`; `responsavel(): BelongsTo` → `User` (FK `responsavel_id`, `->withTrashed()` — continua resolvendo o nome mesmo se o `User` for desativado); `descricoes(): HasMany` → `IncidenteDescricao` (`->withTrashed()->latest()` — comentários excluídos continuam no feed, ver §3.1); `anexos(): HasMany` → `Anexo` (`->latest()`); `const STATUSES`, `const ORIGENS`, `const STATUS_CONCLUIDOS`, `const SLA_DENTRO_PRAZO`/`SLA_ESTOURADO`/`SLA_SEM_SLA`; `statusSlaResposta()`/`statusSlaResolucao(): string`; `tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos(): ?int` (ver §3.1); `scopeFiltros(array $filtros): Builder` — filtro composto por igualdade exata (`numero` — na prática `id`, só aceito por `DashboardController`, ver §3.4.8 —, `status`, `prioridade`, `origem`, `customer_id`, `item_id`, `grupo_solucao_id`, `responsavel_id`, `todos_status` — bool, só aceito por `DashboardController`, ver §3.4.8), cada chave opcional, combinadas com AND; sem `status` explícito, aplica `whereIn('status', STATUSES_PADRAO_LISTAGEM)` (`['aberto', 'em_andamento', 'pendente']`) por padrão, a menos que `todos_status` seja truthy (ver §3.4.7 e §3.4.8); `const STATUSES_PADRAO_LISTAGEM`; `scopeOrdenarPor(?string $sortBy, string $sortDir = 'asc'): Builder` — ordenação por coluna clicável, só aceita por `DashboardController` (ver §3.4.8), `const SORTABLE_COLUMNS`; `scopeFiltrosRelatorio(array $filtros): Builder` — separado de `scopeFiltros()`, sem a restrição padrão de status, com `data_inicio`/`data_fim` (sobre `concluido_em`), `categoria_id`/`subcategoria_id` (via `whereHas('item.subcategoria')`), `client_id` (via `whereHas('customer')`) — ver §3.4.9 |
+| `App\Models\IncidenteDescricao` | `$table = 'incidente_descricoes'` (pluralização automática do Eloquent daria `incidente_descricaos`); `SoftDeletes` (`deleted_at` — excluir = soft delete, permanece no feed, ver §3.1); `resolveRouteBinding()` sobrescrito com `withTrashed()` (senão um comentário já excluído resolveria como `404` na rota); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `const TIPO_COMENTARIO`, `const TIPO_ESCALONAMENTO`, `const TIPO_ALTERACAO`, `const TIPOS` |
+| `App\Models\Anexo` | sem `$table` explícito (`anexo`→`anexos` acerta por coincidência); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `caminho` fora do `#[Fillable(...)]` de propósito (setado por atribuição direta no controller, nunca vem do request — ver §3.4.7.2) |
+| `App\Models\RelatorioSalvo` | `$table = 'relatorios_salvos'` (pluralização automática do Eloquent daria `relatorio_salvos`, só o último termo); `user(): BelongsTo` → `User` (`->withTrashed()`); `filtros` cast `array`; `const AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`resolvido_por`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
+| `App\Models\IncidenteResolucao` | `$table = 'incidente_resolucoes'` (pluralização automática do Eloquent daria `incidente_resolucaos`); `const UPDATED_AT = null` (linha nunca atualizada); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteResolucao`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando a resolução aconteceu), não `Incidente.concluido_em` |
 
 ### 3.3. Configuração dos guards (`config/auth.php`)
 
@@ -390,7 +680,7 @@ O campo `user` de `/login` e o corpo de `/me` (quando o guard é `web`) passam p
 
 | Método | Rota | Body | Resposta |
 |---|---|---|---|
-| `GET` | `/clients` | — | `200` — paginado, `{data: [{id, name, created_at, updated_at}, ...], links, meta}` |
+| `GET` | `/clients` | — | `200` — paginado, `{data: [{id, name, created_at, updated_at}, ...], links, meta}`; aceita `?name=` (`sometimes\|string`) — filtro por nome, busca parcial (`LIKE '%valor%'`, via `Client::scopeFiltros()`), não exige match exato |
 | `POST` | `/clients` | `{name}` | `201` — `{data: {id, name, created_at, updated_at}}` |
 | `GET` | `/clients/{client}` | — | `200` — `{data: {...}}` |
 | `PUT`/`PATCH` | `/clients/{client}` | `{name}` | `200` — `{data: {...}}` |
@@ -414,21 +704,53 @@ Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenti
 
 | Método | Rota | Body | Resposta |
 |---|---|---|---|
-| `GET` | `/users` | — | `200` — paginado (`?per_page=`), `UserResource::collection` com `roles`/`permissions` carregados |
-| `POST` | `/users` | `{name, email, password, role_ids?: number[]}` | `201` — `UserResource` |
+| `GET` | `/users` | — | `200` — paginado (`?per_page=`), `UserResource::collection` com `roles`/`permissions`/`grupoSolucao` carregados; aceita filtros opcionais `?name=` (`LIKE` parcial), `?email=` (`LIKE` parcial), `?grupo_solucao_id=` (`exists:grupos_solucao,id`), `?role_id=` (`exists:roles,id`, via `User::scopeFiltros()`/`whereHas('roles', ...)`) |
+| `POST` | `/users` | `{name, email, password, grupo_solucao_id, role_ids?: number[]}` | `201` — `UserResource` |
 | `GET` | `/users/{user}` | — | `200` — `UserResource` |
-| `PUT`/`PATCH` | `/users/{user}` | `{name, email, password?, role_ids?: number[]}` | `200` — `UserResource`; `password` omitido/vazio mantém o hash atual |
-| `DELETE` | `/users/{user}` | — | `204`; **`409`** se `$user->id` for o do próprio autenticado |
+| `PUT`/`PATCH` | `/users/{user}` | `{name, email, password?, grupo_solucao_id, role_ids?: number[]}` | `200` — `UserResource`; `password` omitido/vazio mantém o hash atual |
+| `DELETE` | `/users/{user}` | — | **desativa** (soft delete), não apaga — `204`; **`409`** só se `$user->id` for o do próprio autenticado |
 | `GET` | `/roles` | — | `200` — `{data: [{id, name, slug}, ...]}`, sem paginação |
+
+> 📌 **`DELETE` desativa, não apaga.** `User` usa `SoftDeletes` (`deleted_at`) — o registro nunca
+> some de verdade. Motivação: `responsavel_id` de `Incidente`, `user_id` de `IncidenteDescricao` e de
+> `Anexo` são **históricos** — apagar o `User` de verdade quebraria essas referências (era exatamente
+> o bug: `user_id`/`responsavel_id` são `restrictOnDelete()`, então excluir um usuário com qualquer
+> uma dessas referências jogava um `QueryException` cru, 500). Soft delete resolve isso de graça: a
+> linha continua existindo, a FK nunca é violada. Efeitos concretos:
+> - **Login passa a falhar** — `AuthController::login()` busca `User::query()->where('email', ...)`,
+>   que já exclui registros com `deleted_at` setado via global scope padrão do `SoftDeletes`, sem
+>   precisar de nenhum código extra pra isso.
+> - **Some da listagem/`show`/`update`** — mesmo global scope; um `User` desativado devolve `404` em
+>   `GET/PUT /users/{user}` a partir de agora (binding de rota padrão também respeita o scope).
+> - **Continua aparecendo em incidentes/comentários/anexos antigos** — `Incidente::responsavel()`,
+>   `IncidenteDescricao::user()` e `Anexo::user()` usam `->withTrashed()`, então o nome do usuário
+>   desativado continua resolvendo normalmente nessas telas (só não aparece mais em endpoints que
+>   listam/gerenciam `User` diretamente).
+> - **E-mail continua reservado** — a validação `Rule::unique('users', 'email')` é uma query crua,
+>   não passa pelo Eloquent/global scope, então o e-mail de um usuário desativado **não pode** ser
+>   reusado por um novo cadastro. Decisão deliberada (evita colisão de identidade), não uma limitação
+>   técnica não percebida.
+> - **`UserResource` ganhou `ativo: bool`** (`is_null(deleted_at)`) — forma explícita do frontend
+>   saber o estado sem precisar interpretar `deleted_at` bruto.
+> - **Sem endpoint de reativação/restore ainda** — não foi pedido; um `User` desativado fica preso
+>   nesse estado via API (reversível só direto no banco por ora). Fica documentado aqui como escopo
+>   pendente, mesmo padrão de `tickets.assign`/`apenas_horas_uteis`.
+> - **Sem filtro pra ver usuários desativados** — `index()` não ganhou um `?somente_inativos=` ou
+>   afim; não foi pedido.
 
 Validação de `User`: `name` obrigatório; `email` obrigatório, único (ignorando o próprio id no
 update); `password` obrigatório (`min:8`) na criação, opcional (`min:8` se presente) no update;
-`role_ids` opcional, array de ids existentes em `roles`. No `update()`, o comportamento é
-condicionado à presença da chave no payload (`array_key_exists('role_ids', $data)`): se `role_ids`
-estiver ausente do request, as roles atuais do usuário não são tocadas; se vier como array vazio
-(`role_ids: []`), todas as roles são removidas; se vier com valores, sincroniza exatamente para
-esses ids (`roles()->sync()`). Corrigido no commit `b311d63` — antes, a ausência de `role_ids`
-zerava as roles do usuário.
+`grupo_solucao_id` **obrigatório** (`exists:grupos_solucao,id`) tanto na criação quanto no update —
+diferente de `role_ids`, não tem comportamento "preserva se omitido" (é FK escalar obrigatória, não
+coleção); `role_ids` opcional, array de ids existentes em `roles`. No `update()`, o comportamento de
+`role_ids` é condicionado à presença da chave no payload (`array_key_exists('role_ids', $data)`): se
+`role_ids` estiver ausente do request, as roles atuais do usuário não são tocadas; se vier como
+array vazio (`role_ids: []`), todas as roles são removidas; se vier com valores, sincroniza
+exatamente para esses ids (`roles()->sync()`). Corrigido no commit `b311d63` — antes, a ausência de
+`role_ids` zerava as roles do usuário.
+
+`App\Http\Resources\UserResource` ganhou `grupo_solucao_id` e `grupo_solucao: {id, nome} | null`
+(`whenLoaded`), mesmo padrão de nesting do `client` em `CustomerResource`.
 
 `Route::apiResource('customers', CustomerController::class)`, sob `auth:web` +
 `can:customers.manage` (nova permission — `Customer` do guard `customer` não participa desse
@@ -436,11 +758,11 @@ gate, só `User` do guard `web` gerencia).
 
 | Método | Rota | Body | Resposta |
 |---|---|---|---|
-| `GET` | `/customers` | — | `200` — paginado (`?per_page=`), `CustomerResource::collection` com `client` carregado |
+| `GET` | `/customers` | — | `200` — paginado (`?per_page=`), `CustomerResource::collection` com `client` carregado; aceita filtros opcionais `?name=` (`LIKE` parcial), `?email=` (`LIKE` parcial), `?client_id=` (`exists:clients,id`, via `Customer::scopeFiltros()`) |
 | `POST` | `/customers` | `{name, email, password, client_id}` | `201` — `CustomerResource` |
 | `GET` | `/customers/{customer}` | — | `200` — `CustomerResource` |
 | `PUT`/`PATCH` | `/customers/{customer}` | `{name, email, password?, client_id}` | `200` — `CustomerResource`; `password` omitido/vazio mantém o hash atual |
-| `DELETE` | `/customers/{customer}` | — | `204` — sem trava adicional (sem dependentes no schema atual) |
+| `DELETE` | `/customers/{customer}` | — | `204`; **`409`** se o customer ainda tiver `Incidente`s vinculados |
 
 Validação de `Customer`: mesmas regras de `name`/`email`/`password` do `User` (email único na
 tabela `customers`); `client_id` obrigatório, `exists:clients,id`.
@@ -451,6 +773,628 @@ created_at, updated_at}`.
 Todas as respostas seguem o mesmo envelope `{data: ...}` do `ClientController`. Validação: campo
 ausente/inválido → `422`; sem token → `401`; sem a permission correspondente → `403`.
 
+### 3.4.4. Endpoints — CRUD de `PoliticaSla` (`App\Http\Controllers\Api\PoliticaSlaController`)
+
+Diferente de `Client`/`Customer`/`User` (uma única permission cobrindo todo o CRUD), aqui leitura e
+escrita têm permissions separadas — agente/supervisor precisam ver os alvos de SLA pra trabalhar
+chamados, mas só admin cria/altera/exclui política:
+
+```php
+Route::middleware(['auth:web', 'can:slas.view'])
+    ->apiResource('politicas-sla', PoliticaSlaController::class)
+    ->parameters(['politicas-sla' => 'politica_sla'])
+    ->only(['index', 'show']);
+
+Route::middleware(['auth:web', 'can:slas.manage'])
+    ->apiResource('politicas-sla', PoliticaSlaController::class)
+    ->parameters(['politicas-sla' => 'politica_sla'])
+    ->only(['store', 'update', 'destroy']);
+```
+
+| Método | Rota | Permission | Body | Resposta |
+|---|---|---|---|---|
+| `GET` | `/politicas-sla` | `slas.view` | — (filtros via querystring, ver abaixo) | `200` — paginado (`?per_page=`), `{data: [...], links, meta}` |
+| `GET` | `/politicas-sla/{politica_sla}` | `slas.view` | — | `200` — `{data: {...}}` |
+| `POST` | `/politicas-sla` | `slas.manage` | `{nome, prioridade, tempo_resposta_minutos, tempo_resolucao_minutos, apenas_horas_uteis?, ativo?, client_id?}` | `201` — `{data: {...}}` |
+| `PUT`/`PATCH` | `/politicas-sla/{politica_sla}` | `slas.manage` | mesmo body do `POST` | `200` — `{data: {...}}` |
+| `DELETE` | `/politicas-sla/{politica_sla}` | `slas.manage` | — | `204` — sem trava adicional (nada referencia `politicas_sla` ainda; `Ticket` deve passar a apontar pra cá quando existir) |
+
+Filtros de `GET /politicas-sla` (querystring, todos opcionais, combinados com AND via
+`PoliticaSla::scopeFiltros()`, ver §3.2). Escopo deliberadamente enxuto — `tempo_resposta_minutos`/
+`tempo_resolucao_minutos` ficam de fora de propósito, não são campo de busca/seleção de lista
+fechada, fora de escopo desta entrega:
+
+| Filtro | Validação | Comportamento |
+|---|---|---|
+| `nome` | `sometimes\|string` | busca parcial (`LIKE '%valor%'`), igual ao `Client::scopeFiltros()` |
+| `prioridade` | `sometimes\|string\|Rule::in(PoliticaSla::PRIORIDADES)` | igualdade exata |
+| `ativo` | `sometimes\|boolean` | igualdade exata — **detectado via `array_key_exists()`**, não `$filtros['ativo'] ?? null`: sendo booleano, `ativo=false` colidiria com "sem filtro" se usasse `??` (`false ?? null` avalia `false`, que `->when()` trata como ausente) |
+| `apenas_horas_uteis` | `sometimes\|boolean` | igualdade exata — mesma ressalva de `array_key_exists()` que `ativo` |
+| `client_id` | `sometimes` + closure customizada (ver abaixo) | três estados possíveis, não dois |
+
+> 📌 **`client_id` tem um terceiro estado — sentinel `'global'`:** como `client_id` é nullable em
+> `politicas_sla` (`null` = política "Global", aplicável a todo cliente sem override, ver
+> `Client::resolvedSlaFor()` em §3.2), um filtro de igualdade comum não bastaria — precisa
+> distinguir "sem filtro de cliente" (chave `client_id` ausente da querystring — mostra tudo) de
+> "filtrar só as políticas Global" (`client_id IS NULL` — chave presente com o valor literal da
+> string `'global'`) de "filtrar por um cliente específico" (chave presente com um id numérico
+> existente em `clients`). A validação não usa `Rule::in`/`exists` puro porque `'global'` não é um
+> id: é uma closure que aceita `'global'` sem checar `clients`, e pra qualquer outro valor exige
+> `is_numeric` + `Client::whereKey($value)->exists()`, com `fail('Cliente inválido.')` caso
+> contrário. O scope (`PoliticaSla::scopeFiltros()`) espelha essa mesma checagem: `$v === 'global'`
+> vira `whereNull('client_id')`, qualquer outro valor vira `where('client_id', $v)`.
+
+Validação (`PoliticaSlaController::rules()`):
+- `nome`: obrigatório, string.
+- `prioridade`: obrigatório, um de `PoliticaSla::PRIORIDADES`; **único por `(client_id, prioridade)`** via `Rule::unique('politicas_sla', 'prioridade')->where(...)` condicional (`whereNull('client_id')` quando o payload não traz `client_id`, `where('client_id', ...)` quando traz) — não dá pra ter duas políticas ativas* da mesma prioridade pro mesmo cliente (ou duas globais da mesma prioridade). *na prática a regra hoje não filtra por `ativo`, ver nota abaixo.
+- `tempo_resposta_minutos`: obrigatório, inteiro ≥ 1.
+- `tempo_resolucao_minutos`: obrigatório, inteiro ≥ 1, `gte:tempo_resposta_minutos`.
+- `apenas_horas_uteis`, `ativo`: booleanos, opcionais — se omitidos, o banco aplica o default (`false`/`true`); o controller dá `refresh()` no model logo após o `create()` pra a resposta refletir esse default (sem o `refresh()`, o objeto em memória devolve `null` pros campos não enviados, mesmo o banco já tendo persistido o valor correto — bug pego no smoke test manual e coberto por teste).
+- `client_id`: opcional, `exists:clients,id`.
+
+`App\Http\Resources\PoliticaSlaResource`: `{id, nome, prioridade, tempo_resposta_minutos, tempo_resolucao_minutos, apenas_horas_uteis, ativo, client_id, created_at, updated_at}`.
+
+> 📌 **Unicidade não filtra por `ativo`:** a regra de unicidade de `(client_id, prioridade)` conta
+> qualquer registro existente, mesmo com `ativo = false` — hoje não é possível ter uma política
+> "desativada" e criar uma nova ativa pra mesma prioridade/cliente sem excluir a antiga primeiro.
+> Se esse fluxo (desativar e substituir) for necessário no futuro, a regra de unicidade precisa
+> ganhar `->where('ativo', true)` no escopo.
+
+### 3.4.5. Endpoints — CRUD de `Categoria`/`Subcategoria`/`Item` (`App\Http\Controllers\Api\{Categoria,Subcategoria,Item}Controller`)
+
+Mesmo esquema view/manage do `PoliticaSlaController` — mas aqui **as três entidades compartilham as
+mesmas permissions** (`categorias.view`/`categorias.manage`), já que é uma taxonomia só (3 níveis:
+Categoria → Subcategoria → Item, ver §3.1) gerenciada numa tela só, sem motivo pra granularidade
+separada por entidade:
+
+```php
+Route::middleware(['auth:web', 'can:categorias.view'])->group(function () {
+    Route::apiResource('categorias', CategoriaController::class)->only(['index', 'show']);
+    Route::apiResource('subcategorias', SubcategoriaController::class)->only(['index', 'show']);
+});
+
+Route::middleware(['auth:web', 'can:categorias.manage'])->group(function () {
+    Route::apiResource('categorias', CategoriaController::class)->only(['store', 'update', 'destroy']);
+    Route::apiResource('subcategorias', SubcategoriaController::class)->only(['store', 'update', 'destroy']);
+});
+
+Route::middleware(['auth:web', 'can:categorias.view'])
+    ->apiResource('itens', ItemController::class)
+    ->parameters(['itens' => 'item'])
+    ->only(['index', 'show']);
+
+Route::middleware(['auth:web', 'can:categorias.manage'])
+    ->apiResource('itens', ItemController::class)
+    ->parameters(['itens' => 'item'])
+    ->only(['store', 'update', 'destroy']);
+```
+
+| Método | Rota | Permission | Body | Resposta |
+|---|---|---|---|---|
+| `GET` | `/categorias` | `categorias.view` | — | `200` — paginado (`?per_page=`), filtrável (`?nome=`/`?ativo=`), `{data: [...], links, meta}` |
+| `GET` | `/categorias/{categoria}` | `categorias.view` | — | `200` — `{data: {...}}` |
+| `POST` | `/categorias` | `categorias.manage` | `{nome, ativo?}` | `201` — `{data: {...}}` |
+| `PUT`/`PATCH` | `/categorias/{categoria}` | `categorias.manage` | mesmo body do `POST` | `200` — `{data: {...}}` |
+| `DELETE` | `/categorias/{categoria}` | `categorias.manage` | — | `204`; **`409`** se a categoria ainda tiver `subcategorias` vinculadas |
+| `GET` | `/subcategorias` | `categorias.view` | — | `200` — paginado (`?per_page=`), filtrável (`?nome=`/`?categoria_id=`/`?ativo=`), com `categoria` carregada (`{id, nome}`) |
+| `GET` | `/subcategorias/{subcategoria}` | `categorias.view` | — | `200` — `{data: {..., categoria: {id, nome}}}` |
+| `POST` | `/subcategorias` | `categorias.manage` | `{categoria_id, nome, ativo?}` | `201` — `{data: {...}}` |
+| `PUT`/`PATCH` | `/subcategorias/{subcategoria}` | `categorias.manage` | mesmo body do `POST` | `200` — `{data: {...}}` |
+| `DELETE` | `/subcategorias/{subcategoria}` | `categorias.manage` | — | `204`; **`409`** se a subcategoria ainda tiver `itens` vinculados |
+| `GET` | `/itens` | `categorias.view` | — | `200` — paginado (`?per_page=`), filtrável (`?nome=`/`?subcategoria_id=`/`?ativo=`), com `subcategoria` carregada (`{id, nome}`) |
+| `GET` | `/itens/{item}` | `categorias.view` | — | `200` — `{data: {..., subcategoria: {id, nome}}}` |
+| `POST` | `/itens` | `categorias.manage` | `{subcategoria_id, nome, ativo?}` | `201` — `{data: {...}}` |
+| `PUT`/`PATCH` | `/itens/{item}` | `categorias.manage` | mesmo body do `POST` | `200` — `{data: {...}}` |
+| `DELETE` | `/itens/{item}` | `categorias.manage` | — | `204`; **`409`** se o item ainda tiver `Incidente`s vinculados |
+
+Validação `Categoria`: `nome` obrigatório, **único** (`Rule::unique('categorias', 'nome')`, ignorando
+o próprio id no update); `ativo` booleano opcional.
+
+Validação `Subcategoria`: `categoria_id` obrigatório, `exists:categorias,id`; `nome` obrigatório,
+**único por `(categoria_id, nome)`** (`Rule::unique('subcategorias', 'nome')->where('categoria_id', ...)`)
+— duas categorias diferentes podem ter subcategorias com o mesmo nome, mas não a mesma categoria
+duas vezes; `ativo` booleano opcional.
+
+Validação `Item`: `subcategoria_id` obrigatório, `exists:subcategorias,id`; `nome` obrigatório,
+**único por `(subcategoria_id, nome)`** (mesmo raciocínio de `Subcategoria`); `ativo` booleano
+opcional. Todos os `create()` (`Categoria`, `Subcategoria`, `Item`) dão `refresh()`/`load(...)` antes
+de montar a resposta, mesmo cuidado do `PoliticaSlaController` com defaults de banco.
+
+`index()` de cada controller valida seus próprios filtros (`nome` sometimes|string; `categoria_id`/
+`subcategoria_id` sometimes|integer|exists; `ativo` sometimes|boolean) e delega o `Builder` pro
+respectivo `scopeFiltros()` do model (ver tabela de models em §3.3) — `nome` é `LIKE '%valor%'`
+parcial, os FKs (`categoria_id` em `Subcategoria`, `subcategoria_id` em `Item`) são igualdade exata,
+e `ativo` usa `array_key_exists('ativo', $filtros)` em vez de `$filtros['ativo'] ?? null`: como
+`false ?? null` também avalia pra `false`, e `->when(false, ...)` não dispara o callback, um filtro
+`ativo=false` explícito seria silenciosamente ignorado sem esse cuidado (mesmo padrão de
+`PoliticaSla`/`GrupoSolucao`, ver §3.4.4/§3.4.6). Nenhum dos três aceita ordenação — só filtro.
+
+`App\Http\Resources\CategoriaResource`: `{id, nome, ativo, created_at, updated_at}`.
+`App\Http\Resources\SubcategoriaResource`: `{id, categoria_id, nome, ativo, categoria: {id, nome} | null, created_at, updated_at}`.
+`App\Http\Resources\ItemResource`: `{id, subcategoria_id, nome, ativo, subcategoria: {id, nome} | null, created_at, updated_at}`.
+
+> 📌 Parâmetro de rota forçado para `item` via `->parameters(['itens' => 'item'])` — o
+> singularizador do Laravel errou sozinho (`Str::singular('itens')` deu `iten`, não `item`), mesmo
+> tipo de cuidado do `politica_sla`/`grupo_solucao` em §3.4.4/§3.4.6, mas aqui o erro veio de uma
+> palavra em português sem hífen, não de um nome composto.
+
+### 3.4.6. Endpoints — CRUD de `GrupoSolucao` (`App\Http\Controllers\Api\GrupoSolucaoController`)
+
+Mesmo esquema view/manage dos demais cadastros (`grupos_solucao.view` / `grupos_solucao.manage`,
+admin tem as duas via sync completo):
+
+```php
+Route::middleware(['auth:web', 'can:grupos_solucao.view'])
+    ->apiResource('grupos-solucao', GrupoSolucaoController::class)
+    ->parameters(['grupos-solucao' => 'grupo_solucao'])
+    ->only(['index', 'show']);
+
+Route::middleware(['auth:web', 'can:grupos_solucao.manage'])
+    ->apiResource('grupos-solucao', GrupoSolucaoController::class)
+    ->parameters(['grupos-solucao' => 'grupo_solucao'])
+    ->only(['store', 'update', 'destroy']);
+```
+
+| Método | Rota | Permission | Body | Resposta |
+|---|---|---|---|---|
+| `GET` | `/grupos-solucao` | `grupos_solucao.view` | — | `200` — paginado (`?per_page=`), filtrável (`GrupoSolucao::scopeFiltros()`): `?nome=` (`sometimes\|string`, `LIKE '%valor%'`, busca parcial) e `?ativo=` (`sometimes\|boolean`, igualdade exata — `false` filtra de verdade, não é ignorado), `{data: [...], links, meta}` |
+| `GET` | `/grupos-solucao/{grupo_solucao}` | `grupos_solucao.view` | — | `200` — `{data: {...}}` |
+| `POST` | `/grupos-solucao` | `grupos_solucao.manage` | `{nome, ativo?}` | `201` — `{data: {...}}` |
+| `PUT`/`PATCH` | `/grupos-solucao/{grupo_solucao}` | `grupos_solucao.manage` | mesmo body do `POST` | `200` — `{data: {...}}` |
+| `DELETE` | `/grupos-solucao/{grupo_solucao}` | `grupos_solucao.manage` | — | `204`; **`409`** se o grupo ainda tiver `User`s **ou** `Incidente`s vinculados |
+
+Validação: `nome` obrigatório, **único** (`Rule::unique('grupos_solucao', 'nome')`, ignorando o
+próprio id no update); `ativo` booleano opcional. `App\Http\Resources\GrupoSolucaoResource`:
+`{id, nome, ativo, created_at, updated_at}`.
+
+> 📌 Parâmetro de rota forçado para `grupo_solucao` via `->parameters()`, mesmo motivo do
+> `politica_sla` em §3.4.4: `Str::singular()` do Laravel não lida de forma confiável com nomes
+> compostos em português com hífen (`grupos-solucao`).
+
+### 3.4.7. Endpoints — CRUD de `Incidente` (`App\Http\Controllers\Api\IncidenteController`)
+
+**Só staff (guard `web`)** pode criar/ver por enquanto. `Customer` abrir/ver o próprio incidente
+pelo portal (guard `customer`, Policy checando `Incidente::customer_id === $customer->id`, conforme
+a seção 1.3 já antecipava) fica pra uma etapa futura — decisão explícita pra manter esta entrega no
+mesmo escopo dos demais cadastros. **O cálculo de prazos de SLA já está implementado** (`store()`
+chama `Client::resolvedSlaFor()` e persiste `prazo_resposta`/`prazo_resolucao` — ver §3.1), mas isso
+é diferente de uma "relação" navegável entre `Incidente` e `PoliticaSla`: não há FK entre as duas
+tabelas, o incidente só guarda o resultado congelado do cálculo.
+
+```php
+Route::middleware(['auth:web', 'can:tickets.view'])
+    ->apiResource('incidentes', IncidenteController::class)
+    ->only(['index', 'show']);
+
+Route::middleware(['auth:web', 'can:tickets.manage'])
+    ->apiResource('incidentes', IncidenteController::class)
+    ->only(['store', 'update']);
+```
+
+**Sem rota de exclusão** (`only` não inclui `destroy`) — incidente é registro histórico, "encerra"
+via `status` (`resolvido`/`fechado`/`cancelado`), nunca via `DELETE`. Como `GET`/`PUT` já registram
+`/incidentes/{incidente}`, um `DELETE` nessa URL responde **`405`** (verbo não permitido), não `404`.
+
+| Método | Rota | Permission | Body | Resposta |
+|---|---|---|---|---|
+| `GET` | `/incidentes` | `tickets.view` | — | `200` — paginado (`?per_page=`), filtrável (ver abaixo), ordenado por mais recente, com `customer`/`item`/`grupoSolucao`/`responsavel` carregados |
+| `GET` | `/incidentes/{incidente}` | `tickets.view` | — | `200` — `{data: {...}}` |
+| `POST` | `/incidentes` | `tickets.manage` | `{customer_id, titulo, descricao, prioridade, origem, item_id?, grupo_solucao_id?, responsavel_id?}` | `201` — `{data: {...}}`; `status` sempre `"aberto"`, **qualquer `status` enviado no payload é ignorado** |
+| `PUT`/`PATCH` | `/incidentes/{incidente}` | `tickets.manage` | qualquer subconjunto de `{customer_id, titulo, prioridade, origem, item_id, grupo_solucao_id, responsavel_id, status}` | `200` — `{data: {...}}` |
+
+**Filtro por query string (`GET /incidentes`)** — todos opcionais, combinados com AND
+(`Incidente::scopeFiltros()`, ver §3.2, reaproveitado por §3.4.8):
+
+| Query param | Validação |
+|---|---|
+| `status` | `Rule::in(Incidente::STATUSES)` |
+| `prioridade` | `Rule::in(PoliticaSla::PRIORIDADES)` |
+| `origem` | `Rule::in(Incidente::ORIGENS)` |
+| `customer_id` | `exists:customers,id` |
+| `item_id` | `exists:itens,id` |
+| `grupo_solucao_id` | `exists:grupos_solucao,id` |
+| `responsavel_id` | `exists:users,id` |
+
+Ex.: `GET /incidentes?status=aberto&prioridade=alta&grupo_solucao_id=2`. Valor inválido (enum errado
+ou id inexistente) → `422`, mesmo comportamento de validação do resto da API — não retorna lista
+vazia silenciosamente pra um filtro errado.
+
+**Sem `status` explícito, a listagem é restrita por padrão a `aberto`+`em_andamento`+`pendente`**
+(`Incidente::STATUSES_PADRAO_LISTAGEM`) — os demais status (`resolvido`, `fechado`,
+`cancelado`) ficam de fora até que o chamador informe um `status` explicitamente (ex.:
+`?status=resolvido` mostra só os resolvidos, não soma aos padrão). Os outros filtros (`prioridade`,
+`origem`, `customer_id`, etc.) não afetam essa restrição — só um `status` explícito a substitui (ou,
+exclusivo de `GET /dashboard/incidentes`, `todos_status=1` — ver §3.4.8).
+Decisão do produto: a listagem "de trabalho" (o que a equipe precisa ver todo dia) não deve ficar
+poluída por chamados já encerrados ou pausados por padrão.
+
+Validação (`store`, campos sempre obrigatórios): `customer_id` (`exists:customers,id`), `titulo`,
+`descricao`, `prioridade` (`Rule::in(PoliticaSla::PRIORIDADES)`), `origem`
+(`Rule::in(Incidente::ORIGENS)`) obrigatórios; `item_id`/`grupo_solucao_id`/`responsavel_id`
+opcionais (`exists` quando presentes). **`descricao` não é mais persistida como coluna do
+`Incidente`** — vira a primeira entrada do feed (`incidente_descricoes`, `tipo = 'comentario'`,
+autor = quem está autenticado), criada na mesma transação (`DB::transaction()`) do `INSERT` em
+`incidentes`: se a criação da entrada do feed falhar, o incidente não fica órfão sem descrição
+alguma. `update()` **não** aceita `descricao` — editar o feed é só via §3.4.7.1.
+
+> 📌 **`update()` é update parcial de propósito — diferente de todos os outros cadastros deste
+> projeto.** `Client`/`Categoria`/`PoliticaSla`/`GrupoSolucao` exigem reenviar o recurso inteiro a
+> cada `PUT` (mesma regra de validação do `POST`). `Incidente` usa `'sometimes'` em todos os campos
+> do `update()`: um agente frequentemente só quer mudar o `status` (ex. `{"status": "em_andamento"}`)
+> sem precisar reenviar título/prioridade/origem toda vez. `status` só é validado
+> (`Rule::in(Incidente::STATUSES)`) e aceito no `update()`, nunca no `store()`.
+
+`App\Http\Resources\IncidenteResource`: `{id, titulo, prioridade, origem, status, customer_id,
+customer: {id, name}, item_id, item: {id, nome} | null, grupo_solucao_id, grupo_solucao: {id, nome}
+| null, responsavel_id, responsavel: {id, name} | null, prazo_resposta, prazo_resolucao,
+respondido_em, concluido_em, created_at, updated_at}`. **Sem `descricao`** — o feed não vem embutido
+aqui (poderia crescer muito), é buscado à parte via §3.4.7.1. `prazo_resposta`/`prazo_resolucao`/
+`respondido_em`/`concluido_em` são os valores **brutos** (podem ser `null`); o `status_sla_*`/
+`tempo_restante_*` **calculados** (prontos pra exibição) só aparecem no dashboard (§3.4.8) — este
+endpoint devolve o dado cru do registro, não uma view computada.
+
+> 📌 **`update()` também gera entradas `escalonamento`/`alteracao` automaticamente no feed** —
+> `grupo_solucao_id`/`responsavel_id` mudando pra um valor não-nulo diferente do anterior geram
+> `escalonamento`; `titulo`/`prioridade`/`origem`/`status`/`customer_id`/`item_id` mudando geram
+> `alteracao` (uma entrada por campo, inclusive `status` — cobre explicitamente a transição pra
+> `resolvido`/`fechado`, que antes não deixava rastro nenhum no feed). Ver §3.1
+> (`incidente_descricoes`) pra formato do texto e regras completas. É a mesma chamada, mesma
+> transação; não é uma ação/permission separada — continua exigindo só `tickets.manage`.
+>
+> **`update()` também grava em `IncidenteResolucao`** (`registrarResolucaoSeAplicavel()`) sempre que
+> `status` transiciona pra `'resolvido'` — uma linha nova por transição, nunca atualiza/apaga uma
+> existente, nem na reabertura. Ver §3.1 (`incidente_resolucoes`) e §3.4.9
+> (`agrupar_por=resolvido_por`) pro motivo/uso.
+>
+> **`tickets.assign` existe mas não é usado nesta entrega.** A permission já estava seedada desde
+> o início do projeto (placeholder) com o nome "Atribuir chamados". `grupo_solucao_id` e
+> `responsavel_id` são só mais dois campos cobertos por `tickets.manage`, sem checagem adicional —
+> `tickets.assign` fica reservada pra uma futura ação de roteamento dedicada (ex. endpoint próprio de
+> atribuição, com notificação/auditoria), não misturada no `update()` genérico. `agente` tem
+> `tickets.manage` (não tinha `tickets.assign`, que continua só admin/supervisor).
+
+### 3.4.7.1. Endpoints — Feed de `Incidente` (`App\Http\Controllers\Api\IncidenteDescricaoController`)
+
+Recurso aninhado em `/incidentes/{incidente}/descricoes`. Leitura segue `tickets.view`/`tickets.manage`
+como o resto do CRUD de `Incidente`, mas editar/excluir exige **adicionalmente** ser o autor —
+regra de posse, não expressável no middleware `can:`, checada dentro do controller
+(`ensureCanModify()`).
+
+```php
+Route::middleware(['auth:web', 'can:tickets.view'])
+    ->apiResource('incidentes.descricoes', IncidenteDescricaoController::class)
+    ->parameters(['descricoes' => 'descricao'])
+    ->only(['index', 'show']);
+
+Route::middleware(['auth:web', 'can:tickets.manage'])
+    ->apiResource('incidentes.descricoes', IncidenteDescricaoController::class)
+    ->parameters(['descricoes' => 'descricao'])
+    ->only(['store', 'update', 'destroy']);
+```
+
+| Método | Rota | Permission + regra | Body | Resposta |
+|---|---|---|---|---|
+| `GET` | `/incidentes/{incidente}/descricoes` | `tickets.view` | — | `200` — paginado (`?per_page=`), mais recente primeiro, `user` carregado |
+| `GET` | `/incidentes/{incidente}/descricoes/{descricao}` | `tickets.view` | — | `200` — `{data: {...}}`; `404` se `descricao` não pertencer a esse `incidente` |
+| `POST` | `/incidentes/{incidente}/descricoes` | `tickets.manage` | `{descricao}` | `201` — `{data: {...}}`; `tipo` sempre `"comentario"` e `user` sempre quem está autenticado, **mesmo que o payload tente enviar `tipo`/`user_id` diferentes** (ignorados) |
+| `PUT`/`PATCH` | `/incidentes/{incidente}/descricoes/{descricao}` | `tickets.manage` **+ autor** | `{descricao}` | `200` — `{data: {...}}`; `403` se não for o autor, se `tipo = 'escalonamento'` (nunca editável, nem pelo autor), **ou se já estiver excluído** (`excluido_em` setado) |
+| `DELETE` | `/incidentes/{incidente}/descricoes/{descricao}` | `tickets.manage` **+ autor** | — | `204` — **soft delete**, a linha continua existindo e visível no feed (ver §3.1); mesmas travas de `403` do `PUT`, incluindo excluir um comentário já excluído de novo |
+
+`App\Http\Resources\IncidenteDescricaoResource`: `{id, incidente_id, tipo, descricao, excluido_em,
+user: {id, name}, created_at, updated_at}` — `excluido_em` é `deleted_at`, `null` enquanto não
+excluído; `user` resolve mesmo que o autor tenha sido desativado (`User::withTrashed()`, ver §3.4.3).
+
+Validação: `descricao` obrigatória (`string`) em `store`/`update`. Sem validação de `tipo`/`user_id`
+no `store` porque esses campos nunca vêm do request — são sempre forçados no controller.
+
+### 3.4.7.2. Endpoints — Anexos de `Incidente` (`App\Http\Controllers\Api\AnexoController`)
+
+Recurso aninhado em `/incidentes/{incidente}/anexos`, armazenado em disco local (`Storage::disk('local')`,
+`storage/app/private/anexos/incidentes/{incidente_id}/...`) — **por ora**; trocar pra S3/cloud depois é
+só mudar a disk usada no controller, o resto (model/rotas/tabela) não muda. Disco `local` (não
+`public`) de propósito: arquivo não é servido por URL direta, só via endpoint de download autenticado
+(`can:tickets.view`) — evita expor anexos de incidentes sem checar permissão.
+
+Sem `update` (arquivo é substituído via `DELETE` + novo `POST`, não editado no lugar) e sem restrição
+de autor no `destroy` — diferente de `descricoes`/`comentario`, não foi pedido posse aqui: qualquer
+staff com `tickets.manage` pode remover um anexo, não só quem enviou.
+
+```php
+Route::middleware(['auth:web', 'can:tickets.view'])
+    ->apiResource('incidentes.anexos', AnexoController::class)
+    ->only(['index']);
+
+Route::middleware(['auth:web', 'can:tickets.view'])
+    ->get('/incidentes/{incidente}/anexos/{anexo}/download', [AnexoController::class, 'download']);
+
+Route::middleware(['auth:web', 'can:tickets.manage'])
+    ->apiResource('incidentes.anexos', AnexoController::class)
+    ->only(['store', 'destroy']);
+```
+
+| Método | Rota | Permission | Body | Resposta |
+|---|---|---|---|---|
+| `GET` | `/incidentes/{incidente}/anexos` | `tickets.view` | — | `200` — paginado (`?per_page=`), mais recente primeiro, `user` carregado |
+| `POST` | `/incidentes/{incidente}/anexos` | `tickets.manage` | `multipart/form-data`: `{arquivo}` | `201` — `{data: {...}}` |
+| `GET` | `/incidentes/{incidente}/anexos/{anexo}/download` | `tickets.view` | — | `200` — stream do arquivo (`Content-Disposition: attachment`, nome original preservado); `404` se `anexo` não pertencer a esse `incidente` |
+| `DELETE` | `/incidentes/{incidente}/anexos/{anexo}` | `tickets.manage` | — | `204` — remove a linha **e** o arquivo do disco; `404` se `anexo` não pertencer a esse `incidente` |
+
+`App\Http\Resources\AnexoResource`: `{id, incidente_id, nome_original, mime_type, tamanho, user:
+{id, name}, created_at}` — **não** expõe `caminho` (detalhe de armazenamento interno, não uma URL
+utilizável pelo cliente; download é sempre pelo endpoint dedicado).
+
+Validação (`store`): `arquivo` obrigatório, `file`, `max:10240` (10 MB — limite arbitrário pro
+primeiro corte). `nome_original`, `mime_type` e `tamanho` vêm do próprio arquivo enviado
+(`UploadedFile`), nunca do payload; `caminho` é gerado pelo `Storage::store()` no momento do upload
+(nome aleatório, evita colisão e path traversal) e nunca é fillable — setado por atribuição direta no
+controller, mesmo padrão de `prazo_resposta`/`prazo_resolucao` em `Incidente`.
+
+> 📌 **Hardening de upload — lista branca de extensão + magic number + remoção de EXIF.** Adicionado
+> depois da entrega inicial (que não tinha nenhuma restrição de tipo de arquivo), a pedido explícito
+> de revisão de segurança.
+>
+> **Extensões permitidas** (`AnexoController::EXTENSOES_PERMITIDAS`): `pdf`, `doc`, `docx`, `jpg`,
+> `jpeg`, `png`, `xls`, `xlsx`, `csv` — lista branca, não negra: um tipo novo/desconhecido é rejeitado
+> por padrão. Aplicada via regra nativa do Laravel `extensions:...`, que também bloqueia
+> `.php`/`.php3`/`.php4`/`.php5`/`.php7`/`.php8`/`.phtml`/`.phar` incondicionalmente (built-in do
+> framework), mesmo que alguém adicionasse `php` à lista por engano.
+>
+> **`extensions:` sozinha NÃO confere o conteúdo real do arquivo — só o nome.** Achado verificando o
+> código-fonte do Laravel (`ValidatesAttributes::validateExtensions()`): apesar de existir um guard
+> específico contra upload de `.php` disfarçado, a regra em geral compara só
+> `getClientOriginalExtension()` (o nome que o cliente mandou) contra a lista, nunca o mime real
+> detectado do conteúdo — um `malware.php` renomeado pra `foto.jpg` passa por ela normalmente. A
+> checagem de conteúdo de verdade é um closure próprio (`validarConteudoRealDoArquivo()`) que compara
+> `UploadedFile::getMimeType()` — que o Symfony detecta via `finfo` nos **bytes reais** do arquivo,
+> nunca no `Content-Type` que o cliente declarou no header — contra uma lista de mimes esperados **por
+> extensão** (`AnexoController::MIME_TYPES_POR_EXTENSAO`), não uma lista global única: se fosse uma
+> lista só, aceitar `application/zip` pra `.docx`/`.xlsx` (que são, literalmente, arquivos zip)
+> abriria brecha pra um `.zip` qualquer renomeado como `.jpg` passar, já que o mesmo mime estaria na
+> lista "geral". `doc`/`xls` aceitam também `application/x-ole-storage`/`application/x-cfb` (o
+> container OLE2 genérico) além do mime específico — o magic number sozinho não diferencia Word de
+> Excel sem inspecionar a estrutura interna completa do documento.
+>
+> **Testando isso**: `UploadedFile::fake()` (helper de teste do Laravel) **não serve** pra testar essa
+> checagem — `Illuminate\Http\Testing\File::getMimeType()` é sobrescrito pra devolver o mime baseado
+> só no **nome** do arquivo (`MimeType::from($this->name)`), nunca no conteúdo real escrito nele. O
+> teste que prova o bloqueio de conteúdo malicioso (`test_uploading_anexo_rejects_content_that_does_not_match_its_extension`)
+> constrói um `Illuminate\Http\UploadedFile` real (mesma classe do fluxo de produção) apontando pra um
+> arquivo temporário de verdade, em vez de usar o fake.
+>
+> **Remoção de EXIF/metadados em imagens** (`removerMetadadosSeImagem()`): pra `image/jpeg` e
+> `image/png`, a imagem é recarregada via GD (`imagecreatefromjpeg`/`imagecreatefrompng`) e resalva
+> por cima do mesmo arquivo (`imagejpeg`/`imagepng`) — só os pixels sobrevivem ao reencode, EXIF/GPS/
+> fabricante do dispositivo/etc. são descartados como efeito colateral, sem precisar de uma lib de
+> EXIF dedicada. Roda **depois** do `Storage::store()` (já validado e salvo), silenciosamente ignorado
+> se o GD não conseguir ler o arquivo (defesa extra, não deveria acontecer já que o conteúdo foi
+> validado antes). **Extensão `gd` não vinha instalada na imagem PHP** — adicionada ao
+> `docker/php/Dockerfile` (`libjpeg-turbo-dev`/`libpng-dev`/`freetype-dev` como build deps +
+> `docker-php-ext-install gd`) especificamente pra isso; precisa de `docker compose build app` (não só
+> `restart`) pra pegar a mudança num ambiente que já existia antes dela.
+>
+> **`Content-Disposition: attachment` já vinha coberto** desde a entrega inicial (`Storage::download()`
+> do Laravel seta isso nativamente) — navegador baixa o arquivo, nunca executa/renderiza inline, mesmo
+> que algo escapasse da whitelist. Reforçado por estar em disco `local` (privado) atrás de auth.
+
+`App\Models\User::anexos(): HasMany` — FK `anexos.user_id` é `restrictOnDelete()`; `UserController::destroy()`
+bloqueia com `409` a exclusão de um usuário que enviou algum anexo (mesmo padrão de
+`incidentesResponsavel()`). `anexos.incidente_id` é `cascadeOnDelete()` — anexo é registro histórico do
+próprio incidente, não tem vida própria fora dele.
+
+### 3.4.8. Endpoint — Dashboard de Incidentes (`App\Http\Controllers\Api\DashboardController`)
+
+View read-only, achatada, pensada pra alimentar uma listagem/tabela de dashboard — distinta do CRUD
+normal de `Incidente` (que devolve o registro cru com relações aninhadas). Reaproveita `tickets.view`,
+sem permission própria.
+
+```php
+Route::middleware(['auth:web', 'can:tickets.view'])
+    ->get('/dashboard/incidentes', [DashboardController::class, 'incidentes']);
+```
+
+> 📌 **Path `/dashboard/incidentes`, não `/incidentes/dashboard`:** o `apiResource('incidentes', ...)`
+> já registra `GET /incidentes/{incidente}` — colocar `dashboard` como sufixo faria esse padrão casar
+> primeiro e tentar resolver `{incidente}` com o valor literal `"dashboard"`. Um path próprio evita a
+> colisão e também abre espaço pra outras views de dashboard no futuro (`/dashboard/slas`, etc.).
+
+| Método | Rota | Permission | Resposta |
+|---|---|---|---|
+| `GET` | `/dashboard/incidentes` | `tickets.view` | `200` — paginado (`?per_page=`), filtrável (mesmos query params de `GET /incidentes`, ver §3.4.7, **mais `numero` e `todos_status`**), ordenável (`sort_by`/`sort_dir`), ordenado por mais recente quando `sort_by` não é informado, `{data: [...], links, meta}` |
+
+> 📌 **Mesmo filtro do CRUD, mesma validação, código duplicado de propósito, mais dois filtros
+> exclusivos.** `DashboardController` valida os query params (`numero`/`status`/`prioridade`/`origem`/
+> `customer_id`/`item_id`/`grupo_solucao_id`/`responsavel_id`/`todos_status`) e aplica
+> `Incidente::scopeFiltros()` — o scope no model é compartilhado (evita duplicar a query), a
+> validação é duplicada nos dois controllers (sem camada de serviço pra compartilhar, ver §3.5).
+> `numero` (`sometimes|integer`, equivale a `where('id', $v)` — `numero` não é uma coluna própria, é
+> só como o frontend chama o `id` do incidente, ver `IncidenteDashboardResource.numero`) e
+> `todos_status` (`sometimes|boolean`) só existem aqui, não em `IncidenteController::index()` — a UI
+> de "Filtro Avançado" da listagem do dashboard é a única consumidora até o momento.
+>
+> **`todos_status` desliga a restrição padrão de status** (`STATUSES_PADRAO_LISTAGEM`, ver acima) sem
+> precisar informar um `status` específico — é o que alimenta o botão "Mostrar todos os registros" da
+> listagem (mostra incidentes de **qualquer** status, incluindo `resolvido`/`fechado`/`cancelado`).
+> Um `status` explícito continua tendo prioridade sobre `todos_status` caso os dois sejam enviados
+> juntos (mesma ordem de precedência de `Incidente::scopeFiltros()`, ver §3.2) — na prática o frontend
+> nunca envia os dois ao mesmo tempo, já que são ações mutuamente exclusivas na UI.
+
+> 📌 **Ordenação por coluna clicável (`sort_by`/`sort_dir`), exclusiva deste endpoint.**
+> `sort_by` (`sometimes`, `Rule::in(Incidente::SORTABLE_COLUMNS)`) aceita `numero`, `titulo`,
+> `prioridade`, `status`, `data_abertura`, `cliente`, `grupo_solucao`, `responsavel`; `sort_dir`
+> (`sometimes`, `asc`/`desc`, padrão `asc`) só tem efeito junto com `sort_by`. Aplicado via
+> `Incidente::scopeOrdenarPor()`: os quatro primeiros e `data_abertura` (→ `created_at`) ordenam
+> direto por coluna de `incidentes`; `cliente`/`grupo_solucao`/`responsavel` não são colunas
+> próprias — o scope monta um `leftJoin` (`customers`+`clients` pro cliente, um hop pros outros
+> dois) e ordena pelo `name`/`nome` da tabela relacionada, com `select('incidentes.*')` pra evitar
+> colisão de colunas homônimas entre as tabelas (`id`, `name`, `created_at`). Sem `sort_by`,
+> mantém o padrão histórico (`latest()`). **`classificacao` e `status_sla_resposta`/
+> `status_sla_resolucao` propositalmente não são ordenáveis** — a primeira é concatenada no
+> frontend a partir de uma cadeia de 3 tabelas (`item.subcategoria.categoria`), as outras são
+> calculadas em PHP por requisição contra `now()` (`calcularStatusSla()`, ver acima) — replicar
+> isso em SQL bruto ficou fora de escopo.
+
+`App\Http\Resources\IncidenteDashboardResource`, um item por incidente:
+
+```jsonc
+{
+  "numero": 1,                          // Incidente.id
+  "titulo": "Impressora do 3º andar sem toner",
+  "origem": "portal",
+  "status": "em_andamento",
+  "prioridade": "media",
+  "cliente": "Empresa Teste",           // Client.name, via incidente->customer->client
+  "email_cliente": "cliente@example.com", // Customer.email — a pessoa que abriu, não o Client
+  "data_abertura": "2026-08-13T01:30:34.000000Z",   // Incidente.created_at
+  "prazo_resposta": "2026-08-13T05:30:34.000000Z",  // Incidente.prazo_resposta (congelado, ver §3.1)
+  "prazo_resolucao": "2026-08-14T01:30:34.000000Z", // Incidente.prazo_resolucao (congelado)
+  "status_sla_resposta": "dentro_prazo",   // dentro_prazo | estourado | sem_sla
+  "status_sla_resolucao": "dentro_prazo",
+  "tempo_resposta_minutos": 240,        // meta da política (prazo_resposta - data_abertura)
+  "tempo_resposta_horas": 4,
+  "tempo_resolucao_minutos": 1440,
+  "tempo_resolucao_horas": 24,
+  "tempo_restante_resposta_minutos": 239,   // negativo se já estourado; null se sem_sla
+  "tempo_restante_resolucao_minutos": 1439,
+  "categoria": "Hardware",              // via incidente->item->subcategoria->categoria
+  "subcategoria": "Impressora",
+  "item": "Sem toner",
+  "grupo_solucao": "Suporte N1",
+  "responsavel": "Agente"
+}
+```
+
+> 📌 **Nenhuma query extra por linha — diferente da primeira versão desta resource.** Antes, cada
+> linha chamava `Client::resolvedSlaFor()` de novo (N+1 aceito de propósito, documentado aqui
+> mesmo). Agora que `prazo_resposta`/`prazo_resolucao` são colunas persistidas no `Incidente` (ver
+> §3.1), a resource só lê o que já está na linha: `tempo_resposta_minutos` vira
+> `created_at->diffInMinutes(prazo_resposta)`, `status_sla_*`/`tempo_restante_*` chamam os métodos
+> do próprio model (`$this->statusSlaResposta()`, etc., encaminhados via `__call` do `JsonResource`
+> pro `Incidente` por baixo). `customer.client` e `item.subcategoria.categoria` continuam eager
+> loaded pros campos de nome/e-mail/taxonomia.
+>
+> Se não houver política aplicável pra aquela prioridade (nem específica do cliente, nem global): os
+> 4 campos de tempo, os 2 prazos e os 2 tempos restantes vêm `null`, e `status_sla_*` vem `"sem_sla"`.
+> `categoria`/`subcategoria`/`item` vêm `null` quando o incidente ainda não foi classificado
+> (`item_id` nulo). `status_sla_resolucao` usa `concluido_em` como referência em vez de "agora"
+> quando o incidente já está concluído — congela o resultado, não muda mais depois (ver §3.1).
+
+### 3.4.9. Endpoints — Relatórios (`App\Http\Controllers\Api\RelatorioController` + `RelatorioSalvoController`)
+
+Agregações filtráveis sobre `Incidente` — "incidentes fechados dentro/fora do SLA", "por agente",
+"por grupo de solução", "por categoria/subcategoria/item" — todos cobertos por **um único endpoint genérico** parametrizado
+por `agrupar_por`, em vez de um endpoint dedicado por indicador. `RelatorioSalvo` guarda uma
+*configuração* de filtros+agrupamento pra reexecutar depois (não um snapshot do resultado — sempre
+roda contra os dados atuais no momento da execução).
+
+```php
+Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios/incidentes', [RelatorioController::class, 'index']);
+
+Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->apiResource('relatorios-salvos', RelatorioSalvoController::class)
+    ->parameters(['relatorios-salvos' => 'relatorioSalvo'])
+    ->only(['index', 'show']);
+
+Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios-salvos/{relatorioSalvo}/executar', [RelatorioSalvoController::class, 'executar']);
+
+Route::middleware(['auth:web', 'can:relatorios.manage'])
+    ->apiResource('relatorios-salvos', RelatorioSalvoController::class)
+    ->parameters(['relatorios-salvos' => 'relatorioSalvo'])
+    ->only(['store', 'update', 'destroy']);
+```
+
+| Método | Rota | Permission | Resposta |
+|---|---|---|---|
+| `GET` | `/relatorios/incidentes` | `relatorios.view` | `200` — `{agrupado_por, data: [{chave, rotulo, total}, ...]}` (json) **ou** download do `.xlsx` (`formato=xlsx`) |
+| `GET` | `/relatorios-salvos` | `relatorios.view` | `200` — paginado, `user` carregado |
+| `GET` | `/relatorios-salvos/{id}` | `relatorios.view` | `200` — `{data: {...}}` |
+| `GET` | `/relatorios-salvos/{id}/executar` | `relatorios.view` | mesma resposta de `/relatorios/incidentes`, usando os filtros/agrupamento salvos — nunca um snapshot |
+| `POST` | `/relatorios-salvos` | `relatorios.manage` | `201` — `{nome, agrupar_por, filtros}` |
+| `PUT`/`PATCH` | `/relatorios-salvos/{id}` | `relatorios.manage` | `200` |
+| `DELETE` | `/relatorios-salvos/{id}` | `relatorios.manage` | `204` |
+
+**Query params de `GET /relatorios/incidentes`** (todos exceto `agrupar_por` são opcionais,
+combináveis; os mesmos ficam em `RelatorioSalvo.filtros`):
+
+| Param | Validação | Nota |
+|---|---|---|
+| `agrupar_por` | **obrigatório**, `Rule::in(RelatorioSalvo::AGRUPAMENTOS)` = `status_sla`\|`responsavel`\|`resolvido_por`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` | dimensão do relatório |
+| `formato` | `sometimes`, `in:json,xlsx` | default `json` |
+| `status` | `Rule::in(Incidente::STATUSES)` | sem valor padrão restritivo (diferente de `GET /incidentes`, ver §3.4.7) — um relatório histórico não deveria esconder status por padrão |
+| `data_inicio`/`data_fim` | `date` | filtra por `concluido_em` (**não** `created_at`) — decisão explícita: os indicadores pedidos são sobre quando o chamado foi *fechado*, não aberto |
+| `categoria_id`/`subcategoria_id` | `exists` | via `whereHas('item.subcategoria')`/`whereHas('item')` — `Incidente` não tem essas colunas direto, só `item_id` |
+| `item_id`/`grupo_solucao_id`/`responsavel_id`/`customer_id` | `exists` | mesma coluna de `Incidente::scopeFiltros()` |
+| `client_id` | `exists:clients,id` | empresa (não confundir com `customer_id`, o usuário do portal) — via `whereHas('customer')` |
+
+> 📌 **`status_sla`/`responsavel`/`grupo_solucao` restringem a `STATUS_CONCLUIDOS` por padrão;
+> `categoria`/`subcategoria`/`item` não.** Os indicadores originais 1-3 eram especificamente sobre
+> chamados *fechados* ("incidentes fechados dentro/fora do SLA", "fechados por agente"); o 4º
+> ("quantidade por categoria/subcategoria/item") não mencionava "fechados" — é volume geral,
+> independente de status. `grupo_solucao` (agrupamento por equipe, adicionado depois) segue o mesmo
+> critério de `responsavel` — mede desempenho do grupo em chamados concluídos, não volume geral. Um
+> `status` explícito sempre substitui essa restrição implícita (mesmo padrão de
+> `STATUSES_PADRAO_LISTAGEM`, ver §3.4.7), inclusive pra incluir incidentes abertos no agrupamento
+> por SLA (`statusSlaResolucao()` já lida com isso — compara contra `now()` em vez de `concluido_em`
+> quando ainda não concluído).
+>
+> **`Incidente::scopeFiltrosRelatorio()` é separado de `scopeFiltros()`** (usado por
+> `GET /incidentes`/dashboard) — não herda a restrição padrão de status da listagem (não faz
+> sentido pra um relatório histórico) e tem dimensões que a listagem não precisa
+> (`data_inicio`/`data_fim`, `categoria_id`/`subcategoria_id` via join, `client_id` via join).
+>
+> **`resolvido_por` é a exceção às duas regras acima — base é `IncidenteResolucao`, não
+> `Incidente`.** Motivação: "quem resolveu" precisa sobreviver a reaberturas (um chamado resolvido,
+> reaberto e resolvido de novo por outra pessoa tem que contar as duas resoluções, ver §3.1
+> `incidente_resolucoes`) — `Incidente.responsavel_id` só guarda quem está atribuído *agora*, não
+> quem resolveu historicamente. Por isso: (1) **sem** a restrição implícita de `STATUS_CONCLUIDOS`
+> (um chamado resolvido e depois reaberto pra `em_andamento` ainda deve contar a resolução que já
+> aconteceu — restringir por status atual esconderia exatamente o caso que essa dimensão existe pra
+> cobrir); (2) `data_inicio`/`data_fim` filtram `IncidenteResolucao.created_at` (quando *aquela*
+> resolução aconteceu), não `Incidente.concluido_em` (que reflete só a resolução mais recente e é
+> limpo na reabertura). `IncidenteResolucao::scopeFiltrosRelatorio()` replica as mesmas dimensões de
+> filtro de `Incidente::scopeFiltrosRelatorio()`, mas via `whereHas('incidente')` em vez de coluna
+> direta, já que a tabela base é diferente.
+>
+> **Agrupamento por SLA é calculado em PHP, não SQL puro.** `statusSlaResolucao()` compara
+> `concluido_em` (congelado) contra `prazo_resolucao` — lógica já existente no model (mesma usada no
+> dashboard, ver §3.4.8) — não dá pra expressar isso num `GROUP BY` do banco sem duplicar a
+> comparação de datas em SQL. `RelatorioController` busca as linhas filtradas e tabula em memória,
+> reaproveitando o método do model em vez de duplicar a regra.
+>
+> **Exportação `.xlsx` via `maatwebsite/excel` (v4, `phpoffice/phpspreadsheet` por baixo) — mesma
+> agregação dos dois formatos**, nunca duas queries diferentes: `RelatorioController::agregar()` monta
+> as linhas `{chave, rotulo, total}` uma vez; `formato=json` serializa direto, `formato=xlsx` passa
+> pra `App\Exports\RelatorioIncidentesExport` (`FromCollection`+`WithHeadings`). Exigiu adicionar a
+> extensão `zip` à imagem PHP (não vinha instalada — mesma situação do `gd` pra EXIF, ver §3.4.7.2) —
+> `phpoffice/phpspreadsheet` depende dela pra gerar o `.xlsx` (que é, por baixo, um contêiner zip).
+> **Rodar `composer audit`** ao instalar revelou 12 advisories em `guzzlehttp/guzzle`/
+> `league/commonmark` — dependências transitivas do próprio `laravel/framework`, não trazidas pelo
+> pacote novo, só nunca auditadas nesta sessão antes. Corrigido com
+> `composer update guzzlehttp/guzzle league/commonmark --with-all-dependencies` (dentro da faixa já
+> permitida pelo `composer.json` do Laravel, sem mudar nenhum constraint).
+>
+> **`RelatorioSalvo` é compartilhado entre a equipe, não privado por usuário** — como o resto do
+> sistema (`Client`/`Categoria`/etc.), diferente da regra "só o autor edita" de `comentario`
+> (`IncidenteDescricao`, ver §3.1). Qualquer staff com `relatorios.view` lê/executa; só
+> `relatorios.manage` cria/edita/exclui — não checa autoria.
+>
+> **Achado de validação do Laravel**: `$request->validate([...])` reconstrói uma chave-array
+> (`'filtros' => ['present', 'array']`) **a partir das sub-regras `'filtros.*'`** quando elas existem
+> — com `filtros` vazio (`{}`), nenhuma sub-chave é validada, e a chave `filtros` inteira **some** do
+> array retornado por `validate()`, mesmo tendo passado a regra `present`. `RelatorioSalvoController::validated()`
+> usa `$request->input('filtros', [])` (bruto, já garantido ser array pela validação acima) em vez do
+> valor "validado" reconstruído, pra não perder um relatório sem filtro nenhum (caso de uso legítimo:
+> "todos os incidentes por item", sem nenhum recorte). Achado ao testar manualmente contra o servidor
+> real, não pego pelos testes automatizados originais — teste de regressão adicionado
+> (`test_creating_relatorio_salvo_with_empty_filtros_succeeds`).
+
+`App\Http\Resources\RelatorioSalvoResource`: `{id, nome, agrupar_por, filtros, user: {id, name},
+created_at, updated_at}`. `App\Models\RelatorioSalvo::user()` usa `->withTrashed()` (mesmo padrão do
+resto do sistema pós-soft-delete de `User`, ver §3.4.3) — `RelatorioSalvo.user_id` é
+`restrictOnDelete()` **sem** precisar de guard extra em `UserController::destroy()`, porque `User`
+nunca é apagado de verdade.
+
 ### 3.5. Outras decisões de implementação
 
 - **`AppServiceProvider::boot()`**:
@@ -459,6 +1403,19 @@ ausente/inválido → `422`; sem token → `401`; sem a permission correspondent
 - **`config/app.php`**: nova chave `'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173')`, consumida pelo item acima.
 - **`config/cors.php`**: `allowed_origins` lido de `FRONTEND_URL` (suporta lista separada por vírgula), nunca `*`; `supports_credentials` `false` (já é o padrão do Laravel, mantido).
 - **`AuthServiceProvider::boot()`**: `Gate::before(fn($user, $ability) => $user instanceof User && $user->hasPermission($ability) ? true : null)` — `Customer` nunca passa nesse `before` (cai direto pra Policy, se houver).
+- **Soft delete em `User` e `IncidenteDescricao`, deliberadamente não estendido a mais nada.** Motivação
+  original: excluir um `User` referenciado por `Incidente.responsavel_id`/`IncidenteDescricao.user_id`/
+  `Anexo.user_id` (todas `restrictOnDelete()`) jogava um `QueryException` cru (500) — a correção óbvia
+  seria checar cada FK antes do `delete()` (padrão já usado em `Client`/`Categoria`/`GrupoSolucao`/etc.,
+  `409` explícito), mas isso não escala: toda nova relação pra `User` exigiria mais um guard manual. Soft
+  delete resolve de vez (a linha nunca some, a FK nunca é violada) e ainda preserva o histórico de quem
+  fez o quê num chamado — decisão de produto tanto quanto técnica. Estendido também a
+  `IncidenteDescricao` (excluir um `comentario` não apaga, só marca — auditoria de comunicação do
+  chamado). **Não** aplicado a `Client`/`Customer`/`Categoria`/`Subcategoria`/`Item`/`PoliticaSla`/
+  `GrupoSolucao`/`Anexo` — esses não têm o mesmo problema de "referência histórica quebrada por exclusão
+  de verdade" (ou já são bloqueados por `409` antes de chegar nesse ponto, ou soft delete simplesmente
+  não faz sentido pro tipo de dado). Detalhes: `users` em §3.1, `incidente_descricoes` em §3.1,
+  `DELETE /users/{user}` em §3.4.3, `DELETE /incidentes/{incidente}/descricoes/{descricao}` em §3.4.7.1.
 - **`bootstrap/app.php` → `withMiddleware()`**: `$middleware->redirectGuestsTo(fn () => null)`. Backend é API-only, sem rota `login`; sem essa linha, o middleware `Authenticate` decide se redireciona um guest **antes** de checar se a resposta deveria ser JSON (`Illuminate\Auth\Middleware\Authenticate::unauthenticated()` chama `route('login')` sempre que `$request->expectsJson()` é `false` — o que acontece em qualquer chamada sem header `Accept: application/json`, ex. um `curl` cru). Isso derrubava `401`s legítimos com uma `RouteNotFoundException` de stack trace completo. Com o `redirectGuestsTo(fn () => null)`, toda rota `auth:...` sem sessão válida devolve sempre `401 {"message":"Unauthenticated."}`, independente de headers.
 
 ### 3.6. Divergências do rascunho original desta spec (seção 1/2)
@@ -472,34 +1429,125 @@ ausente/inválido → `422`; sem token → `401`; sem a permission correspondent
 | `Sanctum::personalAccessTokenExpiration` | citado como o mecanismo de TTL | TTL setado por-token em `createToken()` | O config é global a todos os guards, não dá pra diferenciar 2h/4h por guard |
 | `config('sanctum.guard')` | não discutido | mantido `[]` | Evita recursão infinita (ver 3.3) |
 | Redirect de guests (`bootstrap/app.php`) | não discutido | `$middleware->redirectGuestsTo(fn () => null)` | Ver 3.5 — sem isso, `401` em rota `auth:...` sem header `Accept: application/json` quebrava com `RouteNotFoundException` (`route('login')` inexistente) em vez de JSON limpo |
+| Extensão `gd` | não mencionada | `libjpeg-turbo-dev`/`libpng-dev`/`freetype-dev` + `docker-php-ext-configure gd`/`docker-php-ext-install gd` | Necessária pra `AnexoController::removerMetadadosSeImagem()` (remoção de EXIF via reencode, ver §3.4.7.2) — exige `docker compose build app`, não só `restart`, num ambiente que já existia antes dessa mudança |
+| Extensão `zip` | não mencionada | `libzip-dev` + `docker-php-ext-install zip` | `phpoffice/phpspreadsheet` (via `maatwebsite/excel`) depende dela pra gerar `.xlsx` — mesma situação do `gd`, mesmo `docker compose build app` necessário (ver §3.4.9) |
 
-### 3.7. Seed padrão (`RolesAndPermissionsSeeder` + `DatabaseSeeder`)
+### 3.7. Seed padrão (`RolesAndPermissionsSeeder` + `PoliticasSlaSeeder` + `CategoriasSeeder` + `GruposSolucaoSeeder` + `IncidentesSeeder` + `DatabaseSeeder`)
 
-Permissions: `users.manage`, `roles.manage`, `clients.manage`, `customers.manage`, `tickets.view`, `tickets.assign` (as duas últimas são placeholders para o futuro módulo de Tickets; `clients.manage` já existia mas não estava listada aqui).
+Permissions: `users.manage`, `roles.manage`, `clients.manage`, `customers.manage`, `slas.view`,
+`slas.manage`, `categorias.view`, `categorias.manage`, `grupos_solucao.view`,
+`grupos_solucao.manage`, `tickets.view`, `tickets.manage`, `tickets.assign` (`tickets.assign` é
+placeholder ainda não usado por nenhuma lógica — ver nota em §3.4.7), `relatorios.view`,
+`relatorios.manage` (ver §3.4.9). `admin` recebe todas; `supervisor` recebe `relatorios.view` **e**
+`relatorios.manage`; `agente` recebe só `relatorios.view` (roda/vê relatórios, não cria/edita
+configuração salva pra equipe toda).
 
 > 📌 **Deploy em ambiente já semeado:** `customers.manage` é permission nova desta feature. Em qualquer ambiente onde `db:seed` já rodou antes dela existir, é preciso rodar `php artisan db:seed` de novo após o deploy para que a role `admin` receba essa permission — do contrário o item de menu "Usuários de Clientes" do frontend (que é liberado pela role `admin`, não por essa permission) já aparece, mas as chamadas à API de `Customer` retornam `403` até o reseed.
 
 | Role (`slug`) | Permissions atribuídas |
 |---|---|
 | `admin` | todas |
-| `supervisor` | `tickets.view`, `tickets.assign` |
-| `agente` | `tickets.view` |
+| `supervisor` | `tickets.view`, `tickets.manage`, `tickets.assign`, `slas.view`, `categorias.view`, `grupos_solucao.view` |
+| `agente` | `tickets.view`, `tickets.manage`, `slas.view`, `categorias.view`, `grupos_solucao.view` |
+
+`PoliticasSlaSeeder` cria as 4 políticas "padrão global" (`client_id = null`, uma por prioridade,
+`updateOrCreate` por `(client_id, prioridade)` — idempotente):
+
+| Prioridade | Nome | Resposta | Resolução |
+|---|---|---|---|
+| `urgente` | Padrão Urgente | 15 min | 240 min (4h) |
+| `alta` | Padrão Alta | 60 min (1h) | 480 min (8h) |
+| `media` | Padrão Média | 240 min (4h) | 1440 min (24h) |
+| `baixa` | Padrão Baixa | 480 min (8h) | 2880 min (48h) |
+
+Todas com `apenas_horas_uteis = true`, `ativo = true`. São os valores que `Client::resolvedSlaFor()`
+devolve pra qualquer cliente sem política própria naquela prioridade.
+
+`CategoriasSeeder` cria uma taxonomia inicial de categorias/subcategorias/**itens** de incidentes
+(`updateOrCreate` por nome, em cada nível — idempotente), massa comum de ITSM, não exaustiva (2
+itens por subcategoria, 24 no total):
+
+| Categoria | Subcategoria | Itens |
+|---|---|---|
+| Hardware | Computador | Não liga, Tela azul |
+| Hardware | Impressora | Sem toner, Atolamento de papel |
+| Hardware | Periféricos | Mouse não funciona, Teclado não funciona |
+| Software | Sistema Operacional | Lentidão, Erro de atualização |
+| Software | Aplicativo | Não abre, Trava/congela |
+| Software | Licença | Expirada, Não ativa |
+| Rede | Internet | Sem conexão, Lentidão |
+| Rede | VPN | Não conecta, Queda de conexão |
+| Rede | Wi-Fi | Sinal fraco, Não conecta |
+| Acesso | Senha | Esqueci a senha, Conta bloqueada por tentativas |
+| Acesso | Permissão | Acesso negado, Solicitação de novo acesso |
+| Acesso | Conta Bloqueada | Desbloqueio de conta, Conta suspensa |
 
 > 📌 **Sem role "cliente":** uma versão anterior desta implementação criava uma role `cliente` vazia (seguindo o texto literal do rascunho original da spec) e chegava a semear um usuário fictício `cliente.interno@example.com` só pra ocupá-la. Isso foi removido — não faz sentido nenhum `User` ter uma role "Cliente", já que quem abre chamado é sempre o model/guard `Customer` (sem RBAC nenhum, ver seção 1.3). Manter essa role só confundia qual guard estava sendo testado.
 
+`GruposSolucaoSeeder` cria 4 grupos padrão (`updateOrCreate` por `nome` — idempotente): **Suporte
+N1**, **Suporte N2**, **Redes**, **Administração**. Precisa rodar **antes** da criação dos `User`s
+no `DatabaseSeeder`, já que `grupo_solucao_id` é `NOT NULL` (ver §3.1).
+
 `DatabaseSeeder` também cria usuários de teste, um por role (guard `web`), todos com senha `password`:
 
-| E-mail | Role |
-|---|---|
-| `admin@example.com` | `admin` |
-| `supervisor@example.com` | `supervisor` |
-| `agente@example.com` | `agente` |
+| E-mail | Role | Grupo de Solução |
+|---|---|---|
+| `admin@example.com` | `admin` | Administração |
+| `supervisor@example.com` | `supervisor` | Suporte N2 |
+| `agente@example.com` | `agente` | Suporte N1 |
 
 E do lado `customer` (quem de fato abre chamado pelo portal):
 - `cliente@example.com` (senha `password`) — e-mail fixo, para login previsível.
 - +3 customers extras com dados aleatórios via `Customer::factory()->count(3)->create()` — só massa pra exercitar listagem/paginação, sem senha/e-mail previsíveis (usar o e-mail fixo acima pra testar login).
 
 > 📌 **Idempotência:** os registros de e-mail fixo (`admin@example.com`, `supervisor@example.com`, `agente@example.com`, `cliente@example.com`) são criados via `updateOrCreate(['email' => ...], [...])`, não `factory()->create()` — `db:seed` (sem `--fresh`) precisa poder rodar quantas vezes forem necessárias sem quebrar. Uma versão anterior usava `create()` direto e uma segunda chamada a `db:seed` sem `migrate:fresh` derrubava com `UniqueConstraintViolationException` no e-mail do admin. Os 3 customers aleatórios **não** são idempotentes por design (rodar `db:seed` de novo não os duplica, mas também não os "atualiza" — a condição `if (Customer::count() <= 1)` só os cria na primeira vez).
+
+`IncidentesSeeder` roda por último (depois de customers/itens/grupos/users todos existirem) e cria 2
+incidentes de exemplo pro `cliente@example.com`, cada um já com seu feed em `incidente_descricoes`
+(a descrição de abertura nunca é passada direto pro `Incidente::create()`, mesma regra do
+`IncidenteController::store()`) **e com `prazo_resposta`/`prazo_resolucao` calculados** — o seeder
+duplica a lógica de `calcularPrazosSla()` (sem camada de serviço pra compartilhar, ver §3.5; o
+seeder não passa pela camada HTTP então não dá pra reaproveitar o método do controller diretamente).
+
+- **"Impressora do 3º andar sem toner"** (`media`, `portal`, já roteado pro grupo Suporte N1 com o
+  `agente@example.com` como responsável, status `em_andamento`) — feed com 3 entradas: abertura
+  (`comentario`, autor admin), `escalonamento` pro Suporte N1 (autor admin), e um `comentario` de
+  acompanhamento do próprio agente. Demonstra o feed completo.
+- **"Sem acesso à internet no setor financeiro"** (`urgente`, `telefone`, sem roteamento ainda,
+  status `aberto`) — feed com só a entrada de abertura. Demonstra o caso "recém-aberto".
+
+Não idempotente por design (mesmo raciocínio dos customers aleatórios — só roda `if (! Incidente::exists())`).
+
+> 📌 **+10 incidentes fechados via `criarIncidentesDemoRelatorios()`** — adicionados depois, sem os
+> quais um `migrate:fresh --seed` não dava **nenhum** dado pra ver em `/relatorios/incidentes`
+> (os 2 incidentes acima são `em_andamento`/`aberto`, nenhum concluído; `status_sla`/`responsavel`/
+> `grupo_solucao` restringem a `STATUS_CONCLUIDOS` por padrão, ver §3.4.9). Espalhados de propósito
+> por **todas** as dimensões de `agrupar_por`:
+> - **`status_sla`**: 6 `dentro_prazo`, 3 `estourado`, 1 `sem_sla` (`prazo_resolucao`/`prazo_resposta`
+>   forçados a `null` via `forceFill`, simulando uma política removida depois da abertura — não dá
+>   pra obter isso organicamente já que `PoliticasSlaSeeder` cobre as 4 prioridades globalmente).
+> - **`responsavel`**: `agente@example.com` (5), `admin@example.com` (2), `supervisor@example.com`
+>   (2), 1 sem responsável.
+> - **`grupo_solucao`**: Suporte N1 (4), Suporte N2 (3), Redes (2), 1 sem grupo.
+> - **`categoria`/`subcategoria`/`item`**: espalhados pelas 4 categorias (Hardware/Software/Rede/
+>   Acesso) da taxonomia de `CategoriasSeeder`, 1 sem `item_id`.
+> - **Datas**: `created_at` retroativo de 1 a 25 dias (`now()->subDays(N)`, não datas fixas — o seeder
+>   continua fazendo sentido não importa quando rodar), pra `data_inicio`/`data_fim` terem o que
+>   filtrar.
+> - **Segundo `Client`** ("TechCorp Soluções", `financeiro@techcorp.example.com`) criado só aqui
+>   (não em `DatabaseSeeder`) — com um único cliente, o filtro `client_id` nunca mudava o resultado.
+> - **Sem feed** (`IncidenteDescricao`) de propósito — o feed completo já é demonstrado no
+>   `$incidente1` acima; os 10 novos são massa focada em volume/variedade pra relatórios, não em
+>   histórico de comunicação.
+> - `criarIncidenteFechado()`: cria o `Incidente` normalmente, sobrescreve `created_at`/`updated_at`
+>   via `forceFill` (precisa vir **antes** de `calcularPrazosSla()`, que lê `created_at` pra computar
+>   os prazos), depois `forceFill` de `respondido_em`/`concluido_em`.
+> - **`resolvido_por`**: um `IncidenteResolucao` por incidente `resolvido`/`fechado` (não
+>   `cancelado` — nunca passou por `resolvido`), autor = `responsavel` do incidente (ou `admin` se
+>   sem responsável). O **primeiro** incidente da lista ("Notebook não liga...") ganha **dois**
+>   registros de propósito — `agente@example.com` e `supervisor@example.com` — simulando o cenário
+>   de reabertura que motivou essa tabela (ver §3.1 `incidente_resolucoes`): resolvido, reaberto,
+>   resolvido de novo por outra pessoa, as duas resoluções preservadas.
 
 Todos permitem login imediato (`POST /api/login` para os 3 users staff, `POST /api/customer/login` para o customer fixo) após `migrate:refresh --seed` ou `migrate:fresh --seed` em ambiente local.
 
@@ -511,7 +1559,7 @@ Feature tests com `RefreshDatabase`, dados montados via factories (`UserFactory`
 
 | Arquivo | Cobre |
 |---|---|
-| `LoginTest.php` | Login staff (com roles/permissions no payload), login customer, e-mail/senha inválidos (staff e customer), e-mail de `User` não autentica no guard `customer` (tabelas separadas) |
+| `LoginTest.php` | Login staff (com roles/permissions no payload), login customer, e-mail/senha inválidos (staff e customer), e-mail de `User` não autentica no guard `customer` (tabelas separadas), `User` desativado (soft-deleted) não consegue logar mesmo com senha correta |
 | `TokenLifecycleTest.php` | `/refresh` (rotação atômica — token antigo é revogado, abilities preservadas), `/logout` (revoga só o token atual), `/logout-all` (revoga todos, não afeta tokens de outro usuário), `401` sem autenticação |
 | `PasswordRecoveryTest.php` | Throttle em `/forgot-password` e `/reset-password` (5 tentativas + bloqueio na 6ª, bucket isolado por e-mail), revogação de todos os tokens após reset bem-sucedido (staff e customer), reset com token inválido não muda a senha |
 
@@ -523,7 +1571,7 @@ Rodar com `docker compose exec app php artisan test` (ou `./vendor/bin/phpunit`)
 >
 > **Lição para qualquer novo ambiente Docker + PHPUnit deste tipo:** `env_file` no `docker-compose.yml` é exatamente o tipo de configuração que faz esse problema aparecer — não é geral a todo projeto Laravel, é específico de rodar os testes dentro de um container cujas variáveis já vêm setadas no processo antes do PHP iniciar. Se decidir buildar contra Postgres real em vez de sqlite no futuro, usar um banco `_testing` dedicado (nunca o mesmo `DB_DATABASE` do dev) reduziria o dano de uma futura recorrência desse tipo de bug de configuração.
 
-### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles}`)
+### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles,PoliticasSla,Categorias,GruposSolucao,Incidentes,Dashboard,Relatorios}`)
 
 Mesmo padrão do §3.8: `RefreshDatabase`, dados via factories, permissions/roles montadas ad-hoc por
 teste (nunca via `RolesAndPermissionsSeeder`).
@@ -531,8 +1579,20 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | Arquivo | Cobre |
 |---|---|
 | `Clients/ClientCrudTest.php` | CRUD completo de `Client`, `409` ao excluir com `Customer`s vinculados, `?per_page=` |
-| `Users/UserCrudTest.php` | CRUD completo de `User`, roles via `role_ids`, senha opcional no update, `409` ao tentar excluir a própria conta, `403`/`401` |
-| `Customers/CustomerCrudTest.php` | CRUD completo de `Customer`, `client_id` obrigatório/validado, senha opcional no update, `403`/`401` |
+| `Users/UserCrudTest.php` | CRUD completo de `User`, roles via `role_ids`, senha opcional no update, `grupo_solucao_id` obrigatório/validado (criação e update), `409` só ao tentar excluir a própria conta, `DELETE` é soft delete (`assertSoftDeleted`, não some da tabela), desativar um usuário `responsavel_id` de `Incidente` ou que enviou `Anexo` **agora funciona** (sem mais `409`), desativado some da listagem, `UserResource.ativo`, `403`/`401` |
+| `Customers/CustomerCrudTest.php` | CRUD completo de `Customer`, `client_id` obrigatório/validado, senha opcional no update, `409` ao excluir com `Incidente`s vinculados, `403`/`401` |
 | `Roles/RoleIndexTest.php` | Listagem de roles (sem paginação), `403`/`401` |
+| `PoliticasSla/PoliticaSlaCrudTest.php` | CRUD completo, `slas.view` vs `slas.manage` (leitura x escrita separadas), validação de `prioridade`/`gte` entre tempos, unicidade por `(client_id, prioridade)` (global e por cliente, sem colidir entre clientes diferentes), defaults de banco refletidos na resposta do `POST`, `Client::resolvedSlaFor()` (override do cliente vence, fallback pro global, ignora política inativa), `403`/`401`; filtros de listagem (`nome` parcial, `prioridade` exata + `422` se inválida, `ativo=true`/`ativo=false` — cobre a pegadinha de `array_key_exists()` —, `client_id` por id específico, `client_id=global`, `client_id` inválido → `422`) |
+| `Categorias/CategoriaCrudTest.php` | CRUD completo de `Categoria`, `categorias.view` vs `categorias.manage`, `nome` único, `409` ao excluir com `Subcategoria`s vinculadas, `403`/`401` |
+| `Categorias/SubcategoriaCrudTest.php` | CRUD completo de `Subcategoria`, `categoria_id` obrigatório/validado, `nome` único por `(categoria_id, nome)` (mesmo nome permitido em categorias diferentes), `categoria` carregada na resposta, `409` ao excluir com `Item`s vinculados, `403`/`401` |
+| `Categorias/ItemCrudTest.php` | CRUD completo de `Item`, `subcategoria_id` obrigatório/validado, `nome` único por `(subcategoria_id, nome)` (mesmo nome permitido em subcategorias diferentes), `subcategoria` carregada na resposta, `409` ao excluir com `Incidente`s vinculados, `403`/`401` |
+| `GruposSolucao/GrupoSolucaoCrudTest.php` | CRUD completo de `GrupoSolucao`, `grupos_solucao.view` vs `grupos_solucao.manage`, `nome` único, `409` ao excluir com `User`s ou `Incidente`s vinculados, `403`/`401` |
+| `Incidentes/IncidenteCrudTest.php` | `tickets.view` vs `tickets.manage`, criação força `status="aberto"` (ignora valor enviado), `descricao` gera a 1ª entrada do feed (não fica na tabela `incidentes`), `item_id`/`grupo_solucao_id`/`responsavel_id` opcionais, validação de `customer_id`/`prioridade`/`origem`/`status`, `update()` parcial (só `status`, sem tocar nos outros campos), mudança de `grupo_solucao_id`/`responsavel_id` gera entrada(s) `escalonamento` automática(s) (nenhuma se não mudar), mudança de `titulo`/`prioridade`/`origem`/`status`/`customer_id`/`item_id` gera entrada(s) `alteracao` automática(s) — uma por campo, com nomes resolvidos pra `customer_id`/`item_id`, `'(nenhum)'` pra `item_id` nulo, nenhuma entrada se reenviar o mesmo valor, `403` ao tentar editar/excluir uma entrada `alteracao`, cálculo de `prazo_resposta`/`prazo_resolucao` na criação (com override do cliente e fallback pro global), `null` sem política aplicável, `respondido_em`/`concluido_em` setados na 1ª transição de status relevante (e nunca sobrescritos por uma conclusão subsequente), **reabertura limpa `concluido_em`** (mas não `respondido_em`) e faz `statusSlaResolucao()` voltar a comparar contra `now()` em vez de ficar congelado, campos de SLA expostos crus no `IncidenteResource`, **filtro por `status`/`prioridade`/`origem`/`customer_id`/`item_id`/`grupo_solucao_id`/`responsavel_id`** (isolado, combinado, `422` em valor inválido, **sem `status` explícito restringe a `aberto`+`em_andamento`+`pendente`** e um `status` explícito substitui essa restrição), `405` em `DELETE` (sem rota de exclusão), relações carregadas na resposta, `responsavel.name` continua resolvendo depois que o `User` responsável é desativado (`withTrashed()`), **transição pra `status="resolvido"` cria um registro em `incidente_resolucoes`** (autor = quem fez o `PUT`), **reabertura + resolução de novo cria um SEGUNDO registro** (não sobrescreve o primeiro), transição direta pra `fechado`/`cancelado` (pulando `resolvido`) ou reenvio do mesmo `status` **não** cria registro, `403`/`401` |
+| `Incidentes/IncidenteDescricaoCrudTest.php` | CRUD do feed aninhado, `tipo`/`user_id` sempre forçados no `store` (ignora payload), só o próprio autor edita/exclui um `comentario` (`403` pra outro agente), `escalonamento` nunca editável/excluível (nem pelo autor), `404` se a descrição não pertencer ao incidente da URL, **exclusão é soft delete** (`assertSoftDeleted`, continua aparecendo no feed com `excluido_em` setado), `403` ao tentar editar ou excluir um comentário já excluído, `user.name` continua resolvendo depois que o autor é desativado (`withTrashed()`), `403`/`401` |
+| `Incidentes/IncidenteAnexoCrudTest.php` | CRUD de anexos aninhado (`index`/`store`/`download`/`destroy`, sem `update`), upload real via `UploadedFile::fake()` + `Storage::fake('local')`, `nome_original`/`mime_type`/`tamanho` persistidos a partir do arquivo enviado, arquivo maior que 10 MB rejeitado (`422`), download preserva o `nome_original` no `Content-Disposition`, `destroy` remove a linha **e** o arquivo do disco, `404` se o anexo não pertencer ao incidente da URL, sem restrição de autor no `destroy` (diferente de `descricoes`), `user.name` continua resolvendo depois que quem enviou é desativado (`withTrashed()`), **extensão fora da whitelist rejeitada (`422`)**, **conteúdo que não bate com a extensão declarada rejeitado (`422`, `UploadedFile` real construído à mão — `fake()` não detecta mime por conteúdo, ver §3.4.7.2)**, **upload real de `.jpg`/`.csv` aceito**, **EXIF injetado num JPEG real (via GD) some do arquivo salvo após o upload**, **arquivo não-imagem passa intacto (byte a byte) pela etapa de remoção de EXIF**, `403`/`401` |
+| `Relatorios/RelatorioIncidentesTest.php` | `agrupar_por` = `status_sla`/`responsavel`/`resolvido_por`/`grupo_solucao`/`categoria`/`subcategoria`/`item`, `status_sla`/`responsavel`/`grupo_solucao` restringem a `STATUS_CONCLUIDOS` sem `status` explícito (explícito inclui abertos), `categoria`/`subcategoria`/`item`/`resolvido_por` **não** têm essa restrição, contagem correta por classificação (categoria→subcategoria→item), por agente (incluindo `(sem responsável)` e nome resolvido após desativação via `withTrashed()`) e por grupo de solução (incluindo `(sem grupo de solução)`), **`resolvido_por` conta cada resolução separadamente mesmo com reabertura no meio** (duas linhas em `incidente_resolucoes` pro mesmo incidente = dois eventos contados, não um), **filtra pela data do evento (`IncidenteResolucao.created_at`), não `Incidente.concluido_em`**, filtro por `data_inicio`/`data_fim` (sobre `concluido_em` nas outras dimensões), `client_id`, `grupo_solucao_id`, `formato=xlsx` devolve planilha de verdade (`Content-Type`/`Content-Disposition` corretos), `422` sem `agrupar_por` ou com valor inválido, `403`/`401` |
+| `Relatorios/RelatorioSalvoCrudTest.php` | CRUD completo (`relatorios.view` pra ler/executar, `relatorios.manage` pra criar/editar/excluir), `filtros` vazio (`{}`) é aceito (regressão — `'required'` rejeitava array vazio, corrigido pra `'present'`; achado também que `$request->validate()` some com a chave pai quando reconstrói a partir de sub-regras `filtros.*` vazias, contornado lendo o input bruto), `422` em `nome`/`agrupar_por`/`filtros` ausentes ou `agrupar_por` inválido, `executar` roda os filtros salvos contra dados atuais (json e xlsx), `403`/`401` |
+| `Incidentes/IncidenteSlaTest.php` | Métodos `statusSlaResposta()`/`statusSlaResolucao()`/`tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos()` do `Incidente` isolados (sem HTTP): `sem_sla` sem prazo, `dentro_prazo`/`estourado` comparando com "agora" enquanto aberto, uso de `respondido_em`/`concluido_em` como referência congelada em vez de "agora" quando já concluído |
+| `Dashboard/IncidentesDashboardTest.php` | Formato achatado completo (cliente/email/taxonomia/SLA), `status_sla_*`/`tempo_restante_*` calculados sem query extra (derivados de `prazo_*` já persistido, não chama mais `resolvedSlaFor()`), `estourado` quando aberto e passou do prazo, congela via `concluido_em` mesmo com o prazo já no passado em relação a "agora", `sem_sla` sem política aplicável, classificação `null` sem `item_id`, mesmo filtro do CRUD funcionando (isolado, combinado, `422` em valor inválido, mesma restrição padrão de `status`), `todos_status=1` traz todos os status (incluindo `resolvido`/`fechado`/`cancelado`), `status` explícito tem prioridade sobre `todos_status` quando os dois são enviados, `403`/`401` |
 
 ---

@@ -14,10 +14,16 @@ class IncidenteDashboardResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        // Resolvido em tempo real (não persistido no Incidente — "só a parte
-        // cadastral", ver BACKEND_SPECS.md seção 3.4.7), mesmo mecanismo de
-        // Client::resolvedSlaFor() usado pra qualquer outra consulta de SLA.
-        $politica = $this->customer?->client?->resolvedSlaFor($this->prioridade);
+        // tempo_resposta/resolucao_minutos derivados de prazo_* - created_at
+        // (congelados no Incidente na abertura, ver §3.1) em vez de chamar
+        // Client::resolvedSlaFor() de novo — zero query extra por linha,
+        // diferente da versão anterior desta resource.
+        $tempoRespostaMinutos = $this->prazo_resposta
+            ? $this->created_at->diffInMinutes($this->prazo_resposta)
+            : null;
+        $tempoResolucaoMinutos = $this->prazo_resolucao
+            ? $this->created_at->diffInMinutes($this->prazo_resolucao)
+            : null;
 
         return [
             'numero' => $this->id,
@@ -27,13 +33,22 @@ class IncidenteDashboardResource extends JsonResource
             'prioridade' => $this->prioridade,
             'cliente' => $this->customer?->client?->name,
             'email_cliente' => $this->customer?->email,
-            'tempo_resposta_minutos' => $politica?->tempo_resposta_minutos,
-            'tempo_resposta_horas' => $politica ? round($politica->tempo_resposta_minutos / 60, 2) : null,
-            'tempo_resolucao_minutos' => $politica?->tempo_resolucao_minutos,
-            'tempo_resolucao_horas' => $politica ? round($politica->tempo_resolucao_minutos / 60, 2) : null,
+            'data_abertura' => $this->created_at,
+            'prazo_resposta' => $this->prazo_resposta,
+            'prazo_resolucao' => $this->prazo_resolucao,
+            'status_sla_resposta' => $this->statusSlaResposta(),
+            'status_sla_resolucao' => $this->statusSlaResolucao(),
+            'tempo_resposta_minutos' => $tempoRespostaMinutos,
+            'tempo_resposta_horas' => $tempoRespostaMinutos !== null ? round($tempoRespostaMinutos / 60, 2) : null,
+            'tempo_resolucao_minutos' => $tempoResolucaoMinutos,
+            'tempo_resolucao_horas' => $tempoResolucaoMinutos !== null ? round($tempoResolucaoMinutos / 60, 2) : null,
+            'tempo_restante_resposta_minutos' => $this->tempoRestanteRespostaMinutos(),
+            'tempo_restante_resolucao_minutos' => $this->tempoRestanteResolucaoMinutos(),
             'categoria' => $this->item?->subcategoria?->categoria?->nome,
             'subcategoria' => $this->item?->subcategoria?->nome,
             'item' => $this->item?->nome,
+            'grupo_solucao' => $this->grupoSolucao?->nome,
+            'responsavel' => $this->responsavel?->name,
         ];
     }
 }

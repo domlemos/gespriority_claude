@@ -4,6 +4,7 @@ namespace Tests\Feature\Customers;
 
 use App\Models\Client;
 use App\Models\Customer;
+use App\Models\Incidente;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -42,6 +43,68 @@ class CustomerCrudTest extends TestCase
         $response->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.client.name', 'Acme Corp');
+    }
+
+    public function test_admin_can_filter_customers_by_partial_name(): void
+    {
+        Customer::factory()->create(['name' => 'Ana Silva']);
+        Customer::factory()->create(['name' => 'Bruno Costa']);
+        $token = $this->staffToken();
+
+        $response = $this->getJson('/api/customers?name=ana', $this->authHeader($token));
+
+        $response->assertOk();
+        $names = collect($response->json('data'))->pluck('name')->all();
+        $this->assertContains('Ana Silva', $names);
+        $this->assertNotContains('Bruno Costa', $names);
+    }
+
+    public function test_admin_can_filter_customers_by_partial_email(): void
+    {
+        Customer::factory()->create(['email' => 'ana@example.com']);
+        Customer::factory()->create(['email' => 'bruno@example.com']);
+        $token = $this->staffToken();
+
+        $response = $this->getJson('/api/customers?email=ana@', $this->authHeader($token));
+
+        $response->assertOk();
+        $emails = collect($response->json('data'))->pluck('email')->all();
+        $this->assertContains('ana@example.com', $emails);
+        $this->assertNotContains('bruno@example.com', $emails);
+    }
+
+    public function test_filtering_customers_by_name_with_no_match_returns_empty(): void
+    {
+        Customer::factory()->create(['name' => 'Ana Silva']);
+        $token = $this->staffToken();
+
+        $response = $this->getJson('/api/customers?name=zzznomatch', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_admin_can_filter_customers_by_client_id(): void
+    {
+        $clientA = Client::factory()->create();
+        $clientB = Client::factory()->create();
+        $customerA = Customer::factory()->create(['client_id' => $clientA->id]);
+        Customer::factory()->create(['client_id' => $clientB->id]);
+        $token = $this->staffToken();
+
+        $response = $this->getJson("/api/customers?client_id={$clientA->id}", $this->authHeader($token));
+
+        $response->assertOk();
+        $ids = collect($response->json('data'))->pluck('id')->all();
+        $this->assertContains($customerA->id, $ids);
+    }
+
+    public function test_filtering_customers_by_nonexistent_client_id_returns_422(): void
+    {
+        $token = $this->staffToken();
+
+        $response = $this->getJson('/api/customers?client_id=999999', $this->authHeader($token));
+
+        $response->assertStatus(422)->assertJsonValidationErrors('client_id');
     }
 
     public function test_admin_can_create_a_customer(): void
@@ -100,6 +163,18 @@ class CustomerCrudTest extends TestCase
 
         $response->assertNoContent();
         $this->assertDatabaseMissing('customers', ['id' => $customer->id]);
+    }
+
+    public function test_cannot_delete_a_customer_that_has_incidentes(): void
+    {
+        $customer = Customer::factory()->create();
+        Incidente::factory()->create(['customer_id' => $customer->id]);
+        $token = $this->staffToken();
+
+        $response = $this->deleteJson("/api/customers/{$customer->id}", [], $this->authHeader($token));
+
+        $response->assertStatus(409);
+        $this->assertDatabaseHas('customers', ['id' => $customer->id]);
     }
 
     public function test_staff_without_customers_manage_permission_is_forbidden(): void
