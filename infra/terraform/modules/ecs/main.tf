@@ -196,10 +196,10 @@ resource "aws_ecs_task_definition" "queue" {
 
   container_definitions = jsonencode([
     {
-      name      = "queue"
-      image     = "${var.ecr_repository_url}:${var.image_tag}"
-      essential = true
-      command   = ["php", "artisan", "queue:work", "--tries=3", "--max-time=3600"]
+      name        = "queue"
+      image       = "${var.ecr_repository_url}:${var.image_tag}"
+      essential   = true
+      command     = ["php", "artisan", "queue:work", "--tries=3", "--max-time=3600"]
       environment = local.common_environment
       secrets     = local.common_secrets
       logConfiguration = {
