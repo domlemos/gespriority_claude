@@ -14,4 +14,9 @@ module "data" {
   app_key                 = var.app_key
 }
 
+module "ecr" {
+  source          = "./modules/ecr"
+  repository_name = var.ecr_repository_name
+}
+
 data "aws_caller_identity" "current" {}
