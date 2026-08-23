@@ -19,6 +19,10 @@ resource "aws_secretsmanager_secret" "app_key" {
 resource "aws_secretsmanager_secret_version" "app_key" {
   secret_id     = aws_secretsmanager_secret.app_key.id
   secret_string = var.app_key
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_db_subnet_group" "this" {

@@ -77,8 +77,20 @@ data "aws_iam_policy_document" "github_actions" {
 
   statement {
     sid       = "EcsUpdateService"
-    actions   = ["ecs:UpdateService", "ecs:DescribeServices", "ecs:DescribeTasks"]
+    actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
     resources = [var.web_service_arn, var.queue_service_arn]
+  }
+
+  statement {
+    sid       = "EcsDescribeTasks"
+    actions   = ["ecs:DescribeTasks"]
+    resources = ["*"]
+
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = [var.ecs_cluster_arn]
+    }
   }
 
   statement {

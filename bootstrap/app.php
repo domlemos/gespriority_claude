@@ -18,6 +18,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // rota protegida por `auth:...` faz o middleware tentar `route('login')`
         // e quebrar com RouteNotFoundException em vez de devolver um 401 limpo.
         $middleware->redirectGuestsTo(fn () => null);
+
+        // A app roda atrás do ALB, que termina o TLS. Sem confiar nos
+        // cabeçalhos X-Forwarded-*, os links paginados voltam como
+        // http:// e o rate limiting por IP (throttle:login,
+        // throttle:password-recovery) vê sempre o IP privado do ALB.
+        // '*' é seguro aqui porque o security group já garante que só
+        // o ALB alcança as tasks (ver infra/terraform/modules/ecs).
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

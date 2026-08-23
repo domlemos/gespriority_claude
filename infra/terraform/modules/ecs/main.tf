@@ -233,10 +233,12 @@ resource "aws_ecs_service" "web" {
     container_port   = 8000
   }
 
+  health_check_grace_period_seconds = 120
+
   depends_on = [aws_lb_listener.https]
 
   lifecycle {
-    ignore_changes = [task_definition]
+    ignore_changes = [task_definition, desired_count]
   }
 }
 

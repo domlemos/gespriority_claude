@@ -8,3 +8,10 @@ storage/logs/*
 storage/framework/cache/*
 storage/framework/sessions/*
 storage/framework/views/*
+infra
+docs
+tests
+.github
+bootstrap/cache/*
+storage/app/private/*
+storage/app/public/*

@@ -27,7 +27,7 @@ locals {
     APP_URL                     = "https://${var.domain_name}"
     APP_LOCALE                  = "pt_BR"
     APP_FALLBACK_LOCALE         = "en"
-    LOG_CHANNEL                 = "stack"
+    LOG_CHANNEL                 = "stderr"
     LOG_LEVEL                   = "error"
     BCRYPT_ROUNDS               = "12"
     DB_CONNECTION               = "pgsql"
