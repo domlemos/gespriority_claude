@@ -159,6 +159,36 @@ confirmar no plano), organizado em módulos:
   o SDK da AWS (usado pelo driver `s3` do Flysystem) resolve
   credenciais automaticamente via a role da task.
 
+### Sizing das tasks Fargate
+
+Critério: o mais barato possível sem comprometer a experiência de
+quem usa a aplicação. Isso trata `web` (latência visível ao usuário) e
+`queue` (atraso invisível, processado em background) de forma
+diferente:
+
+- **`web`**: `0.5 vCPU / 1 GB` fixo por task, mais **auto scaling** do
+  service baseado em CPU (target tracking, alvo ~70% de utilização
+  média, `min = 1`, `max = 3`). Isso evita pagar por capacidade ociosa
+  a maior parte do tempo (baseline de 1 task pequena) sem deixar a
+  aplicação lenta sob pico — o ECS sobe uma segunda/terceira task
+  automaticamente antes de saturar. `0.25 vCPU` foi descartado como
+  default porque a app tem picos de CPU conhecidos (geração de
+  relatórios `.xlsx` via PhpSpreadsheet, reencode de imagem via GD na
+  remoção de EXIF de anexos) que rodariam mal com uma fração tão
+  pequena de vCPU.
+- **`queue`**: `0.25 vCPU / 0.5 GB` fixo, sem auto scaling por
+  enquanto (`desired_count = 1`). Atraso no processamento de fila não
+  é visível ao usuário na hora (é background), então é o lugar certo
+  para cortar custo primeiro. Se a geração de relatórios grandes via
+  fila começar a estourar memória (task morta por OOM, visível no
+  `stoppedReason` do ECS) ou o backlog crescer, o ajuste é subir esse
+  valor — não é uma decisão definitiva, é o ponto de partida mais
+  barato.
+- Ambos os valores e os limites de auto scaling ficam como variáveis
+  Terraform (`web_cpu`, `web_memory`, `web_autoscaling_min/max`,
+  `queue_cpu`, `queue_memory`), não hardcoded, para ajustar depois de
+  observar métricas reais sem precisar mexer no módulo.
+
 ## 4. Migração de banco no deploy
 
 `php artisan migrate --force` não roda como parte do comando de
@@ -226,7 +256,11 @@ longa duração armazenados como GitHub Secret).
   então não há conflito de nome entre os dois mesmo usando o mesmo
   valor).
 
-## Questões em aberto (para confirmar no plano de implementação)
+- Sizing das tasks Fargate: `web` em `0.5 vCPU / 1 GB` com auto
+  scaling (min 1, max 3, alvo 70% CPU); `queue` em `0.25 vCPU / 0.5 GB`
+  fixo. Ver seção "Sizing das tasks Fargate" acima.
 
-- Sizing inicial de CPU/memória das tasks Fargate (pode começar
-  conservador e ajustar depois de medir).
+## Questões em aberto
+
+Nenhuma pendente — todas as decisões necessárias para o plano de
+implementação estão fechadas acima.
