@@ -2,8 +2,8 @@ output "alb_dns_name" {
   value = module.ecs.alb_dns_name
 }
 
-output "acm_validation_records" {
-  value = module.ecs.acm_validation_records
+output "route53_name_servers" {
+  value = module.ecs.route53_name_servers
 }
 
 output "ecr_repository_url" {

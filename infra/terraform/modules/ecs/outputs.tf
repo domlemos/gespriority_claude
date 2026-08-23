@@ -2,22 +2,16 @@ output "cluster_name" {
   value = aws_ecs_cluster.this.name
 }
 
+output "route53_name_servers" {
+  value = aws_route53_zone.this.name_servers
+}
+
 output "alb_dns_name" {
   value = aws_lb.this.dns_name
 }
 
 output "acm_certificate_arn" {
   value = aws_acm_certificate.this.arn
-}
-
-output "acm_validation_records" {
-  value = [
-    for dvo in aws_acm_certificate.this.domain_validation_options : {
-      name  = dvo.resource_record_name
-      type  = dvo.resource_record_type
-      value = dvo.resource_record_value
-    }
-  ]
 }
 
 output "web_service_name" {
