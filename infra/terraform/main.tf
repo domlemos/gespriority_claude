@@ -67,3 +67,15 @@ module "ecs" {
 }
 
 data "aws_caller_identity" "current" {}
+
+module "cicd" {
+  source             = "./modules/cicd"
+  project_name       = var.project_name
+  github_repository  = var.github_repository
+  ecr_repository_arn = module.ecr.repository_arn
+  ecs_cluster_arn    = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/${module.ecs.cluster_name}"
+  web_service_arn    = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${module.ecs.cluster_name}/${module.ecs.web_service_name}"
+  queue_service_arn  = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${module.ecs.cluster_name}/${module.ecs.queue_service_name}"
+  execution_role_arn = module.ecs.execution_role_arn
+  task_role_arn      = module.ecs.task_role_arn
+}
