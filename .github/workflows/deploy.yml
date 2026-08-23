@@ -73,8 +73,10 @@ jobs:
       - name: Register web task definition
         id: register-web
         run: |
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            "${{ steps.render-web.outputs.task-definition }}" > web-task-def.clean.json
           ARN=$(aws ecs register-task-definition \
-            --cli-input-json "file://${{ steps.render-web.outputs.task-definition }}" \
+            --cli-input-json "file://web-task-def.clean.json" \
             --query 'taskDefinition.taskDefinitionArn' --output text)
           echo "arn=$ARN" >> "$GITHUB_OUTPUT"
 
@@ -101,8 +103,10 @@ jobs:
       - name: Register queue task definition
         id: register-queue
         run: |
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            "${{ steps.render-queue.outputs.task-definition }}" > queue-task-def.clean.json
           ARN=$(aws ecs register-task-definition \
-            --cli-input-json "file://${{ steps.render-queue.outputs.task-definition }}" \
+            --cli-input-json "file://queue-task-def.clean.json" \
             --query 'taskDefinition.taskDefinitionArn' --output text)
           echo "arn=$ARN" >> "$GITHUB_OUTPUT"
 
