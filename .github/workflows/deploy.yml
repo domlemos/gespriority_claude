@@ -1,0 +1,121 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: gespriority-itsm
+  ECS_CLUSTER: gespriority-itsm-cluster
+  WEB_SERVICE: gespriority-itsm-web
+  QUEUE_SERVICE: gespriority-itsm-queue
+  WEB_TASK_FAMILY: gespriority-itsm-web
+  QUEUE_TASK_FAMILY: gespriority-itsm-queue
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f docker/php/Dockerfile.prod -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download current web task definition
+        run: |
+          aws ecs describe-task-definition --task-definition "$WEB_TASK_FAMILY" \
+            --query 'taskDefinition' > web-task-def.json
+
+      - name: Download current queue task definition
+        run: |
+          aws ecs describe-task-definition --task-definition "$QUEUE_TASK_FAMILY" \
+            --query 'taskDefinition' > queue-task-def.json
+
+      - name: Render new web task definition
+        id: render-web
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: web-task-def.json
+          container-name: web
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Render new queue task definition
+        id: render-queue
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: queue-task-def.json
+          container-name: queue
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Register web task definition
+        id: register-web
+        run: |
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json "file://${{ steps.render-web.outputs.task-definition }}" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Run database migration
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --launch-type FARGATE \
+            --task-definition "${{ steps.register-web.outputs.arn }}" \
+            --overrides '{"containerOverrides":[{"name":"web","command":["php","artisan","migrate","--force"]}]}' \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PRIVATE_SUBNET_IDS }}],securityGroups=[${{ secrets.ECS_TASKS_SECURITY_GROUP_ID }}],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+
+      - name: Register queue task definition
+        id: register-queue
+        run: |
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json "file://${{ steps.render-queue.outputs.task-definition }}" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy web service
+        run: |
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$WEB_SERVICE" \
+            --task-definition "${{ steps.register-web.outputs.arn }}" --force-new-deployment
+
+      - name: Deploy queue service
+        run: |
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$QUEUE_SERVICE" \
+            --task-definition "${{ steps.register-queue.outputs.arn }}" --force-new-deployment
+
+      - name: Wait for services to stabilize
+        run: |
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$WEB_SERVICE" "$QUEUE_SERVICE"
