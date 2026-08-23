@@ -122,11 +122,13 @@ confirmar no plano), organizado em módulos:
   para ligar depois), subnet group nas subnets privadas, credenciais
   geradas e guardadas no Secrets Manager (não hardcoded no
   `.tf`/state).
-- Bucket S3 privado para anexos (`block_public_access` total,
-  versionamento ligado, sem lifecycle rule agressiva por padrão).
+- Bucket S3 privado `gespriority-itsm` para anexos
+  (`block_public_access` total, versionamento ligado, sem lifecycle
+  rule agressiva por padrão). Ver "Decisões confirmadas" sobre o risco
+  de colisão de nome globalmente único.
 
 ### `ecr`
-- Repositório único para a imagem da aplicação, com
+- Repositório `gespriority-itsm` para a imagem da aplicação, com
   `image_scanning_configuration` ligado e política de lifecycle para
   não acumular imagens antigas indefinidamente.
 
@@ -141,11 +143,13 @@ confirmar no plano), organizado em módulos:
   `php artisan queue:work --tries=3 --max-time=3600`, sem porta
   exposta, mesmas env vars/segredos.
 - Service `web`: atrás de um Application Load Balancer (listener HTTPS
-  443 com certificado ACM — o domínio/validação do certificado é
-  responsabilidade do usuário fora deste Terraform, ou um módulo
-  separado se ele já tiver o domínio na Route53), target group com
-  health check em `/up`, `desired_count` configurável (default 1,
-  pronto para subir).
+  443 com certificado ACM para `gespriority.com.br`, criado pelo
+  Terraform via `aws_acm_certificate` + `aws_acm_certificate_validation`
+  com `validation_method = "DNS"`; como o domínio não está na Route53,
+  o registro CNAME de validação é exposto como `output` do módulo para
+  o usuário cadastrar manualmente no DNS atual — ver "Decisões
+  confirmadas"), target group com health check em `/up`,
+  `desired_count` configurável (default 1, pronto para subir).
 - Service `queue`: sem load balancer, `desired_count` configurável
   (default 1).
 - IAM: task execution role (padrão, pull da imagem + logs) e task role
@@ -200,12 +204,29 @@ longa duração armazenados como GitHub Secret).
   service de volta pra revisão anterior via
   `aws ecs update-service --task-definition <revisão anterior>`.
 
+## Decisões confirmadas
+
+- Domínio: `gespriority.com.br`, **não** hospedado na Route53. O
+  certificado ACM ainda pode ser criado via Terraform
+  (`aws_acm_certificate` com `validation_method = "DNS"`), mas como a
+  zona não está na Route53, o Terraform não pode criar o registro de
+  validação automaticamente. O `apply` vai expor o(s) registro(s)
+  CNAME de validação como `output`; o usuário precisa cadastrá-los
+  manualmente no DNS atual do domínio antes que
+  `aws_acm_certificate_validation` (que fica aguardando) complete. Isso
+  vira um passo manual documentado no plano/README de deploy, e só
+  acontece uma vez (a menos que o certificado seja recriado).
+- Bucket S3 de anexos: `gespriority-itsm`. Nomes de bucket S3 são
+  únicos globalmente (entre todas as contas AWS) — se esse nome já
+  estiver em uso por outra conta, o `apply` falha nesse recurso
+  especificamente; o plano de implementação deve tratar isso como
+  possível ponto de retry com um nome alternativo (ex.:
+  `gespriority-itsm-anexos`), sem impacto no resto da infra.
+- Repositório ECR: `gespriority-itsm` (namespace separado do S3,
+  então não há conflito de nome entre os dois mesmo usando o mesmo
+  valor).
+
 ## Questões em aberto (para confirmar no plano de implementação)
 
-- Domínio e certificado ACM: o usuário precisa indicar o domínio que
-  vai apontar pro ALB (e se já está na Route53 ou em outro
-  registrador).
-- Nome/organização do repositório ECR e do bucket S3 (únicos
-  globalmente para S3).
 - Sizing inicial de CPU/memória das tasks Fargate (pode começar
   conservador e ajustar depois de medir).
