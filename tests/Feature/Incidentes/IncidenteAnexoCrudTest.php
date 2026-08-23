@@ -369,4 +369,27 @@ class IncidenteAnexoCrudTest extends TestCase
         $this->getJson("/api/incidentes/{$incidente->id}/anexos", $this->authHeader($token))
             ->assertStatus(401);
     }
+
+    public function test_exif_stripping_and_storage_work_on_a_non_local_default_disk(): void
+    {
+        config(['filesystems.default' => 's3']);
+        Storage::fake('s3');
+
+        $incidente = Incidente::factory()->create();
+        [$token] = $this->staffToken(['tickets.manage']);
+        $marcador = 'SEGREDO_GPS_LAT_-23.5505_LON_-46.6333';
+        $arquivo = UploadedFile::fake()->createWithContent('foto.jpg', $this->jpegComMarcadorFalso($marcador));
+
+        $response = $this->post(
+            "/api/incidentes/{$incidente->id}/anexos",
+            ['arquivo' => $arquivo],
+            $this->authHeader($token)
+        );
+
+        $response->assertCreated();
+        $anexo = Anexo::query()->first();
+        $conteudoSalvo = Storage::disk('s3')->get($anexo->caminho);
+        $this->assertNotNull($conteudoSalvo);
+        $this->assertStringNotContainsString($marcador, $conteudoSalvo);
+    }
 }

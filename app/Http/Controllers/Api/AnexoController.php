@@ -12,8 +12,6 @@ use Illuminate\Support\Facades\Storage;
 
 class AnexoController extends Controller
 {
-    private const DISK = 'local';
-
     // Lista branca — só o que o produto realmente precisa (documentos,
     // imagens, planilhas). Nunca lista negra: um tipo novo e desconhecido
     // é rejeitado por padrão, não aceito até alguém lembrar de bloqueá-lo.
@@ -81,7 +79,7 @@ class AnexoController extends Controller
             'tamanho' => $arquivo->getSize(),
         ]);
         $anexo->incidente_id = $incidente->id;
-        $anexo->caminho = $arquivo->store("anexos/incidentes/{$incidente->id}", self::DISK);
+        $anexo->caminho = $arquivo->store("anexos/incidentes/{$incidente->id}");
         $anexo->save();
 
         $this->removerMetadadosSeImagem($anexo->caminho, $anexo->mime_type);
@@ -95,18 +93,14 @@ class AnexoController extends Controller
     {
         $this->ensureBelongsTo($incidente, $anexo);
 
-        // Storage::download() já seta Content-Disposition: attachment —
-        // o navegador baixa o arquivo, nunca executa/renderiza inline
-        // (relevante pra um .html ou .svg com script embutido que
-        // eventualmente passasse pela whitelist).
-        return Storage::disk(self::DISK)->download($anexo->caminho, $anexo->nome_original);
+        return Storage::download($anexo->caminho, $anexo->nome_original);
     }
 
     public function destroy(Incidente $incidente, Anexo $anexo)
     {
         $this->ensureBelongsTo($incidente, $anexo);
 
-        Storage::disk(self::DISK)->delete($anexo->caminho);
+        Storage::delete($anexo->caminho);
         $anexo->delete();
 
         return response()->noContent();
@@ -156,15 +150,22 @@ class AnexoController extends Controller
         }
 
         [$criar, $salvar] = $processadores[$mimeType];
-        $caminhoAbsoluto = Storage::disk(self::DISK)->path($caminho);
 
-        $imagem = @$criar($caminhoAbsoluto);
+        $arquivoTemporario = tempnam(sys_get_temp_dir(), 'anexo_exif_');
+        file_put_contents($arquivoTemporario, Storage::get($caminho));
+
+        $imagem = @$criar($arquivoTemporario);
 
         if ($imagem === false) {
+            unlink($arquivoTemporario);
+
             return;
         }
 
-        $salvar($imagem, $caminhoAbsoluto);
+        $salvar($imagem, $arquivoTemporario);
         imagedestroy($imagem);
+
+        Storage::put($caminho, file_get_contents($arquivoTemporario));
+        unlink($arquivoTemporario);
     }
 }
