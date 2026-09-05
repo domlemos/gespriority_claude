@@ -23,10 +23,16 @@ data "aws_iam_policy_document" "github_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # GitHub defaults new repos/orgs to embedding stable numeric IDs in the
+    # sub claim (repo:owner@ownerId/repo@repoId:ref:...) to survive renames —
+    # matching both forms so this doesn't break if that default ever flips.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
+      values = [
+        "repo:${var.github_repository}:ref:refs/heads/main",
+        "repo:${split("/", var.github_repository)[0]}@*/${split("/", var.github_repository)[1]}@*:ref:refs/heads/main",
+      ]
     }
   }
 }
