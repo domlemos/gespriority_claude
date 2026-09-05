@@ -7,7 +7,7 @@ use App\Models\Client;
 use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
-use App\Models\IncidenteResolucao;
+use App\Models\IncidenteEvento;
 use App\Models\Item;
 use App\Models\Permission;
 use App\Models\Role;
@@ -132,8 +132,8 @@ class RelatorioIncidentesTest extends TestCase
         $agenteB = User::factory()->create(['name' => 'Agente B']);
         $incidenteA = Incidente::factory()->create(['status' => 'resolvido']);
         $incidenteB = Incidente::factory()->create(['status' => 'fechado']);
-        IncidenteResolucao::factory()->create(['incidente_id' => $incidenteA->id, 'user_id' => $agenteA->id]);
-        IncidenteResolucao::factory()->create(['incidente_id' => $incidenteB->id, 'user_id' => $agenteB->id]);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidenteA->id, 'user_id' => $agenteA->id]);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidenteB->id, 'user_id' => $agenteB->id]);
 
         [$token] = $this->staffToken(['relatorios.view']);
 
@@ -154,8 +154,8 @@ class RelatorioIncidentesTest extends TestCase
         $agenteA = User::factory()->create(['name' => 'Agente A']);
         $agenteB = User::factory()->create(['name' => 'Agente B']);
         $incidente = Incidente::factory()->create(['status' => 'em_andamento']);
-        IncidenteResolucao::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agenteA->id]);
-        IncidenteResolucao::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agenteB->id]);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agenteA->id]);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agenteB->id]);
 
         [$token] = $this->staffToken(['relatorios.view']);
 
@@ -171,7 +171,7 @@ class RelatorioIncidentesTest extends TestCase
     {
         $agente = User::factory()->create(['name' => 'Agente Antigo']);
         $incidente = Incidente::factory()->create(['status' => 'resolvido']);
-        $resolucaoAntiga = IncidenteResolucao::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id]);
+        $resolucaoAntiga = IncidenteEvento::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id]);
         $resolucaoAntiga->forceFill(['created_at' => '2026-01-10 10:00:00'])->save();
 
         [$token] = $this->staffToken(['relatorios.view']);
@@ -188,7 +188,7 @@ class RelatorioIncidentesTest extends TestCase
     {
         $agente = User::factory()->create(['name' => 'Agente Desativado']);
         $incidente = Incidente::factory()->create(['status' => 'resolvido']);
-        IncidenteResolucao::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id]);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id]);
         $agente->delete();
 
         [$token] = $this->staffToken(['relatorios.view']);
@@ -196,6 +196,129 @@ class RelatorioIncidentesTest extends TestCase
         $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=resolvido_por', $this->authHeader($token));
 
         $response->assertOk()->assertJsonPath('data.0.rotulo', 'Agente Desativado');
+    }
+
+    public function test_agrupar_por_fechado_por_counts_closure_events_per_user(): void
+    {
+        $agenteA = User::factory()->create(['name' => 'Agente A']);
+        $agenteB = User::factory()->create(['name' => 'Agente B']);
+        $incidenteA = Incidente::factory()->create(['status' => 'fechado']);
+        $incidenteB = Incidente::factory()->create(['status' => 'fechado']);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidenteA->id, 'user_id' => $agenteA->id, 'tipo' => 'fechado']);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidenteB->id, 'user_id' => $agenteB->id, 'tipo' => 'fechado']);
+        // Resolvido não deveria contar aqui — dimensões diferentes.
+        IncidenteEvento::factory()->create(['incidente_id' => $incidenteA->id, 'user_id' => $agenteA->id, 'tipo' => 'resolvido']);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=fechado_por', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('agrupado_por', 'fechado_por');
+        $porRotulo = collect($response->json('data'))->keyBy('rotulo');
+        $this->assertSame(1, $porRotulo['Agente A']['total']);
+        $this->assertSame(1, $porRotulo['Agente B']['total']);
+    }
+
+    public function test_agrupar_por_encaminhado_por_counts_both_grupo_and_responsavel_escalations(): void
+    {
+        $agente = User::factory()->create(['name' => 'Agente C']);
+        $incidente = Incidente::factory()->create();
+        IncidenteEvento::factory()->create([
+            'incidente_id' => $incidente->id,
+            'user_id' => $agente->id,
+            'tipo' => 'encaminhado_grupo',
+            'alvo_type' => GrupoSolucao::class,
+            'alvo_id' => GrupoSolucao::factory()->create()->id,
+        ]);
+        IncidenteEvento::factory()->create([
+            'incidente_id' => $incidente->id,
+            'user_id' => $agente->id,
+            'tipo' => 'encaminhado_responsavel',
+            'alvo_type' => User::class,
+            'alvo_id' => User::factory()->create()->id,
+        ]);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=encaminhado_por', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('agrupado_por', 'encaminhado_por');
+        $this->assertSame(2, collect($response->json('data'))->firstWhere('rotulo', 'Agente C')['total']);
+    }
+
+    public function test_agrupar_por_encaminhado_para_grupo_counts_by_destination_group(): void
+    {
+        $grupo = GrupoSolucao::factory()->create(['nome' => 'Suporte N2']);
+        $incidente = Incidente::factory()->create();
+        IncidenteEvento::factory()->create([
+            'incidente_id' => $incidente->id,
+            'tipo' => 'encaminhado_grupo',
+            'alvo_type' => GrupoSolucao::class,
+            'alvo_id' => $grupo->id,
+        ]);
+        // Não deveria vazar pro agrupamento de grupo.
+        IncidenteEvento::factory()->create([
+            'incidente_id' => $incidente->id,
+            'tipo' => 'encaminhado_responsavel',
+            'alvo_type' => User::class,
+            'alvo_id' => User::factory()->create()->id,
+        ]);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=encaminhado_para_grupo', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.rotulo', 'Suporte N2');
+    }
+
+    public function test_agrupar_por_encaminhado_para_responsavel_counts_by_destination_user(): void
+    {
+        $responsavel = User::factory()->create(['name' => 'Ana Souza']);
+        $incidente = Incidente::factory()->create();
+        IncidenteEvento::factory()->create([
+            'incidente_id' => $incidente->id,
+            'tipo' => 'encaminhado_responsavel',
+            'alvo_type' => User::class,
+            'alvo_id' => $responsavel->id,
+        ]);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=encaminhado_para_responsavel', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.rotulo', 'Ana Souza');
+    }
+
+    public function test_agrupar_por_aberto_por_counts_incidentes_by_creator(): void
+    {
+        $agenteA = User::factory()->create(['name' => 'Agente A']);
+        $agenteB = User::factory()->create(['name' => 'Agente B']);
+        Incidente::factory()->count(2)->create(['status' => 'aberto', 'criado_por_id' => $agenteA->id]);
+        Incidente::factory()->create(['status' => 'fechado', 'criado_por_id' => $agenteB->id]);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=aberto_por', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('agrupado_por', 'aberto_por');
+        $porRotulo = collect($response->json('data'))->keyBy('rotulo');
+        $this->assertSame(2, $porRotulo['Agente A']['total']);
+        $this->assertSame(1, $porRotulo['Agente B']['total']);
+    }
+
+    public function test_agrupar_por_aberto_por_does_not_restrict_to_closed_incidentes(): void
+    {
+        // "Aberto por" é volume de quem registrou o chamado, não
+        // desempenho de fechamento — sem a restrição implícita de
+        // STATUS_CONCLUIDOS (mesmo critério de categoria/subcategoria/item).
+        $agente = User::factory()->create(['name' => 'Agente A']);
+        Incidente::factory()->create(['status' => 'em_andamento', 'criado_por_id' => $agente->id]);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=aberto_por', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('data.0.total', 1);
     }
 
     public function test_agrupar_por_grupo_solucao_counts_closed_incidentes_per_group(): void

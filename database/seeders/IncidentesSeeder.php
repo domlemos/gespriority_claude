@@ -8,7 +8,7 @@ use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
 use App\Models\IncidenteDescricao;
-use App\Models\IncidenteResolucao;
+use App\Models\IncidenteEvento;
 use App\Models\Item;
 use App\Models\User;
 use Carbon\Carbon;
@@ -57,10 +57,20 @@ class IncidentesSeeder extends Seeder
             'origem' => 'portal',
             'status' => 'em_andamento',
         ]);
+        $incidente1->forceFill(['criado_por_id' => $admin->id])->save();
         $this->calcularPrazosSla($incidente1);
         // "em_andamento" pressupõe que já saiu de 'aberto' — mesma regra de
         // IncidenteController::registrarTransicaoDeStatus().
         $incidente1->forceFill(['respondido_em' => $incidente1->created_at])->save();
+        if ($grupoN1) {
+            IncidenteEvento::query()->create([
+                'incidente_id' => $incidente1->id,
+                'user_id' => $admin->id,
+                'tipo' => IncidenteEvento::TIPO_ENCAMINHADO_GRUPO,
+                'alvo_type' => GrupoSolucao::class,
+                'alvo_id' => $grupoN1->id,
+            ]);
+        }
 
         IncidenteDescricao::query()->create([
             'incidente_id' => $incidente1->id,
@@ -96,6 +106,7 @@ class IncidentesSeeder extends Seeder
             'origem' => 'telefone',
             'status' => 'aberto',
         ]);
+        $incidente2->forceFill(['criado_por_id' => $admin->id])->save();
         $this->calcularPrazosSla($incidente2);
 
         IncidenteDescricao::query()->create([
@@ -145,21 +156,21 @@ class IncidentesSeeder extends Seeder
             ['name' => 'Financeiro TechCorp', 'client_id' => $segundoClient->id, 'password' => Hash::make('password')]
         );
 
-        // {titulo, item, grupo, responsavel, prioridade, origem, status, dias atrás da abertura, horas até a conclusão (null = sem SLA), customer}
+        // {titulo, item, grupo, responsavel, prioridade, origem, status, dias atrás da abertura, horas até a conclusão (null = sem SLA), customer, criador}
         $incidentes = [
-            ['Notebook não liga após queda de energia', $itemNaoLiga, $grupoN1, $agente, 'alta', 'telefone', 'fechado', 10, 7, $customerPrincipal],
-            ['Sistema travando toda hora', $itemLentidaoSo, $grupoN2, $supervisor, 'media', 'portal', 'resolvido', 8, 30, $customerPrincipal],
-            ['VPN caindo direto', $itemVpnQueda, $grupoRedes, $agente, 'urgente', 'email', 'fechado', 5, 3, $customerPrincipal],
-            ['Conta bloqueada após tentativas', $itemContaBloqueada, $grupoN1, $admin, 'baixa', 'chat', 'cancelado', 3, 1, $customerPrincipal],
-            ['Licença do sistema expirada', $itemLicencaExpirada, $grupoN2, null, 'alta', 'portal', 'fechado', 15, 20, $customerPrincipal],
-            ['Wi-Fi com sinal fraco no 2º andar', $itemWifiFraco, $grupoRedes, $agente, 'baixa', 'presencial', 'resolvido', 20, 40, $customerPrincipal],
-            ['Acesso negado ao sistema financeiro', $itemAcessoNegado, null, $supervisor, 'media', 'portal', 'fechado', 2, 10, $segundoCustomer],
-            ['Mouse sem funcionar', $itemMouse, $grupoN1, $agente, 'baixa', 'portal', 'fechado', 1, null, $customerPrincipal],
-            ['Erro ao abrir aplicativo', $itemAppNaoAbre, $grupoN2, $admin, 'media', 'monitoramento', 'fechado', 25, 30, $segundoCustomer],
-            ['Chamado sem classificação de item', null, $grupoN1, $agente, 'media', 'telefone', 'fechado', 4, 10, $customerPrincipal],
+            ['Notebook não liga após queda de energia', $itemNaoLiga, $grupoN1, $agente, 'alta', 'telefone', 'fechado', 10, 7, $customerPrincipal, $agente],
+            ['Sistema travando toda hora', $itemLentidaoSo, $grupoN2, $supervisor, 'media', 'portal', 'resolvido', 8, 30, $customerPrincipal, $admin],
+            ['VPN caindo direto', $itemVpnQueda, $grupoRedes, $agente, 'urgente', 'email', 'fechado', 5, 3, $customerPrincipal, $agente],
+            ['Conta bloqueada após tentativas', $itemContaBloqueada, $grupoN1, $admin, 'baixa', 'chat', 'cancelado', 3, 1, $customerPrincipal, $supervisor],
+            ['Licença do sistema expirada', $itemLicencaExpirada, $grupoN2, null, 'alta', 'portal', 'fechado', 15, 20, $customerPrincipal, $admin],
+            ['Wi-Fi com sinal fraco no 2º andar', $itemWifiFraco, $grupoRedes, $agente, 'baixa', 'presencial', 'resolvido', 20, 40, $customerPrincipal, $agente],
+            ['Acesso negado ao sistema financeiro', $itemAcessoNegado, null, $supervisor, 'media', 'portal', 'fechado', 2, 10, $segundoCustomer, $supervisor],
+            ['Mouse sem funcionar', $itemMouse, $grupoN1, $agente, 'baixa', 'portal', 'fechado', 1, null, $customerPrincipal, $agente],
+            ['Erro ao abrir aplicativo', $itemAppNaoAbre, $grupoN2, $admin, 'media', 'monitoramento', 'fechado', 25, 30, $segundoCustomer, $admin],
+            ['Chamado sem classificação de item', null, $grupoN1, $agente, 'media', 'telefone', 'fechado', 4, 10, $customerPrincipal, $agente],
         ];
 
-        foreach ($incidentes as $index => [$titulo, $item, $grupo, $responsavel, $prioridade, $origem, $status, $diasAtras, $horasAteConcluir, $customer]) {
+        foreach ($incidentes as $index => [$titulo, $item, $grupo, $responsavel, $prioridade, $origem, $status, $diasAtras, $horasAteConcluir, $customer, $criador]) {
             $incidente = $this->criarIncidenteFechado(
                 customer: $customer,
                 item: $item,
@@ -172,27 +183,63 @@ class IncidentesSeeder extends Seeder
                 criadoEm: now()->subDays($diasAtras),
                 horasAteConcluir: $horasAteConcluir,
             );
+            $incidente->forceFill(['criado_por_id' => $criador->id])->save();
 
-            // 'cancelado' nunca passou por 'resolvido' — sem evento. Pro
-            // primeiro incidente ("Notebook não liga..."), simula o
-            // cenário de reabertura que motivou essa tabela: resolvido pelo
-            // agente, reaberto, resolvido de novo pelo supervisor — as
-            // DUAS resoluções ficam registradas, não só a mais recente.
+            if ($grupo) {
+                IncidenteEvento::query()->create([
+                    'incidente_id' => $incidente->id,
+                    'user_id' => $criador->id,
+                    'tipo' => IncidenteEvento::TIPO_ENCAMINHADO_GRUPO,
+                    'alvo_type' => GrupoSolucao::class,
+                    'alvo_id' => $grupo->id,
+                ]);
+            }
+
+            if ($responsavel) {
+                IncidenteEvento::query()->create([
+                    'incidente_id' => $incidente->id,
+                    'user_id' => $criador->id,
+                    'tipo' => IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL,
+                    'alvo_type' => User::class,
+                    'alvo_id' => $responsavel->id,
+                ]);
+            }
+
+            // 'cancelado' nunca passou por 'resolvido'/'fechado' — sem
+            // evento de conclusão (mas os de encaminhamento acima continuam
+            // valendo normalmente).
             if ($status === 'cancelado') {
                 continue;
             }
 
+            // Pro primeiro incidente ("Notebook não liga..."), simula o
+            // cenário de reabertura que motivou a generalização desta
+            // tabela: resolvido pelo agente, reaberto, resolvido de novo
+            // pelo supervisor — as DUAS resoluções ficam registradas, não
+            // só a mais recente.
             if ($index === 0) {
-                IncidenteResolucao::query()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id]);
-                IncidenteResolucao::query()->create(['incidente_id' => $incidente->id, 'user_id' => $supervisor->id]);
+                IncidenteEvento::query()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id, 'tipo' => IncidenteEvento::TIPO_RESOLVIDO]);
+                IncidenteEvento::query()->create(['incidente_id' => $incidente->id, 'user_id' => $supervisor->id, 'tipo' => IncidenteEvento::TIPO_RESOLVIDO]);
+                IncidenteEvento::query()->create(['incidente_id' => $incidente->id, 'user_id' => $supervisor->id, 'tipo' => IncidenteEvento::TIPO_FECHADO]);
 
                 continue;
             }
 
-            IncidenteResolucao::query()->create([
+            $autorConclusao = ($responsavel ?? $admin)->id;
+
+            IncidenteEvento::query()->create([
                 'incidente_id' => $incidente->id,
-                'user_id' => ($responsavel ?? $admin)->id,
+                'user_id' => $autorConclusao,
+                'tipo' => IncidenteEvento::TIPO_RESOLVIDO,
             ]);
+
+            if ($status === 'fechado') {
+                IncidenteEvento::query()->create([
+                    'incidente_id' => $incidente->id,
+                    'user_id' => $autorConclusao,
+                    'tipo' => IncidenteEvento::TIPO_FECHADO,
+                ]);
+            }
         }
     }
 

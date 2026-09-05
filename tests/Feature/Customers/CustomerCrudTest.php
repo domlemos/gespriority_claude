@@ -9,6 +9,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class CustomerCrudTest extends TestCase
@@ -121,6 +122,23 @@ class CustomerCrudTest extends TestCase
 
         $response->assertCreated()->assertJsonPath('data.name', 'João Cliente');
         $this->assertDatabaseHas('customers', ['email' => 'joao@example.com', 'client_id' => $client->id]);
+    }
+
+    public function test_admin_can_create_a_customer_without_a_password_pending_invite(): void
+    {
+        $client = Client::factory()->create();
+        $token = $this->staffToken();
+
+        $response = $this->postJson('/api/customers', [
+            'name' => 'Sem Senha',
+            'email' => 'sem-senha@example.com',
+            'client_id' => $client->id,
+        ], $this->authHeader($token));
+
+        $response->assertCreated();
+        $customer = Customer::query()->where('email', 'sem-senha@example.com')->firstOrFail();
+        $this->assertNotEmpty($customer->password);
+        $this->assertFalse(Hash::check('', $customer->password));
     }
 
     public function test_creating_customer_requires_a_valid_client_id(): void

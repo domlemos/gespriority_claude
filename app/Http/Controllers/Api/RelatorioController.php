@@ -7,7 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Categoria;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
-use App\Models\IncidenteResolucao;
+use App\Models\IncidenteEvento;
 use App\Models\Item;
 use App\Models\RelatorioSalvo;
 use App\Models\Subcategoria;
@@ -70,30 +70,77 @@ class RelatorioController extends Controller
     }
 
     /**
+     * Dimensões cuja base é `IncidenteEvento` (não `Incidente`), agrupadas
+     * pelo autor do evento (`user_id`) — um `tipo` só (`resolvido_por`/
+     * `fechado_por`) ou dois somados (`encaminhado_por` conta tanto
+     * encaminhamento pra grupo quanto atribuição de responsável, já que o
+     * pedido era só "quem encaminhou", sem distinguir o destino).
+     */
+    private const EVENTOS_POR_USUARIO = [
+        'resolvido_por' => [IncidenteEvento::TIPO_RESOLVIDO],
+        'fechado_por' => [IncidenteEvento::TIPO_FECHADO],
+        'encaminhado_por' => [IncidenteEvento::TIPO_ENCAMINHADO_GRUPO, IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL],
+    ];
+
+    /**
      * `status_sla`/`responsavel`/`grupo_solucao` respondem ao pedido original
      * ("incidentes FECHADOS..."): sem `status` explícito, restringe a
-     * `STATUS_CONCLUIDOS`. `categoria`/`subcategoria`/`item` é volume
-     * geral — o pedido não mencionava "fechados" pra esse indicador, então
-     * não tem essa restrição implícita. `grupo_solucao` segue o mesmo
-     * critério de `responsavel` (mede desempenho do grupo em chamados
-     * concluídos, não volume geral).
+     * `STATUS_CONCLUIDOS`. `categoria`/`subcategoria`/`item`/`aberto_por` é
+     * volume geral — o pedido não mencionava "fechados" pra esses
+     * indicadores, então não tem essa restrição implícita. `grupo_solucao`
+     * segue o mesmo critério de `responsavel` (mede desempenho do grupo em
+     * chamados concluídos, não volume geral).
      *
-     * `resolvido_por` é tratado à parte, ANTES de montar `$query` sobre
-     * `Incidente` — a base dessa dimensão é `IncidenteResolucao` (um evento
-     * por transição pra 'resolvido', nunca sobrescrito nem limpo na
-     * reabertura — ver IncidenteController::registrarResolucaoSeAplicavel()),
-     * não `Incidente.responsavel_id`/`concluido_em`, que só guardam o
-     * estado *atual*. Por isso também não tem a restrição implícita de
-     * `STATUS_CONCLUIDOS`: um chamado resolvido e depois reaberto pra
+     * As dimensões baseadas em `IncidenteEvento` (`EVENTOS_POR_USUARIO` +
+     * `encaminhado_para_grupo`/`encaminhado_para_responsavel`) são tratadas
+     * à parte, ANTES de montar `$query` sobre `Incidente` — a base delas é
+     * um evento por transição/encaminhamento, nunca sobrescrito nem limpo
+     * na reabertura (ver `IncidenteController::registrarEventoDeConclusaoSeAplicavel()`/
+     * `logEscalonamentoSeMudou()`), não uma coluna de `Incidente`, que só
+     * guarda o estado *atual*. Por isso também não têm a restrição implícita
+     * de `STATUS_CONCLUIDOS`: um chamado resolvido e depois reaberto pra
      * 'em_andamento' ainda deve contar a resolução que já aconteceu.
      */
     private function agregar(array $filtros, string $agruparPor): Collection
     {
-        if ($agruparPor === 'resolvido_por') {
+        if (isset(self::EVENTOS_POR_USUARIO[$agruparPor])) {
             return $this->comRotulos(
-                $this->contarAgrupado(IncidenteResolucao::query()->filtrosRelatorio($filtros), 'user_id'),
+                $this->contarAgrupado(
+                    IncidenteEvento::query()->whereIn('tipo', self::EVENTOS_POR_USUARIO[$agruparPor])->filtrosRelatorio($filtros),
+                    'user_id'
+                ),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
                 '(usuário desconhecido)',
+            );
+        }
+
+        if ($agruparPor === 'encaminhado_para_grupo') {
+            return $this->comRotulos(
+                $this->contarAgrupado(
+                    IncidenteEvento::query()->where('tipo', IncidenteEvento::TIPO_ENCAMINHADO_GRUPO)->filtrosRelatorio($filtros),
+                    'alvo_id'
+                ),
+                fn (array $ids) => GrupoSolucao::whereIn('id', $ids)->pluck('nome', 'id'),
+                '(sem grupo)',
+            );
+        }
+
+        if ($agruparPor === 'encaminhado_para_responsavel') {
+            return $this->comRotulos(
+                $this->contarAgrupado(
+                    IncidenteEvento::query()->where('tipo', IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL)->filtrosRelatorio($filtros),
+                    'alvo_id'
+                ),
+                fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
+                '(sem responsável)',
+            );
+        }
+
+        if ($agruparPor === 'aberto_por') {
+            return $this->comRotulos(
+                $this->contarAgrupado(Incidente::query()->filtrosRelatorio($filtros), 'criado_por_id'),
+                fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
+                '(desconhecido)',
             );
         }
 

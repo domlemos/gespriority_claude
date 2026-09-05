@@ -54,10 +54,14 @@ Route::middleware(['auth:web', 'can:clients.manage'])->apiResource('clients', Cl
 
 Route::middleware(['auth:web', 'can:users.manage'])->group(function () {
     Route::apiResource('users', UserController::class);
+    Route::post('/users/{user}/convite', [UserController::class, 'enviarConvite']);
     Route::get('/roles', [RoleController::class, 'index']);
 });
 
-Route::middleware(['auth:web', 'can:customers.manage'])->apiResource('customers', CustomerController::class);
+Route::middleware(['auth:web', 'can:customers.manage'])->group(function () {
+    Route::apiResource('customers', CustomerController::class);
+    Route::post('/customers/{customer}/convite', [CustomerController::class, 'enviarConvite']);
+});
 
 // Política de SLA — leitura liberada a qualquer staff com `slas.view`
 // (agente/supervisor precisam saber os alvos), mas só admin

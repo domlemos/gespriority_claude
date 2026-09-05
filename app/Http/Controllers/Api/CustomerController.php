@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CustomerResource;
 use App\Models\Customer;
+use App\Notifications\ConviteUsuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class CustomerController extends Controller
@@ -36,7 +39,10 @@ class CustomerController extends Controller
             'client_id' => $data['client_id'],
             'name' => $data['name'],
             'email' => $data['email'],
-            'password' => Hash::make($data['password']),
+            // Sem senha informada: gera um hash aleatório inutilizável — o
+            // customer só entra depois de definir a própria via convite (ver
+            // enviarConvite() e BACKEND_SPECS.md seção 3.4.3.1).
+            'password' => Hash::make($data['password'] ?? Str::password(40)),
         ]);
 
         return (new CustomerResource($customer->load('client')))
@@ -68,6 +74,15 @@ class CustomerController extends Controller
         return new CustomerResource($customer->load('client'));
     }
 
+    public function enviarConvite(Customer $customer)
+    {
+        $token = Password::broker('customers')->createToken($customer);
+
+        $customer->notify(new ConviteUsuario($token));
+
+        return response()->json(['message' => 'Convite enviado.']);
+    }
+
     public function destroy(Customer $customer)
     {
         if ($customer->incidentes()->exists()) {
@@ -89,7 +104,9 @@ class CustomerController extends Controller
                 'required', 'email', 'max:255',
                 Rule::unique('customers', 'email')->ignore($customer?->id),
             ],
-            'password' => [$customer ? 'nullable' : 'required', 'string', 'min:8'],
+            // Opcional em ambos os casos: na criação, ausente = conta criada
+            // sem senha utilizável, pendente de convite (ver enviarConvite()).
+            'password' => ['nullable', 'string', 'min:8'],
             'client_id' => ['required', 'integer', 'exists:clients,id'],
         ]);
     }

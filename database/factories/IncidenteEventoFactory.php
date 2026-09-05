@@ -3,16 +3,16 @@
 namespace Database\Factories;
 
 use App\Models\Incidente;
-use App\Models\IncidenteResolucao;
+use App\Models\IncidenteEvento;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends Factory<IncidenteResolucao>
+ * @extends Factory<IncidenteEvento>
  */
-class IncidenteResolucaoFactory extends Factory
+class IncidenteEventoFactory extends Factory
 {
-    protected $model = IncidenteResolucao::class;
+    protected $model = IncidenteEvento::class;
 
     /**
      * Define the model's default state.
@@ -24,6 +24,7 @@ class IncidenteResolucaoFactory extends Factory
         return [
             'incidente_id' => Incidente::factory(),
             'user_id' => User::factory(),
+            'tipo' => IncidenteEvento::TIPO_RESOLVIDO,
         ];
     }
 }

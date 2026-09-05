@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use App\Models\Customer;
+use App\Support\PasswordUrl;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -45,22 +45,11 @@ class AppServiceProvider extends ServiceProvider
         // Backend é API-only: não existe rota web `password.reset` para o
         // link padrão do Laravel apontar. Redireciona para o SPA Vue, que
         // faz o POST em /api/reset-password (staff) ou /api/customer/reset-password
-        // (cliente) com o token da querystring. O prefixo da rota do front
-        // precisa bater com o guard do $notifiable — um Customer usa o broker
-        // "customers" (tabela customer_password_reset_tokens), então o token só
-        // é válido em /api/customer/reset-password; mandar esse link para a
-        // página de staff (/reset-password) faria o front chamar o broker
-        // errado e o reset falhar com "token inválido".
-        ResetPassword::createUrlUsing(function ($notifiable, string $token) {
-            $path = $notifiable instanceof Customer ? '/portal/reset-password' : '/reset-password';
-
-            return sprintf(
-                '%s%s?token=%s&email=%s',
-                config('app.frontend_url'),
-                $path,
-                $token,
-                urlencode($notifiable->getEmailForPasswordReset())
-            );
-        });
+        // (cliente) com o token da querystring. PasswordUrl::build() decide o
+        // path certo por tipo de $notifiable (mesma lógica reaproveitada pelo
+        // convite de novo usuário, ver App\Notifications\ConviteUsuario).
+        ResetPassword::createUrlUsing(
+            fn ($notifiable, string $token) => PasswordUrl::build($notifiable, $token)
+        );
     }
 }

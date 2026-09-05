@@ -21,6 +21,20 @@ O ambiente local não utilizará o combo tradicional Nginx + PHP-FPM. Toda a orq
   O parâmetro `--max-requests=1000` substitui a antiga variável de ambiente `MAX_REQUESTS` — é o próprio Octane quem recicla o worker de forma limpa a cada mil requisições, garantindo que o reset de estado aconteça corretamente junto com o reciclo do processo.
 
   > 📌 **Atenção ao editar rotas/config/providers:** o worker do Octane mantém o código carregado em memória entre requisições — alterações em `routes/*.php`, `config/*.php` ou providers só surtem efeito após `docker compose restart app` (ou `octane:reload`). Isso mordeu o desenvolvimento algumas vezes (rota 404 mesmo após `route:list` mostrar a rota registrada).
+  > 📌 **Editar `.env` é um problema diferente — nem `octane:reload` nem `docker compose restart app`
+  > resolvem.** `docker-compose.yml` carrega `.env` pro ambiente do processo do container via
+  > `env_file:`, mas isso só acontece **na criação do container**, não a cada `restart` (que só para/
+  > reinicia o mesmo processo, preservando o ambiente que já tinha sido fixado). O PHP-dotenv do
+  > Laravel, por padrão, **não sobrescreve variáveis que já existem no ambiente** — então editar
+  > `.env` com o container já rodando é um no-op silencioso: `env()`/`config()` continuam devolvendo
+  > os valores antigos indefinidamente, sem erro nenhum, até o container ser recriado. Sintoma
+  > confirmado na prática: `MAIL_MAILER=smtp` com credenciais Mailtrap no `.env`, mas
+  > `config('mail.default')` continuando `log` e nenhum e-mail saindo, mesmo depois de `octane:reload`.
+  > Fix: `docker compose up -d --force-recreate app` (recria o container, relê o `.env` do zero —
+  > não é destrutivo, não mexe no volume do Postgres). Checagem rápida pra confirmar qual dos dois
+  > problemas é: `docker compose exec app printenv | grep MAIL_` — se bater com o `.env` em disco, o
+  > problema é código em memória (`octane:reload` resolve); se não bater, é ambiente do container
+  > (precisa recriar).
 - [x] **Banco de Dados (PostgreSQL):** Versão `postgres:15-alpine`. Persistido em volume nomeado (`dados_postgres`). Porta `5432` exposta ao host **apenas em ambiente local/dev** (para acesso via DBeaver/TablePlus/etc.) — não deve ser exposta em staging/produção.
 - [x] **Isolamento de Rede:** Os serviços se comunicarão exclusivamente através de uma rede interna bridge chamada `rede-itsm`.
 
@@ -392,6 +406,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 |---|---|---|
 | `id` | `bigint` PK | |
 | `customer_id` | `bigint` FK → `customers.id` | **obrigatório**; `onDelete('restrict')` — quem abriu/é o afetado é sempre um `Customer` (nunca um `User`, ver seção 1.3); registro histórico, não pode sumir com o cliente |
+| `criado_por_id` | `bigint` FK → `users.id` nullable | **staff** que registrou o chamado (não confundir com `customer_id`, o afetado) — `onDelete('restrict')`; setado uma única vez no `store()` (`$request->user()`), nunca muda depois — não é um evento repetível como resolvido/fechado, não usa `incidente_eventos`; `null` só pra incidentes criados antes desta coluna existir (informação nunca capturada, sem como retroagir) |
 | `item_id` | `bigint` FK → `itens.id` nullable | `onDelete('restrict')` — classificação (Categoria/Subcategoria deriváveis via `item->subcategoria->categoria`, sem FKs redundantes); nullable porque a triagem pode acontecer depois da abertura, não necessariamente no ato |
 | `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | `onDelete('restrict')` — equipe responsável; nullable pelo mesmo motivo de `item_id` (roteamento pode ser posterior) |
 | `responsavel_id` | `bigint` FK → `users.id` nullable | `onDelete('restrict')` — agente atribuído; nullable, atribuição individual normalmente vem depois do roteamento pro grupo |
@@ -564,32 +579,44 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > congelado do momento em que foi salvo — diferente, por exemplo, de `prazo_resposta`/
 > `prazo_resolucao` em `Incidente`, que são deliberadamente congelados. Ver §3.4.9.
 
-#### `incidente_resolucoes` (um registro por transição de Incidente pra status `resolvido`)
+#### `incidente_eventos` (um registro por evento estruturado do Incidente)
 | Coluna | Tipo | Notas |
 |---|---|---|
 | `id` | `bigint` PK | |
 | `incidente_id` | `bigint` FK → `incidentes.id` | obrigatório; `onDelete('cascade')` — mesmo raciocínio de `incidente_descricoes` |
-| `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; quem fez a transição (`$request->user()` no momento do `PUT`) |
-| `created_at` | `timestamp` | quando a resolução aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `TokenAuditLog`) — a linha nunca é alterada depois de criada |
-| índice | `incidente_id` | não único, só performance |
+| `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; quem fez a ação (`$request->user()` no momento do `PUT`) |
+| `tipo` | `string` | um de `IncidenteEvento::TIPOS` = `resolvido`\|`fechado`\|`encaminhado_grupo`\|`encaminhado_responsavel`; `default('resolvido')` no schema só pra backfill da migration de generalização (ver nota), aplicação sempre seta explícito |
+| `alvo_type`/`alvo_id` | `string` nullable / `bigint unsigned` nullable | alvo polimórfico do encaminhamento (`GrupoSolucao` ou `User`) — só preenchido pra `tipo` = `encaminhado_*`; `null` pra `resolvido`/`fechado`, que não têm "destino" |
+| `created_at` | `timestamp` | quando o evento aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `TokenAuditLog`) — a linha nunca é alterada depois de criada |
+| índice | `incidente_id`, `[incidente_id, tipo]` | não únicos, só performance |
 
-> 📌 **Log de eventos, não uma coluna em `Incidente` — de propósito.** Motivação: um chamado
-> resolvido, reaberto (volta pra `em_andamento`/`aberto`/`pendente`) e resolvido de novo — por
-> agentes diferentes ou não — precisa preservar **as duas** resoluções num relatório, não só a mais
-> recente. Uma coluna única tipo `Incidente.resolvido_por_id` só conseguiria guardar um valor por
-> vez, e teria que decidir entre (a) ser limpa na reabertura (mesmo padrão de `concluido_em`,
+> 📌 **Log de eventos, não uma coluna em `Incidente` — de propósito.** Motivação original: um
+> chamado resolvido, reaberto (volta pra `em_andamento`/`aberto`/`pendente`) e resolvido de novo —
+> por agentes diferentes ou não — precisa preservar **as duas** resoluções num relatório, não só a
+> mais recente. Uma coluna única tipo `Incidente.resolvido_por_id` só conseguiria guardar um valor
+> por vez, e teria que decidir entre (a) ser limpa na reabertura (mesmo padrão de `concluido_em`,
 > perderia a resolução anterior) ou (b) nunca ser limpa (mostraria só a *primeira* resolução, não a
 > mais recente nem o histórico completo) — as duas opções perdem informação. Uma tabela
-> insert-only, um registro por evento, não perde nada: `IncidenteController::registrarResolucaoSeAplicavel()`
-> cria uma linha nova a cada transição pra `resolvido` (`$anterior !== $novo && $novo === 'resolvido'`),
-> nunca atualiza nem apaga uma existente. `RelatorioController` (`agrupar_por=resolvido_por`, ver
-> §3.4.9) agrega direto sobre essa tabela, não sobre `Incidente`.
+> insert-only, um registro por evento, não perde nada.
 >
-> **Só `resolvido`, não `fechado`/`cancelado`.** O pedido original era especificamente sobre "quem
-> resolveu" como um fato distinto de "quem fechou" — se um chamado pula `resolvido` e vai direto de
-> `aberto` pra `fechado`, não há resolução nenhuma pra registrar, e nenhuma linha é criada. Estender
-> pra `fechado`/`cancelado` (uma tabela `incidente_conclusoes` genérica, por exemplo) é possível
-> depois sem redesenhar nada — não foi pedido ainda.
+> **Generalizada de `incidente_resolucoes` (só cobria `resolvido`) assim que apareceu um segundo
+> pedido de indicador do mesmo tipo** (`fechado_por`, depois `encaminhado_por`/`encaminhado_para_*`) —
+> nesse ponto compensou consolidar num mecanismo só em vez de uma tabela nova por ação (o que criaria
+> várias tabelas quase idênticas, só o nome mudando). A migration de generalização
+> (`generalize_incidente_resolucoes_to_incidente_eventos_table`) **renomeia** a tabela existente
+> (`Schema::rename`) em vez de criar uma nova — é uma migration nova, não uma edição da migration
+> original (`create_incidente_resolucoes_table`), já commitada — e adiciona `tipo`/`alvo_type`/
+> `alvo_id`. `criado_por_id`/`aberto_por` (ver `incidentes.criado_por_id` abaixo) **não** entram
+> nessa tabela — abertura só acontece uma vez por incidente, não é um evento repetível como
+> resolvido/fechado/encaminhamento, uma coluna direta em `Incidente` já resolve sem overhead de
+> tabela.
+>
+> `IncidenteController::registrarEventoDeConclusaoSeAplicavel()` cria a linha pra `resolvido`/
+> `fechado`; `logEscalonamentoSeMudou()` cria a linha pra `encaminhado_grupo`/`encaminhado_responsavel`
+> **junto com** a entrada de texto livre no feed (`IncidenteDescricao` tipo `escalonamento`) — as
+> duas convivem, servem propósitos diferentes (feed = leitura humana no histórico do chamado; esta
+> tabela = agregação em relatório, ver §3.4.9). `cancelado` fica de fora — não foi pedido indicador
+> "cancelado por" ainda, mas a estrutura já suporta se vier a ser preciso.
 
 ### 3.2. Models e relacionamentos
 
@@ -606,11 +633,11 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `App\Models\Subcategoria` | `categoria(): BelongsTo` → `Categoria`; `itens(): HasMany` → `Item`; `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `categoria_id` (igualdade exata), `ativo` (via `array_key_exists`) |
 | `App\Models\GrupoSolucao` | `$table = 'grupos_solucao'` (mesma pegadinha de pluralização de `PoliticaSla`); `users(): HasMany` → `User`; `incidentes(): HasMany` → `Incidente`; `scopeFiltros(array $filtros): Builder` — `nome` busca parcial (`LIKE '%valor%'`, mesmo estilo de `Client::scopeFiltros()`), `ativo` igualdade exata via `array_key_exists()` (não `?? null` — `false ?? null` também vira `false` e faria `when()` pular o filtro, ver §3.4.6) |
 | `App\Models\Item` | `$table = 'itens'` (pluralização automática do Eloquent faria `items`, em inglês); `subcategoria(): BelongsTo` → `Subcategoria`; `incidentes(): HasMany` → `Incidente`; `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `subcategoria_id` (igualdade exata), `ativo` (via `array_key_exists`) |
-| `App\Models\Incidente` | sem `$table` explícito (`incidente`→`incidentes` acerta por coincidência, como `Categoria`); `customer(): BelongsTo` → `Customer`; `item(): BelongsTo` → `Item`; `grupoSolucao(): BelongsTo` → `GrupoSolucao`; `responsavel(): BelongsTo` → `User` (FK `responsavel_id`, `->withTrashed()` — continua resolvendo o nome mesmo se o `User` for desativado); `descricoes(): HasMany` → `IncidenteDescricao` (`->withTrashed()->latest()` — comentários excluídos continuam no feed, ver §3.1); `anexos(): HasMany` → `Anexo` (`->latest()`); `const STATUSES`, `const ORIGENS`, `const STATUS_CONCLUIDOS`, `const SLA_DENTRO_PRAZO`/`SLA_ESTOURADO`/`SLA_SEM_SLA`; `statusSlaResposta()`/`statusSlaResolucao(): string`; `tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos(): ?int` (ver §3.1); `scopeFiltros(array $filtros): Builder` — filtro composto por igualdade exata (`numero` — na prática `id`, só aceito por `DashboardController`, ver §3.4.8 —, `status`, `prioridade`, `origem`, `customer_id`, `item_id`, `grupo_solucao_id`, `responsavel_id`, `todos_status` — bool, só aceito por `DashboardController`, ver §3.4.8), cada chave opcional, combinadas com AND; sem `status` explícito, aplica `whereIn('status', STATUSES_PADRAO_LISTAGEM)` (`['aberto', 'em_andamento', 'pendente']`) por padrão, a menos que `todos_status` seja truthy (ver §3.4.7 e §3.4.8); `const STATUSES_PADRAO_LISTAGEM`; `scopeOrdenarPor(?string $sortBy, string $sortDir = 'asc'): Builder` — ordenação por coluna clicável, só aceita por `DashboardController` (ver §3.4.8), `const SORTABLE_COLUMNS`; `scopeFiltrosRelatorio(array $filtros): Builder` — separado de `scopeFiltros()`, sem a restrição padrão de status, com `data_inicio`/`data_fim` (sobre `concluido_em`), `categoria_id`/`subcategoria_id` (via `whereHas('item.subcategoria')`), `client_id` (via `whereHas('customer')`) — ver §3.4.9 |
+| `App\Models\Incidente` | sem `$table` explícito (`incidente`→`incidentes` acerta por coincidência, como `Categoria`); `customer(): BelongsTo` → `Customer`; `item(): BelongsTo` → `Item`; `grupoSolucao(): BelongsTo` → `GrupoSolucao`; `responsavel(): BelongsTo` → `User` (FK `responsavel_id`, `->withTrashed()` — continua resolvendo o nome mesmo se o `User` for desativado); `criadoPor(): BelongsTo` → `User` (FK `criado_por_id`, `->withTrashed()` — quem abriu, nunca muda, ver §3.1); `descricoes(): HasMany` → `IncidenteDescricao` (`->withTrashed()->latest()` — comentários excluídos continuam no feed, ver §3.1); `anexos(): HasMany` → `Anexo` (`->latest()`); `const STATUSES`, `const ORIGENS`, `const STATUS_CONCLUIDOS`, `const SLA_DENTRO_PRAZO`/`SLA_ESTOURADO`/`SLA_SEM_SLA`; `statusSlaResposta()`/`statusSlaResolucao(): string`; `tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos(): ?int` (ver §3.1); `scopeFiltros(array $filtros): Builder` — filtro composto por igualdade exata (`numero` — na prática `id`, só aceito por `DashboardController`, ver §3.4.8 —, `status`, `prioridade`, `origem`, `customer_id`, `item_id`, `grupo_solucao_id`, `responsavel_id`, `todos_status` — bool, só aceito por `DashboardController`, ver §3.4.8), cada chave opcional, combinadas com AND; sem `status` explícito, aplica `whereIn('status', STATUSES_PADRAO_LISTAGEM)` (`['aberto', 'em_andamento', 'pendente']`) por padrão, a menos que `todos_status` seja truthy (ver §3.4.7 e §3.4.8); `const STATUSES_PADRAO_LISTAGEM`; `scopeOrdenarPor(?string $sortBy, string $sortDir = 'asc'): Builder` — ordenação por coluna clicável, só aceita por `DashboardController` (ver §3.4.8), `const SORTABLE_COLUMNS`; `scopeFiltrosRelatorio(array $filtros): Builder` — separado de `scopeFiltros()`, sem a restrição padrão de status, com `data_inicio`/`data_fim` (sobre `concluido_em`), `categoria_id`/`subcategoria_id` (via `whereHas('item.subcategoria')`), `client_id` (via `whereHas('customer')`) — ver §3.4.9 |
 | `App\Models\IncidenteDescricao` | `$table = 'incidente_descricoes'` (pluralização automática do Eloquent daria `incidente_descricaos`); `SoftDeletes` (`deleted_at` — excluir = soft delete, permanece no feed, ver §3.1); `resolveRouteBinding()` sobrescrito com `withTrashed()` (senão um comentário já excluído resolveria como `404` na rota); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `const TIPO_COMENTARIO`, `const TIPO_ESCALONAMENTO`, `const TIPO_ALTERACAO`, `const TIPOS` |
 | `App\Models\Anexo` | sem `$table` explícito (`anexo`→`anexos` acerta por coincidência); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `caminho` fora do `#[Fillable(...)]` de propósito (setado por atribuição direta no controller, nunca vem do request — ver §3.4.7.2) |
-| `App\Models\RelatorioSalvo` | `$table = 'relatorios_salvos'` (pluralização automática do Eloquent daria `relatorio_salvos`, só o último termo); `user(): BelongsTo` → `User` (`->withTrashed()`); `filtros` cast `array`; `const AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`resolvido_por`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
-| `App\Models\IncidenteResolucao` | `$table = 'incidente_resolucoes'` (pluralização automática do Eloquent daria `incidente_resolucaos`); `const UPDATED_AT = null` (linha nunca atualizada); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteResolucao`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando a resolução aconteceu), não `Incidente.concluido_em` |
+| `App\Models\RelatorioSalvo` | `$table = 'relatorios_salvos'` (pluralização automática do Eloquent daria `relatorio_salvos`, só o último termo); `user(): BelongsTo` → `User` (`->withTrashed()`); `filtros` cast `array`; `const AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`aberto_por`\|`resolvido_por`\|`fechado_por`\|`encaminhado_por`\|`encaminhado_para_grupo`\|`encaminhado_para_responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
+| `App\Models\IncidenteEvento` | `$table = 'incidente_eventos'` (explícito por consistência com o resto do projeto, mesmo pluralizando certo por coincidência); `const UPDATED_AT = null` (linha nunca atualizada); `const TIPO_RESOLVIDO`/`TIPO_FECHADO`/`TIPO_ENCAMINHADO_GRUPO`/`TIPO_ENCAMINHADO_RESPONSAVEL`, `const TIPOS`; `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `alvo(): ?Model` — resolve `alvo_type`/`alvo_id` manualmente (não `morphTo()`, pra não depender do comportamento de `withTrashed()` numa relação polimórfica onde só um dos tipos possíveis, `User`, é soft delete); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteEvento`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando o evento aconteceu), não `Incidente.concluido_em` |
 
 ### 3.3. Configuração dos guards (`config/auth.php`)
 
@@ -705,10 +732,11 @@ Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenti
 | Método | Rota | Body | Resposta |
 |---|---|---|---|
 | `GET` | `/users` | — | `200` — paginado (`?per_page=`), `UserResource::collection` com `roles`/`permissions`/`grupoSolucao` carregados; aceita filtros opcionais `?name=` (`LIKE` parcial), `?email=` (`LIKE` parcial), `?grupo_solucao_id=` (`exists:grupos_solucao,id`), `?role_id=` (`exists:roles,id`, via `User::scopeFiltros()`/`whereHas('roles', ...)`) |
-| `POST` | `/users` | `{name, email, password, grupo_solucao_id, role_ids?: number[]}` | `201` — `UserResource` |
+| `POST` | `/users` | `{name, email, password?, grupo_solucao_id, role_ids?: number[]}` | `201` — `UserResource`; `password` opcional (ver 3.4.3.1) |
 | `GET` | `/users/{user}` | — | `200` — `UserResource` |
 | `PUT`/`PATCH` | `/users/{user}` | `{name, email, password?, grupo_solucao_id, role_ids?: number[]}` | `200` — `UserResource`; `password` omitido/vazio mantém o hash atual |
 | `DELETE` | `/users/{user}` | — | **desativa** (soft delete), não apaga — `204`; **`409`** só se `$user->id` for o do próprio autenticado |
+| `POST` | `/users/{user}/convite` | — | `200` — `{message}`; envia e-mail de convite (ver 3.4.3.1) |
 | `GET` | `/roles` | — | `200` — `{data: [{id, name, slug}, ...]}`, sem paginação |
 
 > 📌 **`DELETE` desativa, não apaga.** `User` usa `SoftDeletes` (`deleted_at`) — o registro nunca
@@ -739,8 +767,9 @@ Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenti
 >   afim; não foi pedido.
 
 Validação de `User`: `name` obrigatório; `email` obrigatório, único (ignorando o próprio id no
-update); `password` obrigatório (`min:8`) na criação, opcional (`min:8` se presente) no update;
-`grupo_solucao_id` **obrigatório** (`exists:grupos_solucao,id`) tanto na criação quanto no update —
+update); `password` **opcional** (`min:8` se presente) tanto na criação quanto no update — na
+criação, ausente = conta criada com um hash aleatório inutilizável, pendente de convite (ver
+3.4.3.1); `grupo_solucao_id` **obrigatório** (`exists:grupos_solucao,id`) tanto na criação quanto no update —
 diferente de `role_ids`, não tem comportamento "preserva se omitido" (é FK escalar obrigatória, não
 coleção); `role_ids` opcional, array de ids existentes em `roles`. No `update()`, o comportamento de
 `role_ids` é condicionado à presença da chave no payload (`array_key_exists('role_ids', $data)`): se
@@ -759,10 +788,11 @@ gate, só `User` do guard `web` gerencia).
 | Método | Rota | Body | Resposta |
 |---|---|---|---|
 | `GET` | `/customers` | — | `200` — paginado (`?per_page=`), `CustomerResource::collection` com `client` carregado; aceita filtros opcionais `?name=` (`LIKE` parcial), `?email=` (`LIKE` parcial), `?client_id=` (`exists:clients,id`, via `Customer::scopeFiltros()`) |
-| `POST` | `/customers` | `{name, email, password, client_id}` | `201` — `CustomerResource` |
+| `POST` | `/customers` | `{name, email, password?, client_id}` | `201` — `CustomerResource`; `password` opcional (ver 3.4.3.1) |
 | `GET` | `/customers/{customer}` | — | `200` — `CustomerResource` |
 | `PUT`/`PATCH` | `/customers/{customer}` | `{name, email, password?, client_id}` | `200` — `CustomerResource`; `password` omitido/vazio mantém o hash atual |
 | `DELETE` | `/customers/{customer}` | — | `204`; **`409`** se o customer ainda tiver `Incidente`s vinculados |
+| `POST` | `/customers/{customer}/convite` | — | `200` — `{message}`; envia e-mail de convite (ver 3.4.3.1) |
 
 Validação de `Customer`: mesmas regras de `name`/`email`/`password` do `User` (email único na
 tabela `customers`); `client_id` obrigatório, `exists:clients,id`.
@@ -772,6 +802,72 @@ created_at, updated_at}`.
 
 Todas as respostas seguem o mesmo envelope `{data: ...}` do `ClientController`. Validação: campo
 ausente/inválido → `422`; sem token → `401`; sem a permission correspondente → `403`.
+
+### 3.4.3.1. Convite de novo usuário/customer (`App\Notifications\ConviteUsuario`)
+
+`POST /users/{user}/convite` e `POST /customers/{customer}/convite`, sob as mesmas
+`can:users.manage`/`can:customers.manage` do resto do CRUD — sem throttle dedicado, diferente de
+`/forgot-password`: aquele é público (qualquer um pode digitar um e-mail alheio, daí o rate limit
+anti-enumeração/spam), este exige sessão de staff autenticado **com** a permission de gerenciar o
+recurso, uma barreira já mais forte que throttle por IP.
+
+> 📌 **Reaproveita o mesmo mecanismo do reset de senha (`Password::broker()->createToken()`),
+> não implementa um `URL::signedRoute()` à parte.** Um convite é, na prática, um reset de senha
+> "com boas-vindas" — o usuário/customer já existe no banco (com um hash de senha aleatório e
+> inutilizável, nunca exposto), só falta ele mesmo definir a senha de verdade. Construir um segundo
+> mecanismo de token/URL assinada só pra essa tela duplicaria toda a infraestrutura que já existe
+> pro reset (broker por guard, tabela de tokens hasheados, expiração de 60min em `config/auth.php`,
+> single-use) sem ganhar nenhuma propriedade de segurança a mais. `enviarConvite()` (em
+> `UserController`/`CustomerController`) chama `Password::broker('users'|'customers')->createToken($model)`
+> — o mesmo método que `PasswordBroker::sendResetLink()` usa internamente — e passa o token pra uma
+> notificação própria, em vez do `Illuminate\Auth\Notifications\ResetPassword` padrão do Laravel
+> (que teria o assunto/corpo errados pro contexto de "boas-vindas").
+>
+> **`App\Support\PasswordUrl::build($notifiable, $token)`** — construtor de URL extraído pra não
+> duplicar a lógica "qual path do SPA bate com qual guard" (Customer → `/portal/reset-password`,
+> User → `/reset-password`, ambos com `?token=&email=`) entre dois lugares: o
+> `ResetPassword::createUrlUsing()` registrado em `AppServiceProvider::boot()` (fluxo de
+> "esqueci minha senha") e `ConviteUsuario::toMail()` (este fluxo). **Sem tela nova no frontend** —
+> o link do convite cai na mesma `ResetPasswordView.vue`/`PortalResetPasswordView` já existente
+> (formulário "defina uma nova senha" funciona idêntico pros dois contextos, só muda o e-mail que
+> levou o usuário até ali).
+>
+> **`App\Mail\ConviteUsuarioMail` + `resources/views/emails/convite.blade.php`** — Mailable/view
+> próprios em vez do `MailMessage` padrão do Laravel (que renderiza o template Markdown genérico
+> com o logo do Laravel). HTML puro com CSS inline (compatível com clientes de e-mail, que ignoram
+> `<style>` externo), **sem nenhuma imagem/`<img>`** — pedido explícito — usando a mesma paleta do
+> frontend (`gespriority_claude_front/src/plugins/vuetify.js`): laranja `#FF8C1A` (topo/botão),
+> roxo `#7922B9` (link/detalhe), sem depender de asset nenhum carregado externamente. `via()` só
+> declara o canal `mail` (sem `database`/broadcast — não existe centro de notificações no app ainda,
+> seria escopo não pedido); `toMail()` seta `->to()` explicitamente porque, ao devolver um
+> `Mailable` (não um `MailMessage`), o Notification não injeta o destinatário sozinho.
+>
+> **Senha na criação virou opcional na API pros dois models** (`User`/`Customer`) — antes era
+> `required` no `store()`. Sem `password` no payload, o controller gera um hash aleatório de 40
+> caracteres (`Hash::make(Str::password(40))`) — nunca exposto, nunca comunicado a ninguém — só
+> pra satisfazer a coluna `NOT NULL`; a conta fica inutilizável até o convite ser enviado e aceito.
+> Essa flexibilização é deliberadamente só da API: existe pra sustentar o botão "Enviar convite"
+> (que precisa criar o registro sem senha antes de convidar), não pra abrir uma forma de criar conta
+> travada por acidente — ver a checagem do lado do frontend logo abaixo.
+>
+> **Frontend**: `UserFormModal.vue`/`CustomerFormModal.vue` ganharam um botão "Enviar convite"
+> (vira "Reenviar convite" em modo edição) ao lado de "Salvar". Em modo criação, clicar nele
+> primeiro faz o `POST /users`\|`/customers` (sem senha, com os campos já preenchidos no
+> formulário) e, com o id retornado, encadeia o `POST .../convite` — os dois numa ação só, pra não
+> exigir que o admin clique "Salvar" e depois procure o usuário recém-criado numa segunda tela só
+> pra convidar. Em modo edição, pula direto pro `POST .../convite` (o registro já existe). Testado
+> manualmente via Playwright contra o backend real: criação sem senha, envio do e-mail (log
+> conferido em `storage/logs/laravel.log`), mensagem de sucesso exibida no modal.
+>
+> **O botão "Salvar" continua exigindo senha na criação — só do lado do frontend.** A API aceita
+> criar sem senha (necessário pro fluxo de convite acima), mas isso criaria uma armadilha se
+> "Salvar" também aceitasse silenciosamente: o admin preenche o formulário, esquece de clicar em
+> "Enviar convite" e clica em "Salvar" por hábito — o registro é criado com um hash aleatório que
+> **ninguém** conhece e nenhum e-mail é disparado, uma conta travada sem aviso. `onSubmit()` nos
+> dois modais barra isso antes do request (`if (!props.user && !password.value)`, mostra erro e não
+> chama a API) — não dá pra expressar essa regra como validação de backend (a API não tem como saber se a
+> chamada sem senha veio do fluxo de convite ou de um "Salvar" incompleto, ambos batem no mesmo
+> `POST /users`), então a guarda vive no componente que sabe qual botão foi clicado.
 
 ### 3.4.4. Endpoints — CRUD de `PoliticaSla` (`App\Http\Controllers\Api\PoliticaSlaController`)
 
@@ -1041,10 +1137,13 @@ endpoint devolve o dado cru do registro, não uma view computada.
 > (`incidente_descricoes`) pra formato do texto e regras completas. É a mesma chamada, mesma
 > transação; não é uma ação/permission separada — continua exigindo só `tickets.manage`.
 >
-> **`update()` também grava em `IncidenteResolucao`** (`registrarResolucaoSeAplicavel()`) sempre que
-> `status` transiciona pra `'resolvido'` — uma linha nova por transição, nunca atualiza/apaga uma
-> existente, nem na reabertura. Ver §3.1 (`incidente_resolucoes`) e §3.4.9
-> (`agrupar_por=resolvido_por`) pro motivo/uso.
+> **`update()` também grava em `IncidenteEvento`** — `registrarEventoDeConclusaoSeAplicavel()` sempre
+> que `status` transiciona pra `'resolvido'`/`'fechado'`; `logEscalonamentoSeMudou()` sempre que
+> `grupo_solucao_id`/`responsavel_id` muda (junto com a entrada de feed, não em vez dela) — uma linha
+> nova por evento, nunca atualiza/apaga uma existente, nem na reabertura. Ver §3.1
+> (`incidente_eventos`) e §3.4.9 (`agrupar_por=resolvido_por`/`fechado_por`/`encaminhado_por`/
+> `encaminhado_para_grupo`/`encaminhado_para_responsavel`) pro motivo/uso. `criado_por_id` é setado
+> no `store()` (não no `update()`) — abertura só acontece uma vez, ver §3.1 (`incidentes`).
 >
 > **`tickets.assign` existe mas não é usado nesta entrega.** A permission já estava seedada desde
 > o início do projeto (placeholder) com o nome "Atribuir chamados". `grupo_solucao_id` e
@@ -1319,7 +1418,7 @@ combináveis; os mesmos ficam em `RelatorioSalvo.filtros`):
 
 | Param | Validação | Nota |
 |---|---|---|
-| `agrupar_por` | **obrigatório**, `Rule::in(RelatorioSalvo::AGRUPAMENTOS)` = `status_sla`\|`responsavel`\|`resolvido_por`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` | dimensão do relatório |
+| `agrupar_por` | **obrigatório**, `Rule::in(RelatorioSalvo::AGRUPAMENTOS)` = `status_sla`\|`responsavel`\|`aberto_por`\|`resolvido_por`\|`fechado_por`\|`encaminhado_por`\|`encaminhado_para_grupo`\|`encaminhado_para_responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` | dimensão do relatório |
 | `formato` | `sometimes`, `in:json,xlsx` | default `json` |
 | `status` | `Rule::in(Incidente::STATUSES)` | sem valor padrão restritivo (diferente de `GET /incidentes`, ver §3.4.7) — um relatório histórico não deveria esconder status por padrão |
 | `data_inicio`/`data_fim` | `date` | filtra por `concluido_em` (**não** `created_at`) — decisão explícita: os indicadores pedidos são sobre quando o chamado foi *fechado*, não aberto |
@@ -1328,33 +1427,48 @@ combináveis; os mesmos ficam em `RelatorioSalvo.filtros`):
 | `client_id` | `exists:clients,id` | empresa (não confundir com `customer_id`, o usuário do portal) — via `whereHas('customer')` |
 
 > 📌 **`status_sla`/`responsavel`/`grupo_solucao` restringem a `STATUS_CONCLUIDOS` por padrão;
-> `categoria`/`subcategoria`/`item` não.** Os indicadores originais 1-3 eram especificamente sobre
-> chamados *fechados* ("incidentes fechados dentro/fora do SLA", "fechados por agente"); o 4º
-> ("quantidade por categoria/subcategoria/item") não mencionava "fechados" — é volume geral,
-> independente de status. `grupo_solucao` (agrupamento por equipe, adicionado depois) segue o mesmo
-> critério de `responsavel` — mede desempenho do grupo em chamados concluídos, não volume geral. Um
-> `status` explícito sempre substitui essa restrição implícita (mesmo padrão de
-> `STATUSES_PADRAO_LISTAGEM`, ver §3.4.7), inclusive pra incluir incidentes abertos no agrupamento
-> por SLA (`statusSlaResolucao()` já lida com isso — compara contra `now()` em vez de `concluido_em`
-> quando ainda não concluído).
+> `categoria`/`subcategoria`/`item`/`aberto_por` não.** Os indicadores originais 1-3 eram
+> especificamente sobre chamados *fechados* ("incidentes fechados dentro/fora do SLA", "fechados
+> por agente"); "quantidade por categoria/subcategoria/item" e "aberto por" não mencionam "fechados"
+> — são volume geral, independente de status. `grupo_solucao` (agrupamento por equipe, adicionado
+> depois) segue o mesmo critério de `responsavel` — mede desempenho do grupo em chamados
+> concluídos, não volume geral. Um `status` explícito sempre substitui essa restrição implícita
+> (mesmo padrão de `STATUSES_PADRAO_LISTAGEM`, ver §3.4.7), inclusive pra incluir incidentes abertos
+> no agrupamento por SLA (`statusSlaResolucao()` já lida com isso — compara contra `now()` em vez de
+> `concluido_em` quando ainda não concluído).
 >
 > **`Incidente::scopeFiltrosRelatorio()` é separado de `scopeFiltros()`** (usado por
 > `GET /incidentes`/dashboard) — não herda a restrição padrão de status da listagem (não faz
 > sentido pra um relatório histórico) e tem dimensões que a listagem não precisa
 > (`data_inicio`/`data_fim`, `categoria_id`/`subcategoria_id` via join, `client_id` via join).
 >
-> **`resolvido_por` é a exceção às duas regras acima — base é `IncidenteResolucao`, não
-> `Incidente`.** Motivação: "quem resolveu" precisa sobreviver a reaberturas (um chamado resolvido,
-> reaberto e resolvido de novo por outra pessoa tem que contar as duas resoluções, ver §3.1
-> `incidente_resolucoes`) — `Incidente.responsavel_id` só guarda quem está atribuído *agora*, não
-> quem resolveu historicamente. Por isso: (1) **sem** a restrição implícita de `STATUS_CONCLUIDOS`
-> (um chamado resolvido e depois reaberto pra `em_andamento` ainda deve contar a resolução que já
-> aconteceu — restringir por status atual esconderia exatamente o caso que essa dimensão existe pra
-> cobrir); (2) `data_inicio`/`data_fim` filtram `IncidenteResolucao.created_at` (quando *aquela*
-> resolução aconteceu), não `Incidente.concluido_em` (que reflete só a resolução mais recente e é
-> limpo na reabertura). `IncidenteResolucao::scopeFiltrosRelatorio()` replica as mesmas dimensões de
-> filtro de `Incidente::scopeFiltrosRelatorio()`, mas via `whereHas('incidente')` em vez de coluna
-> direta, já que a tabela base é diferente.
+> **`resolvido_por`/`fechado_por`/`encaminhado_por`/`encaminhado_para_grupo`/
+> `encaminhado_para_responsavel` fogem às duas regras acima — base é `IncidenteEvento`, não
+> `Incidente`.** Motivação: cada um registra uma *ação* que pode se repetir ao longo da vida do
+> chamado (resolvido, reaberto e resolvido de novo por outra pessoa tem que contar as duas
+> resoluções; um chamado pode ser encaminhado várias vezes entre grupos/responsáveis), então não dá
+> pra derivar de uma coluna de `Incidente`, que só guarda o estado *atual* — ver §3.1
+> `incidente_eventos`. Por isso essas 5 dimensões: (1) **não** têm a restrição implícita de
+> `STATUS_CONCLUIDOS` (um chamado resolvido e depois reaberto pra `em_andamento` ainda deve contar a
+> resolução que já aconteceu — restringir por status atual esconderia exatamente o caso que essas
+> dimensões existem pra cobrir); (2) `data_inicio`/`data_fim` filtram `IncidenteEvento.created_at`
+> (quando *aquele* evento aconteceu), não `Incidente.concluido_em` (que reflete só a resolução mais
+> recente e é limpo na reabertura). `IncidenteEvento::scopeFiltrosRelatorio()` replica as mesmas
+> dimensões de filtro de `Incidente::scopeFiltrosRelatorio()`, mas via `whereHas('incidente')` em
+> vez de coluna direta, já que a tabela base é diferente. Cada dimensão filtra por `tipo`:
+> `resolvido_por`/`fechado_por` agrupam `user_id` restrito a um único `tipo`
+> (`resolvido`/`fechado`); `encaminhado_por` agrupa `user_id` somando os dois tipos
+> `encaminhado_grupo`+`encaminhado_responsavel` (o pedido era só "quem encaminhou", sem distinguir o
+> destino); `encaminhado_para_grupo`/`encaminhado_para_responsavel` agrupam pelo `alvo_id`
+> (destino) de cada tipo separadamente — **dois indicadores, não um só "encaminhado para"
+> combinado**, decisão explícita porque grupo e responsável são universos de nomes diferentes
+> (`GrupoSolucao` vs `User`) e um relatório combinado exigiria prefixar/desambiguar os rótulos,
+> perdendo clareza sem ganhar nada.
+>
+> **`aberto_por` não usa `IncidenteEvento`** — "quem abriu" nunca se repete nem muda ao longo da
+> vida do chamado (diferente de resolver/fechar/encaminhar), então é só `Incidente.criado_por_id`
+> (setado uma vez em `store()`, ver §3.4.7) agrupado direto, sem a restrição implícita de
+> `STATUS_CONCLUIDOS` (é volume geral, não indicador de fechamento).
 >
 > **Agrupamento por SLA é calculado em PHP, não SQL puro.** `statusSlaResolucao()` compara
 > `concluido_em` (congelado) contra `prazo_resolucao` — lógica já existente no model (mesma usada no
@@ -1542,12 +1656,24 @@ Não idempotente por design (mesmo raciocínio dos customers aleatórios — só
 > - `criarIncidenteFechado()`: cria o `Incidente` normalmente, sobrescreve `created_at`/`updated_at`
 >   via `forceFill` (precisa vir **antes** de `calcularPrazosSla()`, que lê `created_at` pra computar
 >   os prazos), depois `forceFill` de `respondido_em`/`concluido_em`.
-> - **`resolvido_por`**: um `IncidenteResolucao` por incidente `resolvido`/`fechado` (não
->   `cancelado` — nunca passou por `resolvido`), autor = `responsavel` do incidente (ou `admin` se
->   sem responsável). O **primeiro** incidente da lista ("Notebook não liga...") ganha **dois**
->   registros de propósito — `agente@example.com` e `supervisor@example.com` — simulando o cenário
->   de reabertura que motivou essa tabela (ver §3.1 `incidente_resolucoes`): resolvido, reaberto,
->   resolvido de novo por outra pessoa, as duas resoluções preservadas.
+> - **`aberto_por`**: cada linha da lista tem um "criador" próprio (5ª coluna a mais no array —
+>   `$agente`/`$admin`/`$supervisor` variados, não sempre o mesmo autor), setado em
+>   `$incidente->forceFill(['criado_por_id' => $criador->id])->save()` logo após a criação — mesmo
+>   padrão usado em `$incidente1`/`$incidente2` (linha 60/109), ambos criados pelo `$admin`.
+> - **`encaminhado_por`/`encaminhado_para_grupo`/`encaminhado_para_responsavel`**: todo incidente com
+>   `grupo`/`responsavel` não-nulo na lista ganha um `IncidenteEvento` `encaminhado_grupo`/
+>   `encaminhado_responsavel` correspondente (autor = o próprio `criador` da linha, `alvo` = o
+>   `GrupoSolucao`/`User` de destino) — cobre os casos "sem grupo"/"sem responsável" (linhas com
+>   `null`) e garante volume nas duas dimensões de destino.
+> - **`resolvido_por`/`fechado_por`**: um `IncidenteEvento` `resolvido` por incidente que não é
+>   `cancelado` (nunca passou por `resolvido`) — autor = `responsavel` do incidente (ou `admin` se
+>   sem responsável) — mais um `IncidenteEvento` `fechado` (mesmo autor) quando `status === 'fechado'`.
+>   O **primeiro** incidente da lista ("Notebook não liga...") foge desse padrão de propósito, pra
+>   simular o cenário de reabertura que motivou a generalização de `incidente_resolucoes` pra
+>   `incidente_eventos` (ver §3.1): **dois** eventos `resolvido` (`agente@example.com`, depois
+>   `supervisor@example.com`) seguidos de um `fechado` (`supervisor@example.com`) — resolvido,
+>   reaberto, resolvido de novo por outra pessoa, fechado por quem resolveu por último; ambas as
+>   resoluções preservadas, não só a mais recente.
 
 Todos permitem login imediato (`POST /api/login` para os 3 users staff, `POST /api/customer/login` para o customer fixo) após `migrate:refresh --seed` ou `migrate:fresh --seed` em ambiente local.
 
@@ -1562,6 +1688,7 @@ Feature tests com `RefreshDatabase`, dados montados via factories (`UserFactory`
 | `LoginTest.php` | Login staff (com roles/permissions no payload), login customer, e-mail/senha inválidos (staff e customer), e-mail de `User` não autentica no guard `customer` (tabelas separadas), `User` desativado (soft-deleted) não consegue logar mesmo com senha correta |
 | `TokenLifecycleTest.php` | `/refresh` (rotação atômica — token antigo é revogado, abilities preservadas), `/logout` (revoga só o token atual), `/logout-all` (revoga todos, não afeta tokens de outro usuário), `401` sem autenticação |
 | `PasswordRecoveryTest.php` | Throttle em `/forgot-password` e `/reset-password` (5 tentativas + bloqueio na 6ª, bucket isolado por e-mail), revogação de todos os tokens após reset bem-sucedido (staff e customer), reset com token inválido não muda a senha |
+| `ConviteTest.php` | `POST /users/{user}/convite` e `/customers/{customer}/convite` disparam `ConviteUsuario` (`Notification::fake()`/`assertSentTo`), `403` sem `users.manage`/`customers.manage` (nenhuma notificação enviada), `401` sem autenticação, `ConviteUsuarioMail::render()` contém o nome do destinatário/URL do token e não tem nenhuma tag `<img>` |
 
 Rodar com `docker compose exec app php artisan test` (ou `./vendor/bin/phpunit`).
 
@@ -1579,18 +1706,18 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | Arquivo | Cobre |
 |---|---|
 | `Clients/ClientCrudTest.php` | CRUD completo de `Client`, `409` ao excluir com `Customer`s vinculados, `?per_page=` |
-| `Users/UserCrudTest.php` | CRUD completo de `User`, roles via `role_ids`, senha opcional no update, `grupo_solucao_id` obrigatório/validado (criação e update), `409` só ao tentar excluir a própria conta, `DELETE` é soft delete (`assertSoftDeleted`, não some da tabela), desativar um usuário `responsavel_id` de `Incidente` ou que enviou `Anexo` **agora funciona** (sem mais `409`), desativado some da listagem, `UserResource.ativo`, `403`/`401` |
-| `Customers/CustomerCrudTest.php` | CRUD completo de `Customer`, `client_id` obrigatório/validado, senha opcional no update, `409` ao excluir com `Incidente`s vinculados, `403`/`401` |
+| `Users/UserCrudTest.php` | CRUD completo de `User`, roles via `role_ids`, **senha opcional tanto na criação quanto no update** (criação sem senha gera hash aleatório inutilizável, pendente de convite — ver 3.4.3.1), `grupo_solucao_id` obrigatório/validado (criação e update), `409` só ao tentar excluir a própria conta, `DELETE` é soft delete (`assertSoftDeleted`, não some da tabela), desativar um usuário `responsavel_id` de `Incidente` ou que enviou `Anexo` **agora funciona** (sem mais `409`), desativado some da listagem, `UserResource.ativo`, `403`/`401` |
+| `Customers/CustomerCrudTest.php` | CRUD completo de `Customer`, `client_id` obrigatório/validado, **senha opcional tanto na criação quanto no update** (mesmo comportamento pendente-de-convite do `User`), `409` ao excluir com `Incidente`s vinculados, `403`/`401` |
 | `Roles/RoleIndexTest.php` | Listagem de roles (sem paginação), `403`/`401` |
 | `PoliticasSla/PoliticaSlaCrudTest.php` | CRUD completo, `slas.view` vs `slas.manage` (leitura x escrita separadas), validação de `prioridade`/`gte` entre tempos, unicidade por `(client_id, prioridade)` (global e por cliente, sem colidir entre clientes diferentes), defaults de banco refletidos na resposta do `POST`, `Client::resolvedSlaFor()` (override do cliente vence, fallback pro global, ignora política inativa), `403`/`401`; filtros de listagem (`nome` parcial, `prioridade` exata + `422` se inválida, `ativo=true`/`ativo=false` — cobre a pegadinha de `array_key_exists()` —, `client_id` por id específico, `client_id=global`, `client_id` inválido → `422`) |
 | `Categorias/CategoriaCrudTest.php` | CRUD completo de `Categoria`, `categorias.view` vs `categorias.manage`, `nome` único, `409` ao excluir com `Subcategoria`s vinculadas, `403`/`401` |
 | `Categorias/SubcategoriaCrudTest.php` | CRUD completo de `Subcategoria`, `categoria_id` obrigatório/validado, `nome` único por `(categoria_id, nome)` (mesmo nome permitido em categorias diferentes), `categoria` carregada na resposta, `409` ao excluir com `Item`s vinculados, `403`/`401` |
 | `Categorias/ItemCrudTest.php` | CRUD completo de `Item`, `subcategoria_id` obrigatório/validado, `nome` único por `(subcategoria_id, nome)` (mesmo nome permitido em subcategorias diferentes), `subcategoria` carregada na resposta, `409` ao excluir com `Incidente`s vinculados, `403`/`401` |
 | `GruposSolucao/GrupoSolucaoCrudTest.php` | CRUD completo de `GrupoSolucao`, `grupos_solucao.view` vs `grupos_solucao.manage`, `nome` único, `409` ao excluir com `User`s ou `Incidente`s vinculados, `403`/`401` |
-| `Incidentes/IncidenteCrudTest.php` | `tickets.view` vs `tickets.manage`, criação força `status="aberto"` (ignora valor enviado), `descricao` gera a 1ª entrada do feed (não fica na tabela `incidentes`), `item_id`/`grupo_solucao_id`/`responsavel_id` opcionais, validação de `customer_id`/`prioridade`/`origem`/`status`, `update()` parcial (só `status`, sem tocar nos outros campos), mudança de `grupo_solucao_id`/`responsavel_id` gera entrada(s) `escalonamento` automática(s) (nenhuma se não mudar), mudança de `titulo`/`prioridade`/`origem`/`status`/`customer_id`/`item_id` gera entrada(s) `alteracao` automática(s) — uma por campo, com nomes resolvidos pra `customer_id`/`item_id`, `'(nenhum)'` pra `item_id` nulo, nenhuma entrada se reenviar o mesmo valor, `403` ao tentar editar/excluir uma entrada `alteracao`, cálculo de `prazo_resposta`/`prazo_resolucao` na criação (com override do cliente e fallback pro global), `null` sem política aplicável, `respondido_em`/`concluido_em` setados na 1ª transição de status relevante (e nunca sobrescritos por uma conclusão subsequente), **reabertura limpa `concluido_em`** (mas não `respondido_em`) e faz `statusSlaResolucao()` voltar a comparar contra `now()` em vez de ficar congelado, campos de SLA expostos crus no `IncidenteResource`, **filtro por `status`/`prioridade`/`origem`/`customer_id`/`item_id`/`grupo_solucao_id`/`responsavel_id`** (isolado, combinado, `422` em valor inválido, **sem `status` explícito restringe a `aberto`+`em_andamento`+`pendente`** e um `status` explícito substitui essa restrição), `405` em `DELETE` (sem rota de exclusão), relações carregadas na resposta, `responsavel.name` continua resolvendo depois que o `User` responsável é desativado (`withTrashed()`), **transição pra `status="resolvido"` cria um registro em `incidente_resolucoes`** (autor = quem fez o `PUT`), **reabertura + resolução de novo cria um SEGUNDO registro** (não sobrescreve o primeiro), transição direta pra `fechado`/`cancelado` (pulando `resolvido`) ou reenvio do mesmo `status` **não** cria registro, `403`/`401` |
+| `Incidentes/IncidenteCrudTest.php` | `tickets.view` vs `tickets.manage`, criação força `status="aberto"` (ignora valor enviado), `descricao` gera a 1ª entrada do feed (não fica na tabela `incidentes`), `item_id`/`grupo_solucao_id`/`responsavel_id` opcionais, validação de `customer_id`/`prioridade`/`origem`/`status`, `update()` parcial (só `status`, sem tocar nos outros campos), mudança de `grupo_solucao_id`/`responsavel_id` gera entrada(s) `escalonamento` automática(s) (nenhuma se não mudar), mudança de `titulo`/`prioridade`/`origem`/`status`/`customer_id`/`item_id` gera entrada(s) `alteracao` automática(s) — uma por campo, com nomes resolvidos pra `customer_id`/`item_id`, `'(nenhum)'` pra `item_id` nulo, nenhuma entrada se reenviar o mesmo valor, `403` ao tentar editar/excluir uma entrada `alteracao`, cálculo de `prazo_resposta`/`prazo_resolucao` na criação (com override do cliente e fallback pro global), `null` sem política aplicável, `respondido_em`/`concluido_em` setados na 1ª transição de status relevante (e nunca sobrescritos por uma conclusão subsequente), **reabertura limpa `concluido_em`** (mas não `respondido_em`) e faz `statusSlaResolucao()` voltar a comparar contra `now()` em vez de ficar congelado, campos de SLA expostos crus no `IncidenteResource`, **filtro por `status`/`prioridade`/`origem`/`customer_id`/`item_id`/`grupo_solucao_id`/`responsavel_id`** (isolado, combinado, `422` em valor inválido, **sem `status` explícito restringe a `aberto`+`em_andamento`+`pendente`** e um `status` explícito substitui essa restrição), `405` em `DELETE` (sem rota de exclusão), relações carregadas na resposta, `responsavel.name` continua resolvendo depois que o `User` responsável é desativado (`withTrashed()`), **transição pra `status="resolvido"` cria um `IncidenteEvento` `tipo=resolvido`** (autor = quem fez o `PUT`), **transição direta pra `status="fechado"` (pulando `resolvido`) cria só um evento `fechado`** (nenhum `resolvido`), **reabertura + resolução de novo cria um SEGUNDO evento `resolvido`** (não sobrescreve o primeiro), `cancelado` **não** cria nenhum evento de conclusão, reenvio do mesmo `status` **não** cria evento, mudança de `grupo_solucao_id`/`responsavel_id` cria um `IncidenteEvento` `encaminhado_grupo`/`encaminhado_responsavel` (`alvo_type`/`alvo_id` apontando pro grupo/usuário de destino) além da entrada `escalonamento` no feed, **criação de incidente registra `criado_por_id`** = autor do `POST`, `403`/`401` |
 | `Incidentes/IncidenteDescricaoCrudTest.php` | CRUD do feed aninhado, `tipo`/`user_id` sempre forçados no `store` (ignora payload), só o próprio autor edita/exclui um `comentario` (`403` pra outro agente), `escalonamento` nunca editável/excluível (nem pelo autor), `404` se a descrição não pertencer ao incidente da URL, **exclusão é soft delete** (`assertSoftDeleted`, continua aparecendo no feed com `excluido_em` setado), `403` ao tentar editar ou excluir um comentário já excluído, `user.name` continua resolvendo depois que o autor é desativado (`withTrashed()`), `403`/`401` |
 | `Incidentes/IncidenteAnexoCrudTest.php` | CRUD de anexos aninhado (`index`/`store`/`download`/`destroy`, sem `update`), upload real via `UploadedFile::fake()` + `Storage::fake('local')`, `nome_original`/`mime_type`/`tamanho` persistidos a partir do arquivo enviado, arquivo maior que 10 MB rejeitado (`422`), download preserva o `nome_original` no `Content-Disposition`, `destroy` remove a linha **e** o arquivo do disco, `404` se o anexo não pertencer ao incidente da URL, sem restrição de autor no `destroy` (diferente de `descricoes`), `user.name` continua resolvendo depois que quem enviou é desativado (`withTrashed()`), **extensão fora da whitelist rejeitada (`422`)**, **conteúdo que não bate com a extensão declarada rejeitado (`422`, `UploadedFile` real construído à mão — `fake()` não detecta mime por conteúdo, ver §3.4.7.2)**, **upload real de `.jpg`/`.csv` aceito**, **EXIF injetado num JPEG real (via GD) some do arquivo salvo após o upload**, **arquivo não-imagem passa intacto (byte a byte) pela etapa de remoção de EXIF**, `403`/`401` |
-| `Relatorios/RelatorioIncidentesTest.php` | `agrupar_por` = `status_sla`/`responsavel`/`resolvido_por`/`grupo_solucao`/`categoria`/`subcategoria`/`item`, `status_sla`/`responsavel`/`grupo_solucao` restringem a `STATUS_CONCLUIDOS` sem `status` explícito (explícito inclui abertos), `categoria`/`subcategoria`/`item`/`resolvido_por` **não** têm essa restrição, contagem correta por classificação (categoria→subcategoria→item), por agente (incluindo `(sem responsável)` e nome resolvido após desativação via `withTrashed()`) e por grupo de solução (incluindo `(sem grupo de solução)`), **`resolvido_por` conta cada resolução separadamente mesmo com reabertura no meio** (duas linhas em `incidente_resolucoes` pro mesmo incidente = dois eventos contados, não um), **filtra pela data do evento (`IncidenteResolucao.created_at`), não `Incidente.concluido_em`**, filtro por `data_inicio`/`data_fim` (sobre `concluido_em` nas outras dimensões), `client_id`, `grupo_solucao_id`, `formato=xlsx` devolve planilha de verdade (`Content-Type`/`Content-Disposition` corretos), `422` sem `agrupar_por` ou com valor inválido, `403`/`401` |
+| `Relatorios/RelatorioIncidentesTest.php` | `agrupar_por` = `status_sla`/`responsavel`/`aberto_por`/`resolvido_por`/`fechado_por`/`encaminhado_por`/`encaminhado_para_grupo`/`encaminhado_para_responsavel`/`grupo_solucao`/`categoria`/`subcategoria`/`item`, `status_sla`/`responsavel`/`grupo_solucao` restringem a `STATUS_CONCLUIDOS` sem `status` explícito (explícito inclui abertos), `categoria`/`subcategoria`/`item`/`aberto_por`/`resolvido_por`/`fechado_por`/`encaminhado_por`/`encaminhado_para_*` **não** têm essa restrição, contagem correta por classificação (categoria→subcategoria→item), por agente (incluindo `(sem responsável)` e nome resolvido após desativação via `withTrashed()`) e por grupo de solução (incluindo `(sem grupo de solução)`), **`resolvido_por` conta cada resolução separadamente mesmo com reabertura no meio** (dois `IncidenteEvento` `tipo=resolvido` pro mesmo incidente = dois eventos contados, não um), **`fechado_por` conta só os eventos `tipo=fechado`**, **`encaminhado_por` soma eventos `encaminhado_grupo`+`encaminhado_responsavel` por autor** (sem distinguir destino), **`encaminhado_para_grupo`/`encaminhado_para_responsavel` agrupam pelo `alvo_id`** (destino) de cada tipo separadamente, **`aberto_por` agrupa `Incidente.criado_por_id` direto** (sem `IncidenteEvento`) e não restringe a `STATUS_CONCLUIDOS` mesmo sem `status` explícito, **todas as dimensões baseadas em `IncidenteEvento` filtram pela data do evento (`IncidenteEvento.created_at`), não `Incidente.concluido_em`**, filtro por `data_inicio`/`data_fim` (sobre `concluido_em` nas outras dimensões), `client_id`, `grupo_solucao_id`, `formato=xlsx` devolve planilha de verdade (`Content-Type`/`Content-Disposition` corretos), `422` sem `agrupar_por` ou com valor inválido, `403`/`401` |
 | `Relatorios/RelatorioSalvoCrudTest.php` | CRUD completo (`relatorios.view` pra ler/executar, `relatorios.manage` pra criar/editar/excluir), `filtros` vazio (`{}`) é aceito (regressão — `'required'` rejeitava array vazio, corrigido pra `'present'`; achado também que `$request->validate()` some com a chave pai quando reconstrói a partir de sub-regras `filtros.*` vazias, contornado lendo o input bruto), `422` em `nome`/`agrupar_por`/`filtros` ausentes ou `agrupar_por` inválido, `executar` roda os filtros salvos contra dados atuais (json e xlsx), `403`/`401` |
 | `Incidentes/IncidenteSlaTest.php` | Métodos `statusSlaResposta()`/`statusSlaResolucao()`/`tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos()` do `Incidente` isolados (sem HTTP): `sem_sla` sem prazo, `dentro_prazo`/`estourado` comparando com "agora" enquanto aberto, uso de `respondido_em`/`concluido_em` como referência congelada em vez de "agora" quando já concluído |
 | `Dashboard/IncidentesDashboardTest.php` | Formato achatado completo (cliente/email/taxonomia/SLA), `status_sla_*`/`tempo_restante_*` calculados sem query extra (derivados de `prazo_*` já persistido, não chama mais `resolvedSlaFor()`), `estourado` quando aberto e passou do prazo, congela via `concluido_em` mesmo com o prazo já no passado em relação a "agora", `sem_sla` sem política aplicável, classificação `null` sem `item_id`, mesmo filtro do CRUD funcionando (isolado, combinado, `422` em valor inválido, mesma restrição padrão de `status`), `todos_status=1` traz todos os status (incluindo `resolvido`/`fechado`/`cancelado`), `status` explícito tem prioridade sobre `todos_status` quando os dois são enviados, `403`/`401` |

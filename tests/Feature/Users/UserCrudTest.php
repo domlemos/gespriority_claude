@@ -10,6 +10,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class UserCrudTest extends TestCase
@@ -155,13 +156,31 @@ class UserCrudTest extends TestCase
         $this->assertDatabaseHas('users', ['email' => 'ana@example.com', 'grupo_solucao_id' => $grupoSolucao->id]);
     }
 
-    public function test_creating_user_requires_name_email_password_and_grupo_solucao_id(): void
+    public function test_creating_user_requires_name_email_and_grupo_solucao_id(): void
     {
         [$token] = $this->staffToken();
 
         $response = $this->postJson('/api/users', [], $this->authHeader($token));
 
-        $response->assertStatus(422)->assertJsonValidationErrors(['name', 'email', 'password', 'grupo_solucao_id']);
+        $response->assertStatus(422)->assertJsonValidationErrors(['name', 'email', 'grupo_solucao_id']);
+        $response->assertJsonMissingValidationErrors('password');
+    }
+
+    public function test_admin_can_create_a_user_without_a_password_pending_invite(): void
+    {
+        [$token] = $this->staffToken();
+        $grupoSolucao = GrupoSolucao::factory()->create();
+
+        $response = $this->postJson('/api/users', [
+            'name' => 'Sem Senha',
+            'email' => 'sem-senha@example.com',
+            'grupo_solucao_id' => $grupoSolucao->id,
+        ], $this->authHeader($token));
+
+        $response->assertCreated();
+        $user = User::query()->where('email', 'sem-senha@example.com')->firstOrFail();
+        $this->assertNotEmpty($user->password);
+        $this->assertFalse(Hash::check('', $user->password));
     }
 
     public function test_creating_user_requires_grupo_solucao_id(): void

@@ -18,7 +18,11 @@ class RelatorioSalvo extends Model
     // último termo pluralizado); a tabela é 'relatorios_salvos'.
     protected $table = 'relatorios_salvos';
 
-    public const AGRUPAMENTOS = ['status_sla', 'responsavel', 'resolvido_por', 'grupo_solucao', 'categoria', 'subcategoria', 'item'];
+    public const AGRUPAMENTOS = [
+        'status_sla', 'responsavel', 'aberto_por', 'resolvido_por', 'fechado_por',
+        'encaminhado_por', 'encaminhado_para_grupo', 'encaminhado_para_responsavel',
+        'grupo_solucao', 'categoria', 'subcategoria', 'item',
+    ];
 
     protected function casts(): array
     {

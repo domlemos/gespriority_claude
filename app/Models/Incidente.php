@@ -63,6 +63,15 @@ class Incidente extends Model
         return $this->belongsTo(User::class, 'responsavel_id')->withTrashed();
     }
 
+    // Quem abriu — diferente de responsavel/grupo_solucao, nunca muda
+    // depois de setado (não é um evento repetível como resolvido/fechado,
+    // não precisa de IncidenteEvento, ver BACKEND_SPECS.md §3.1). Nulo pra
+    // incidentes criados antes desta coluna existir.
+    public function criadoPor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'criado_por_id')->withTrashed();
+    }
+
     // withTrashed() — comentários excluídos continuam visíveis no feed
     // (marcados via 'excluido_em', ver IncidenteDescricaoResource), nunca
     // somem da listagem.

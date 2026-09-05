@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Notifications\ConviteUsuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -36,7 +39,10 @@ class UserController extends Controller
         $user = User::query()->create([
             'name' => $data['name'],
             'email' => $data['email'],
-            'password' => Hash::make($data['password']),
+            // Sem senha informada: gera um hash aleatório inutilizável — o
+            // usuário só entra depois de definir a própria via convite (ver
+            // enviarConvite() e BACKEND_SPECS.md seção 3.4.3.1).
+            'password' => Hash::make($data['password'] ?? Str::password(40)),
             'grupo_solucao_id' => $data['grupo_solucao_id'],
         ]);
 
@@ -75,6 +81,15 @@ class UserController extends Controller
         return new UserResource($user->load('roles.permissions', 'grupoSolucao'));
     }
 
+    public function enviarConvite(User $user)
+    {
+        $token = Password::broker('users')->createToken($user);
+
+        $user->notify(new ConviteUsuario($token));
+
+        return response()->json(['message' => 'Convite enviado.']);
+    }
+
     public function destroy(Request $request, User $user)
     {
         if ($user->id === $request->user()->id) {
@@ -102,7 +117,9 @@ class UserController extends Controller
                 'required', 'email', 'max:255',
                 Rule::unique('users', 'email')->ignore($user?->id),
             ],
-            'password' => [$user ? 'nullable' : 'required', 'string', 'min:8'],
+            // Opcional em ambos os casos: na criação, ausente = conta criada
+            // sem senha utilizável, pendente de convite (ver enviarConvite()).
+            'password' => ['nullable', 'string', 'min:8'],
             'grupo_solucao_id' => ['required', 'integer', 'exists:grupos_solucao,id'],
             'role_ids' => ['sometimes', 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],

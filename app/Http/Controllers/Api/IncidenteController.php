@@ -8,7 +8,7 @@ use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
 use App\Models\IncidenteDescricao;
-use App\Models\IncidenteResolucao;
+use App\Models\IncidenteEvento;
 use App\Models\Item;
 use App\Models\PoliticaSla;
 use App\Models\User;
@@ -75,6 +75,11 @@ class IncidenteController extends Controller
         // primeira não fica órfã.
         $incidente = DB::transaction(function () use ($data, $descricaoTexto, $request) {
             $incidente = Incidente::query()->create([...$data, 'status' => 'aberto']);
+            // criado_por_id fora do #[Fillable(...)] de propósito (mesmo
+            // padrão de prazo_resposta/etc.) — quem abriu nunca vem do
+            // payload, é sempre quem está autenticado.
+            $incidente->criado_por_id = $request->user()->id;
+            $incidente->save();
 
             $incidente->descricoes()->create([
                 'user_id' => $request->user()->id,
@@ -138,7 +143,7 @@ class IncidenteController extends Controller
             $incidente->update($data);
 
             $this->registrarTransicaoDeStatus($incidente, $statusAnterior, $incidente->status);
-            $this->registrarResolucaoSeAplicavel($incidente, $request->user(), $statusAnterior, $incidente->status);
+            $this->registrarEventoDeConclusaoSeAplicavel($incidente, $request->user(), $statusAnterior, $incidente->status);
 
             $this->logEscalonamentoSeMudou(
                 $incidente,
@@ -147,6 +152,7 @@ class IncidenteController extends Controller
                 $incidente->grupo_solucao_id,
                 fn (GrupoSolucao $grupo) => "Encaminhado para o grupo '{$grupo->nome}' às ".$this->agoraLocal()->format('H:i').' do dia '.$this->agoraLocal()->format('d/m/Y').'.',
                 GrupoSolucao::class,
+                IncidenteEvento::TIPO_ENCAMINHADO_GRUPO,
             );
 
             $this->logEscalonamentoSeMudou(
@@ -156,6 +162,7 @@ class IncidenteController extends Controller
                 $incidente->responsavel_id,
                 fn (User $responsavel) => "Atribuído para {$responsavel->name} às ".$this->agoraLocal()->format('H:i').' do dia '.$this->agoraLocal()->format('d/m/Y').'.',
                 User::class,
+                IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL,
             );
 
             // Toda alteração de campo "simples" (fora grupo/responsável, que já
@@ -248,25 +255,28 @@ class IncidenteController extends Controller
     }
 
     /**
-     * Um registro por transição pra 'resolvido' — nunca sobrescrito nem
-     * limpo na reabertura (diferente de `concluido_em`, ver
+     * Um registro por transição pra 'resolvido'/'fechado' — nunca
+     * sobrescrito nem limpo na reabertura (diferente de `concluido_em`, ver
      * `registrarTransicaoDeStatus()` acima). Um chamado resolvido, reaberto
      * e resolvido de novo (por agentes diferentes ou não) gera duas linhas
-     * aqui, cada uma com seu autor e data — é isso que permite ao relatório
-     * `agrupar_por=resolvido_por` (ver RelatorioController) responder "quem
-     * resolveu" corretamente mesmo depois de reaberturas subsequentes, ao
-     * contrário de uma coluna única em `Incidente`, que só guardaria a mais
-     * recente.
+     * aqui, cada uma com seu autor e data — é isso que permite aos
+     * relatórios `agrupar_por=resolvido_por`/`fechado_por` (ver
+     * RelatorioController) responder "quem resolveu"/"quem fechou"
+     * corretamente mesmo depois de reaberturas subsequentes, ao contrário
+     * de uma coluna única em `Incidente`, que só guardaria a mais recente.
+     * `cancelado` fica de fora — não foi pedido um indicador "cancelado
+     * por" ainda.
      */
-    private function registrarResolucaoSeAplicavel(Incidente $incidente, User $autor, string $anterior, string $novo): void
+    private function registrarEventoDeConclusaoSeAplicavel(Incidente $incidente, User $autor, string $anterior, string $novo): void
     {
-        if ($anterior === $novo || $novo !== 'resolvido') {
+        if ($anterior === $novo || ! in_array($novo, [IncidenteEvento::TIPO_RESOLVIDO, IncidenteEvento::TIPO_FECHADO], true)) {
             return;
         }
 
-        IncidenteResolucao::query()->create([
+        IncidenteEvento::query()->create([
             'incidente_id' => $incidente->id,
             'user_id' => $autor->id,
+            'tipo' => $novo,
         ]);
     }
 
@@ -291,8 +301,12 @@ class IncidenteController extends Controller
     }
 
     /**
-     * Cria uma entrada 'escalonamento' no feed quando `$novoId` muda em
-     * relação a `$anteriorId` e aponta pra um registro de verdade (não loga
+     * Cria uma entrada 'escalonamento' no feed (texto livre, pra leitura
+     * humana no histórico do chamado) **e** um `IncidenteEvento` estruturado
+     * (`$tipoEvento` + `alvo_type`/`alvo_id`, pra agregação em relatório —
+     * ver `agrupar_por=encaminhado_por`/`encaminhado_para_grupo`/
+     * `encaminhado_para_responsavel`) quando `$novoId` muda em relação a
+     * `$anteriorId` e aponta pra um registro de verdade (não loga
      * desatribuição/limpeza, só escalonamento pra um grupo/responsável
      * concreto) — usado tanto pra grupo_solucao_id quanto responsavel_id.
      */
@@ -303,6 +317,7 @@ class IncidenteController extends Controller
         ?int $novoId,
         \Closure $mensagem,
         string $model,
+        string $tipoEvento,
     ): void {
         if ($novoId === null || $novoId === $anteriorId) {
             return;
@@ -314,6 +329,14 @@ class IncidenteController extends Controller
             'user_id' => $autor->id,
             'tipo' => IncidenteDescricao::TIPO_ESCALONAMENTO,
             'descricao' => $mensagem($alvo),
+        ]);
+
+        IncidenteEvento::query()->create([
+            'incidente_id' => $incidente->id,
+            'user_id' => $autor->id,
+            'tipo' => $tipoEvento,
+            'alvo_type' => $model,
+            'alvo_id' => $novoId,
         ]);
     }
 

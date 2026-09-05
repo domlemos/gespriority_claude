@@ -7,7 +7,7 @@ use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
 use App\Models\IncidenteDescricao;
-use App\Models\IncidenteResolucao;
+use App\Models\IncidenteEvento;
 use App\Models\Item;
 use App\Models\Permission;
 use App\Models\PoliticaSla;
@@ -656,11 +656,12 @@ class IncidenteCrudTest extends TestCase
             $this->authHeader($token)
         )->assertOk();
 
-        $this->assertDatabaseHas('incidente_resolucoes', [
+        $this->assertDatabaseHas('incidente_eventos', [
             'incidente_id' => $incidente->id,
             'user_id' => $user->id,
+            'tipo' => 'resolvido',
         ]);
-        $this->assertSame(1, IncidenteResolucao::where('incidente_id', $incidente->id)->count());
+        $this->assertSame(1, IncidenteEvento::where('incidente_id', $incidente->id)->count());
     }
 
     public function test_resolving_again_after_reopening_creates_a_second_resolucao_record(): void
@@ -682,7 +683,7 @@ class IncidenteCrudTest extends TestCase
         $this->putJson("/api/incidentes/{$incidente->id}", ['status' => 'em_andamento'], $this->authHeader($token));
         $this->putJson("/api/incidentes/{$incidente->id}", ['status' => 'resolvido'], $this->authHeader($token));
 
-        $this->assertSame(2, IncidenteResolucao::where('incidente_id', $incidente->id)->count());
+        $this->assertSame(2, IncidenteEvento::where('incidente_id', $incidente->id)->count());
     }
 
     public function test_updating_to_a_non_resolvido_status_does_not_create_a_resolucao_record(): void
@@ -696,15 +697,17 @@ class IncidenteCrudTest extends TestCase
             $this->authHeader($token)
         )->assertOk();
 
-        $this->assertSame(0, IncidenteResolucao::where('incidente_id', $incidente->id)->count());
+        $this->assertSame(0, IncidenteEvento::where('incidente_id', $incidente->id)->count());
     }
 
-    public function test_direct_transition_from_aberto_to_fechado_does_not_create_a_resolucao_record(): void
+    public function test_direct_transition_from_aberto_to_fechado_creates_only_a_fechado_evento(): void
     {
         // Pulou 'resolvido' inteiramente — não houve resolução, só
-        // fechamento direto, então não deveria criar registro.
+        // fechamento direto: não cria evento 'resolvido', mas cria
+        // 'fechado' (fechado_por conta esse chamado normalmente, mesmo sem
+        // ter passado por resolvido).
         $incidente = Incidente::factory()->create(['status' => 'aberto']);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token, $user] = $this->staffToken(['tickets.manage']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
@@ -712,7 +715,101 @@ class IncidenteCrudTest extends TestCase
             $this->authHeader($token)
         )->assertOk();
 
-        $this->assertSame(0, IncidenteResolucao::where('incidente_id', $incidente->id)->count());
+        $this->assertSame(0, IncidenteEvento::where('incidente_id', $incidente->id)->where('tipo', 'resolvido')->count());
+        $this->assertDatabaseHas('incidente_eventos', [
+            'incidente_id' => $incidente->id,
+            'user_id' => $user->id,
+            'tipo' => 'fechado',
+        ]);
+    }
+
+    public function test_closing_an_incidente_directly_creates_a_fechado_evento(): void
+    {
+        $incidente = Incidente::factory()->create(['status' => 'resolvido']);
+        [$token, $user] = $this->staffToken(['tickets.manage']);
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['status' => 'fechado'],
+            $this->authHeader($token)
+        )->assertOk();
+
+        $this->assertDatabaseHas('incidente_eventos', [
+            'incidente_id' => $incidente->id,
+            'user_id' => $user->id,
+            'tipo' => 'fechado',
+        ]);
+    }
+
+    public function test_cancelado_does_not_create_any_evento(): void
+    {
+        $incidente = Incidente::factory()->create(['status' => 'aberto']);
+        [$token] = $this->staffToken(['tickets.manage']);
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['status' => 'cancelado'],
+            $this->authHeader($token)
+        )->assertOk();
+
+        $this->assertSame(0, IncidenteEvento::where('incidente_id', $incidente->id)->count());
+    }
+
+    public function test_updating_grupo_solucao_id_creates_an_encaminhado_grupo_evento(): void
+    {
+        $incidente = Incidente::factory()->create(['grupo_solucao_id' => null]);
+        $grupo = GrupoSolucao::factory()->create();
+        [$token, $user] = $this->staffToken(['tickets.manage']);
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['grupo_solucao_id' => $grupo->id],
+            $this->authHeader($token)
+        )->assertOk();
+
+        $this->assertDatabaseHas('incidente_eventos', [
+            'incidente_id' => $incidente->id,
+            'user_id' => $user->id,
+            'tipo' => 'encaminhado_grupo',
+            'alvo_type' => GrupoSolucao::class,
+            'alvo_id' => $grupo->id,
+        ]);
+    }
+
+    public function test_updating_responsavel_id_creates_an_encaminhado_responsavel_evento(): void
+    {
+        $incidente = Incidente::factory()->create(['responsavel_id' => null]);
+        $responsavel = User::factory()->create();
+        [$token, $user] = $this->staffToken(['tickets.manage']);
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['responsavel_id' => $responsavel->id],
+            $this->authHeader($token)
+        )->assertOk();
+
+        $this->assertDatabaseHas('incidente_eventos', [
+            'incidente_id' => $incidente->id,
+            'user_id' => $user->id,
+            'tipo' => 'encaminhado_responsavel',
+            'alvo_type' => User::class,
+            'alvo_id' => $responsavel->id,
+        ]);
+    }
+
+    public function test_creating_an_incidente_records_who_created_it(): void
+    {
+        [$token, $user] = $this->staffToken(['tickets.manage']);
+
+        $response = $this->postJson(
+            '/api/incidentes',
+            $this->validPayload(),
+            $this->authHeader($token)
+        );
+
+        $response->assertCreated();
+        $incidente = Incidente::find($response->json('data.id'));
+        $this->assertSame($user->id, $incidente->criado_por_id);
     }
 
     public function test_resending_the_same_resolvido_status_does_not_create_a_duplicate_record(): void
@@ -726,7 +823,7 @@ class IncidenteCrudTest extends TestCase
             $this->authHeader($token)
         )->assertOk();
 
-        $this->assertSame(0, IncidenteResolucao::where('incidente_id', $incidente->id)->count());
+        $this->assertSame(0, IncidenteEvento::where('incidente_id', $incidente->id)->count());
     }
 
     public function test_updating_titulo_creates_an_alteracao_entry(): void
