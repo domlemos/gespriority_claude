@@ -57,7 +57,8 @@ Terraform, no passo 2).
 
 5. **Aplicar o resto da infra** (cria ECS, ALB, certificado ACM já
    validado automaticamente via Route53, o registro que aponta
-   `gespriority.com.br` pro Load Balancer, e a role do GitHub Actions):
+   `gespriority.com.br` pro Load Balancer, a identidade de domínio do
+   SES com DKIM já verificado, e a role do GitHub Actions):
 
    ```bash
    cd infra/terraform
@@ -70,12 +71,14 @@ Terraform, no passo 2).
    produção mudará e invalidará sessões e dados criptografados
    existentes).
 
-   A validação do certificado ACM e o apontamento de DNS pro ALB agora
-   são automáticos (o Terraform cria os registros dentro da zona
-   Route53 sozinho) — só funcionam se a delegação do passo 3 já tiver
-   propagado. Se o apply travar em `aws_acm_certificate_validation`
-   por mais de alguns minutos, confirme a propagação com `dig NS
-   gespriority.com.br +short` antes de esperar mais.
+   A validação do certificado ACM, o apontamento de DNS pro ALB e a
+   verificação de domínio/DKIM do SES agora são automáticos (o
+   Terraform cria os registros dentro da zona Route53 sozinho) — só
+   funcionam se a delegação do passo 3 já tiver propagado. Se o apply
+   travar em `aws_acm_certificate_validation` ou
+   `aws_ses_domain_identity_verification` por mais de alguns minutos,
+   confirme a propagação com `dig NS gespriority.com.br +short` antes
+   de esperar mais.
 
 6. **Configurar os GitHub Secrets** do repositório
    `domlemos/gespriority_claude` (Settings → Secrets and variables →
