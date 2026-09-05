@@ -29,3 +29,15 @@ output "ecs_tasks_security_group_id" {
 output "github_actions_role_arn" {
   value = module.cicd.github_actions_role_arn
 }
+
+output "frontend_bucket_name" {
+  value = module.frontend.bucket_name
+}
+
+output "frontend_distribution_id" {
+  value = module.frontend.distribution_id
+}
+
+output "frontend_distribution_domain_name" {
+  value = module.frontend.distribution_domain_name
+}

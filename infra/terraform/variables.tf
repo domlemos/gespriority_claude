@@ -14,9 +14,15 @@ variable "domain_name" {
 }
 
 variable "customer_subdomains" {
-  description = "Subdomínios de cliente (sem o domínio, ex: \"uplexis\") que apontam pro mesmo ALB."
+  description = "Subdomínios de cliente (sem o domínio) que apontam pro mesmo ALB — não usar aqui o valor de var.frontend_subdomain, que já tem tratamento próprio (CloudFront, não ALB)."
   type        = list(string)
-  default     = ["uplexis"]
+  default     = []
+}
+
+variable "frontend_subdomain" {
+  description = "Subdomínio (sem o domínio) que serve o frontend via CloudFront. A raiz do domínio (var.domain_name) redireciona pra ele."
+  type        = string
+  default     = "uplexis"
 }
 
 variable "attachments_bucket_name" {

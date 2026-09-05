@@ -6,12 +6,19 @@ output "route53_name_servers" {
   value = aws_route53_zone.this.name_servers
 }
 
+output "zone_id" {
+  value = aws_route53_zone.this.zone_id
+}
+
 output "alb_dns_name" {
   value = aws_lb.this.dns_name
 }
 
 output "acm_certificate_arn" {
-  value = aws_acm_certificate.this.arn
+  # A validação (não o certificado bruto) — garante que quem consome este
+  # output espera o cert ficar ISSUED antes de usá-lo (CloudFront, como o
+  # ALB, rejeita um certificado ainda PENDING_VALIDATION).
+  value = aws_acm_certificate_validation.this.certificate_arn
 }
 
 output "web_service_name" {

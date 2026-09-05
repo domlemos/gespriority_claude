@@ -46,16 +46,12 @@ resource "aws_acm_certificate_validation" "this" {
   }
 }
 
-resource "aws_route53_record" "apex" {
+resource "aws_route53_record" "api" {
   zone_id = aws_route53_zone.this.zone_id
-  name    = var.domain_name
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.this.dns_name
-    zone_id                = aws_lb.this.zone_id
-    evaluate_target_health = true
-  }
+  name    = "api.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 300
+  records = [aws_lb.this.dns_name]
 }
 
 resource "aws_route53_record" "customer_subdomains" {

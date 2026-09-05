@@ -24,7 +24,8 @@ locals {
     APP_NAME                    = "ITSM"
     APP_ENV                     = "production"
     APP_DEBUG                   = "false"
-    APP_URL                     = "https://${var.domain_name}"
+    APP_URL                     = "https://api.${var.domain_name}"
+    FRONTEND_URL                = "https://${var.frontend_subdomain}.${var.domain_name}"
     APP_LOCALE                  = "pt_BR"
     APP_FALLBACK_LOCALE         = "en"
     LOG_CHANNEL                 = "stderr"
@@ -66,6 +67,15 @@ module "ecs" {
   db_password_secret_arn      = module.data.db_password_secret_arn
   app_key_secret_arn          = module.data.app_key_secret_arn
   env_vars                    = local.ecs_env_vars
+}
+
+module "frontend" {
+  source              = "./modules/frontend"
+  project_name        = var.project_name
+  domain_name         = var.domain_name
+  frontend_subdomain  = var.frontend_subdomain
+  zone_id             = module.ecs.zone_id
+  acm_certificate_arn = module.ecs.acm_certificate_arn
 }
 
 data "aws_caller_identity" "current" {}
