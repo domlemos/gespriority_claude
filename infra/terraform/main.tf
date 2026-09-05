@@ -43,7 +43,8 @@ locals {
     AWS_DEFAULT_REGION          = var.aws_region
     AWS_BUCKET                  = module.data.attachments_bucket_name
     AWS_USE_PATH_STYLE_ENDPOINT = "false"
-    MAIL_MAILER                 = "log"
+    MAIL_MAILER                 = "ses"
+    MAIL_FROM_ADDRESS           = "noreply@${var.domain_name}"
     OCTANE_SERVER               = "frankenphp"
   }
 }

@@ -98,14 +98,24 @@ Terraform, no passo 2).
    `/api/incidentes/{id}/anexos`) pra confirmar que o S3 está
    funcionando fim a fim.
 
-8. **Disparar o pipeline de verdade**: dar `git push` na `main` (mesmo
+8. **Sair do sandbox do SES**: toda conta SES nova nasce em modo
+   sandbox — só envia e-mail pra endereços/domínios verificados
+   manualmente no console, com limite baixo de volume. Isso não dá pra
+   automatizar via Terraform; é um pedido manual em SES → Account
+   dashboard → "Request production access" (ou um ticket de suporte),
+   normalmente aprovado em algumas horas. Enquanto estiver em sandbox,
+   verifique manualmente pelo menos um endereço de teste (SES →
+   Verified identities → Create identity) pra conseguir validar o
+   envio antes da aprovação sair.
+
+9. **Disparar o pipeline de verdade**: dar `git push` na `main` (mesmo
    que um commit trivial) e acompanhar a run do workflow `deploy.yml`
    no GitHub Actions até `Wait for services to stabilize` passar.
 
-9. **Rollback, se precisar**: reverter é apontar o service de volta pra
-   revisão anterior da task definition:
+10. **Rollback, se precisar**: reverter é apontar o service de volta pra
+    revisão anterior da task definition:
 
-   ```bash
-   aws ecs update-service --cluster gespriority-itsm-cluster --service gespriority-itsm-web \
-     --task-definition gespriority-itsm-web:<revisão anterior>
-   ```
+    ```bash
+    aws ecs update-service --cluster gespriority-itsm-cluster --service gespriority-itsm-web \
+      --task-definition gespriority-itsm-web:<revisão anterior>
+    ```

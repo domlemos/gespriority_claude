@@ -57,6 +57,54 @@ resource "aws_route53_record" "apex" {
   }
 }
 
+resource "aws_ses_domain_identity" "this" {
+  domain = var.domain_name
+}
+
+resource "aws_route53_record" "ses_verification" {
+  zone_id = aws_route53_zone.this.zone_id
+  name    = "_amazonses.${var.domain_name}"
+  type    = "TXT"
+  ttl     = 600
+  records = [aws_ses_domain_identity.this.verification_token]
+}
+
+resource "aws_ses_domain_identity_verification" "this" {
+  domain = aws_ses_domain_identity.this.id
+
+  depends_on = [aws_route53_record.ses_verification]
+
+  timeouts {
+    create = "10m"
+  }
+}
+
+resource "aws_ses_domain_dkim" "this" {
+  domain = aws_ses_domain_identity.this.domain
+}
+
+resource "aws_route53_record" "ses_dkim" {
+  count   = 3
+  zone_id = aws_route53_zone.this.zone_id
+  name    = "${aws_ses_domain_dkim.this.dkim_tokens[count.index]}._domainkey.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 600
+  records = ["${aws_ses_domain_dkim.this.dkim_tokens[count.index]}.dkim.amazonses.com"]
+}
+
+data "aws_iam_policy_document" "task_ses" {
+  statement {
+    actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+    resources = [aws_ses_domain_identity.this.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "task_ses" {
+  name   = "${var.project_name}-ecs-task-ses"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.task_ses.json
+}
+
 resource "aws_lb" "this" {
   name               = "${var.project_name}-alb"
   internal           = false
