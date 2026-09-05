@@ -1,3 +1,17 @@
+# Sem isso, o Terraform trataria a troca de dono desses registros como
+# destroy+create (endereços de módulo diferentes, mesmo nome de DNS) sem
+# ordem garantida entre os dois — risco real de gap de DNS num domínio
+# já em produção. `moved` faz o Terraform tratar como update in-place.
+moved {
+  from = module.ecs.aws_route53_record.apex
+  to   = module.frontend.aws_route53_record.apex
+}
+
+moved {
+  from = module.ecs.aws_route53_record.customer_subdomains["uplexis"]
+  to   = module.frontend.aws_route53_record.frontend
+}
+
 module "network" {
   source       = "./modules/network"
   project_name = var.project_name

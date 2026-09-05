@@ -31,7 +31,7 @@ variable "domain_name" {
 }
 
 variable "customer_subdomains" {
-  description = "Subdomínios (sem o domínio, ex: \"uplexis\") que apontam pro mesmo ALB — cobertos pelo SAN wildcard do certificado."
+  description = "Subdomínios de cliente (sem o domínio, ex: \"cliente1\") que apontam pro mesmo ALB — cobertos pelo SAN wildcard do certificado. Não usar aqui o valor de var.frontend_subdomain, que aponta pro CloudFront, não pro ALB."
   type        = list(string)
   default     = []
 }
