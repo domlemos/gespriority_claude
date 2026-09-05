@@ -59,6 +59,7 @@ module "ecs" {
   alb_security_group_id       = module.network.alb_security_group_id
   ecs_tasks_security_group_id = module.network.ecs_tasks_security_group_id
   domain_name                 = var.domain_name
+  customer_subdomains         = var.customer_subdomains
   ecr_repository_url          = module.ecr.repository_url
   image_tag                   = var.image_tag
   attachments_bucket_arn      = module.data.attachments_bucket_arn

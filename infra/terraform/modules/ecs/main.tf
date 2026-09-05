@@ -7,8 +7,9 @@ resource "aws_route53_zone" "this" {
 }
 
 resource "aws_acm_certificate" "this" {
-  domain_name       = var.domain_name
-  validation_method = "DNS"
+  domain_name               = var.domain_name
+  subject_alternative_names = ["*.${var.domain_name}"]
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true
@@ -55,6 +56,16 @@ resource "aws_route53_record" "apex" {
     zone_id                = aws_lb.this.zone_id
     evaluate_target_health = true
   }
+}
+
+resource "aws_route53_record" "customer_subdomains" {
+  for_each = toset(var.customer_subdomains)
+
+  zone_id = aws_route53_zone.this.zone_id
+  name    = "${each.value}.${var.domain_name}"
+  type    = "CNAME"
+  ttl     = 300
+  records = [aws_lb.this.dns_name]
 }
 
 resource "aws_ses_domain_identity" "this" {

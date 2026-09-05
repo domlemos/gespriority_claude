@@ -13,6 +13,12 @@ variable "domain_name" {
   default = "gespriority.com.br"
 }
 
+variable "customer_subdomains" {
+  description = "Subdomínios de cliente (sem o domínio, ex: \"uplexis\") que apontam pro mesmo ALB."
+  type        = list(string)
+  default     = ["uplexis"]
+}
+
 variable "attachments_bucket_name" {
   type    = string
   default = "gespriority-itsm"

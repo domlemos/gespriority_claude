@@ -30,6 +30,12 @@ variable "domain_name" {
   type = string
 }
 
+variable "customer_subdomains" {
+  description = "Subdomínios (sem o domínio, ex: \"uplexis\") que apontam pro mesmo ALB — cobertos pelo SAN wildcard do certificado."
+  type        = list(string)
+  default     = []
+}
+
 variable "ecr_repository_url" {
   type = string
 }
