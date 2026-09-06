@@ -115,7 +115,11 @@ class UserController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => [
                 'required', 'email', 'max:255',
-                Rule::unique('users', 'email')->ignore($user?->id),
+                // withoutTrashed(): usuário desativado não bloqueia o e-mail —
+                // um cadastro novo com o mesmo e-mail é um registro
+                // independente, o antigo continua soft-deleted com seu
+                // histórico intacto.
+                Rule::unique('users', 'email')->ignore($user?->id)->withoutTrashed(),
             ],
             // Opcional em ambos os casos: na criação, ausente = conta criada
             // sem senha utilizável, pendente de convite (ver enviarConvite()).

@@ -225,6 +225,24 @@ class UserCrudTest extends TestCase
         $response->assertStatus(422)->assertJsonValidationErrors('email');
     }
 
+    public function test_admin_can_create_a_new_user_reusing_the_email_of_a_deactivated_one(): void
+    {
+        [$token] = $this->staffToken();
+        $old = User::factory()->create(['email' => 'reciclado@example.com']);
+        $old->delete();
+
+        $response = $this->postJson('/api/users', [
+            'name' => 'Novo Dono do E-mail',
+            'email' => 'reciclado@example.com',
+            'password' => 'password123',
+            'grupo_solucao_id' => GrupoSolucao::factory()->create()->id,
+        ], $this->authHeader($token));
+
+        $response->assertCreated();
+        $this->assertNotSame($old->id, $response->json('data.id'));
+        $this->assertSoftDeleted('users', ['id' => $old->id, 'email' => 'reciclado@example.com']);
+    }
+
     public function test_admin_can_update_a_user_without_changing_password(): void
     {
         [$token] = $this->staffToken();
