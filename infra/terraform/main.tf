@@ -90,6 +90,7 @@ module "frontend" {
   frontend_subdomain  = var.frontend_subdomain
   zone_id             = module.ecs.zone_id
   acm_certificate_arn = module.ecs.acm_certificate_arn
+  github_repository   = var.frontend_github_repository
 }
 
 data "aws_caller_identity" "current" {}

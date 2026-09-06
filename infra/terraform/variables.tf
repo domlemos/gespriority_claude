@@ -25,6 +25,12 @@ variable "frontend_subdomain" {
   default     = "uplexis"
 }
 
+variable "frontend_github_repository" {
+  description = "Formato \"owner/repo\" do repositório do frontend, usado na trust policy do OIDC do GitHub Actions dele."
+  type        = string
+  default     = "domlemos/gespriority_claude_front"
+}
+
 variable "attachments_bucket_name" {
   type    = string
   default = "gespriority-itsm"

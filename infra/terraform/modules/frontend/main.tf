@@ -189,3 +189,68 @@ resource "aws_route53_record" "frontend" {
     evaluate_target_health = false
   }
 }
+
+# O provider OIDC do GitHub já existe (criado pelo módulo cicd, pro
+# repositório do backend) — é um singleton por conta AWS, então essa
+# role nova reaproveita ele em vez de tentar criar de novo.
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
+data "aws_iam_policy_document" "github_assume" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    # Mesmo cuidado do módulo cicd: esse GitHub inclui por padrão IDs
+    # numéricos estáveis no sub claim (repo:owner@ownerId/repo@repoId:ref:...),
+    # não só o formato clássico — aceitando os dois formatos de uma vez.
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values = [
+        "repo:${var.github_repository}:ref:refs/heads/main",
+        "repo:${split("/", var.github_repository)[0]}@*/${split("/", var.github_repository)[1]}@*:ref:refs/heads/main",
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_actions" {
+  name               = "${var.project_name}-frontend-github-actions"
+  assume_role_policy = data.aws_iam_policy_document.github_assume.json
+}
+
+data "aws_iam_policy_document" "github_actions" {
+  statement {
+    sid = "SyncToBucket"
+    actions = [
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:ListBucket",
+    ]
+    resources = [aws_s3_bucket.this.arn, "${aws_s3_bucket.this.arn}/*"]
+  }
+
+  statement {
+    sid       = "InvalidateCache"
+    actions   = ["cloudfront:CreateInvalidation"]
+    resources = [aws_cloudfront_distribution.this.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions" {
+  name   = "${var.project_name}-frontend-github-actions"
+  role   = aws_iam_role.github_actions.id
+  policy = data.aws_iam_policy_document.github_actions.json
+}

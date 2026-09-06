@@ -9,3 +9,7 @@ output "distribution_id" {
 output "distribution_domain_name" {
   value = aws_cloudfront_distribution.this.domain_name
 }
+
+output "github_actions_role_arn" {
+  value = aws_iam_role.github_actions.arn
+}

@@ -41,3 +41,7 @@ output "frontend_distribution_id" {
 output "frontend_distribution_domain_name" {
   value = module.frontend.distribution_domain_name
 }
+
+output "frontend_github_actions_role_arn" {
+  value = module.frontend.github_actions_role_arn
+}
