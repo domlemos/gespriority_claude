@@ -80,20 +80,25 @@ de verdade (push que dispara o pipeline, ou um
 `aws ecs update-service --force-new-deployment --task-definition
 <nova-revisão>` manual).
 
-**Deploy do frontend ainda não está automatizado.** O código do
-frontend (Vue 3 + Vuetify) mora em
-`domlemos/gespriority_claude_front`, um repositório separado. A
-primeira publicação foi manual: `npm run build` com
-`VITE_API_URL=https://api.gespriority.com.br/api` (em
-`.env.production`, já que o Vite embute essa variável em tempo de
-build, não de runtime) → `aws s3 sync dist/ s3://gespriority-itsm-frontend/ --delete`
-→ `aws cloudfront create-invalidation --distribution-id
-<frontend_distribution_id> --paths "/*"`. O módulo `frontend` expõe
-`frontend_bucket_name` e `frontend_distribution_id` como outputs
-Terraform, prontos pra um workflow do GitHub Actions equivalente ao do
-backend (role OIDC própria, escopada só a `s3:PutObject`/
-`DeleteObject`/`ListBucket` nesse bucket e `cloudfront:CreateInvalidation`
-nessa distribution) — ainda não construído.
+**Deploy do frontend também é automático**, num repositório separado:
+o código (Vue 3 + Vuetify) mora em `domlemos/gespriority_claude_front`,
+com seu próprio `.github/workflows/deploy.yml` — todo push na `main`
+builda (`VITE_API_URL=https://api.gespriority.com.br/api`, fixado em
+`.env.production` já que o Vite embute essa variável em tempo de
+build, não de runtime), sincroniza `dist/` pro bucket
+`gespriority-itsm-frontend` via `aws s3 sync --delete`, e invalida o
+CloudFront (`aws cloudfront create-invalidation --paths "/*"`).
+
+Autenticação via uma role OIDC própria e separada da do backend
+(`module.frontend.github_actions_role_arn`), reaproveitando o mesmo
+provider OIDC (é um singleton por conta AWS — a role nova só faz um
+`data` lookup nele, não cria um segundo). Escopo restrito a
+`s3:PutObject`/`DeleteObject`/`ListBucket` só nesse bucket e
+`cloudfront:CreateInvalidation` só nessa distribution — sem nenhum
+acesso a recursos do backend (ECS, RDS, o bucket de anexos, etc.).
+
+A primeira publicação (antes desse pipeline existir) foi manual, com os
+mesmos três comandos que o workflow agora automatiza.
 
 ## Autenticação/segredos
 
