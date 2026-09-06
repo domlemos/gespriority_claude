@@ -99,6 +99,37 @@ class ConviteTest extends TestCase
         $this->postJson("/api/customers/{$target->id}/convite")->assertStatus(401);
     }
 
+    public function test_sending_invites_to_users_is_rate_limited_after_five_per_minute(): void
+    {
+        Notification::fake();
+        $token = $this->staffToken('users.manage');
+        $targets = User::factory()->count(6)->create();
+
+        foreach ($targets->take(5) as $target) {
+            $this->postJson("/api/users/{$target->id}/convite", [], $this->authHeader($token))
+                ->assertOk();
+        }
+
+        $this->postJson("/api/users/{$targets->last()->id}/convite", [], $this->authHeader($token))
+            ->assertStatus(429);
+    }
+
+    public function test_sending_invites_to_customers_is_rate_limited_after_five_per_minute(): void
+    {
+        Notification::fake();
+        $token = $this->staffToken('customers.manage');
+        $client = Client::factory()->create();
+        $targets = Customer::factory()->count(6)->create(['client_id' => $client->id]);
+
+        foreach ($targets->take(5) as $target) {
+            $this->postJson("/api/customers/{$target->id}/convite", [], $this->authHeader($token))
+                ->assertOk();
+        }
+
+        $this->postJson("/api/customers/{$targets->last()->id}/convite", [], $this->authHeader($token))
+            ->assertStatus(429);
+    }
+
     public function test_invite_mail_renders_recipient_name_and_url(): void
     {
         $html = (new ConviteUsuarioMail(

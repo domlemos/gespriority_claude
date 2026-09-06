@@ -42,6 +42,16 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($key);
         });
 
+        // 5 convites/minuto por admin autenticado, para /users/{user}/convite e
+        // /customers/{customer}/convite — limita o estrago se um token com
+        // users.manage/customers.manage vazar e for usado em loop pra
+        // disparar convite pra todo mundo cadastrado.
+        RateLimiter::for('convite', function (Request $request) {
+            $key = ($request->user()?->id ?? $request->ip()).'|'.$request->ip();
+
+            return Limit::perMinute(5)->by($key);
+        });
+
         // Backend é API-only: não existe rota web `password.reset` para o
         // link padrão do Laravel apontar. Redireciona para o SPA Vue, que
         // faz o POST em /api/reset-password (staff) ou /api/customer/reset-password
