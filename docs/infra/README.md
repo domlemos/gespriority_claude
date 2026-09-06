@@ -80,12 +80,20 @@ de verdade (push que dispara o pipeline, ou um
 `aws ecs update-service --force-new-deployment --task-definition
 <nova-revisão>` manual).
 
-**Deploy do frontend ainda não está automatizado.** O módulo
-`frontend` expõe `frontend_bucket_name` e `frontend_distribution_id`
-como outputs Terraform, prontos pra um workflow futuro (build do
-Vue → `aws s3 sync` pro bucket → `aws cloudfront create-invalidation`),
-mas esse pipeline depende de onde o repositório do frontend mora — não
-existe ainda.
+**Deploy do frontend ainda não está automatizado.** O código do
+frontend (Vue 3 + Vuetify) mora em
+`domlemos/gespriority_claude_front`, um repositório separado. A
+primeira publicação foi manual: `npm run build` com
+`VITE_API_URL=https://api.gespriority.com.br/api` (em
+`.env.production`, já que o Vite embute essa variável em tempo de
+build, não de runtime) → `aws s3 sync dist/ s3://gespriority-itsm-frontend/ --delete`
+→ `aws cloudfront create-invalidation --distribution-id
+<frontend_distribution_id> --paths "/*"`. O módulo `frontend` expõe
+`frontend_bucket_name` e `frontend_distribution_id` como outputs
+Terraform, prontos pra um workflow do GitHub Actions equivalente ao do
+backend (role OIDC própria, escopada só a `s3:PutObject`/
+`DeleteObject`/`ListBucket` nesse bucket e `cloudfront:CreateInvalidation`
+nessa distribution) — ainda não construído.
 
 ## Autenticação/segredos
 
@@ -160,3 +168,14 @@ verdade — nenhuma revisão de código pré-apply os pegaria:
    sem isso, o Terraform trataria como destroy+create sem ordem
    garantida, com risco real de um intervalo sem resolução de DNS num
    domínio já monitorado. Ver commit `b7dec64`.
+4. **Permissão do SES escopada errado**: a policy IAM da task role
+   restringia `ses:SendEmail`/`ses:SendRawEmail` à nossa identidade de
+   domínio verificada (`gespriority.com.br`). Isso quebrou o envio de
+   convite pra qualquer destinatário de fora desse domínio (hotmail,
+   gmail) com "not authorized ... on resource identity/<destinatário>"
+   — o SES avalia autorização de IAM pra `SendRawEmail` contra **cada
+   endereço da mensagem**, não só o remetente. Corrigido pra
+   `Resource: "*"` (padrão que a própria AWS usa nos exemplos oficiais
+   de IAM pro SES, por esse motivo exato) — a segurança real continua
+   sendo o SES recusar remetentes de domínio não verificado, não o
+   escopo do recurso no IAM. Ver commit `77ba4c4`.
