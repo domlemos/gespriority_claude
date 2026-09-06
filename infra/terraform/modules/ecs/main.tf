@@ -101,8 +101,13 @@ resource "aws_route53_record" "ses_dkim" {
 
 data "aws_iam_policy_document" "task_ses" {
   statement {
+    # "*" e não a identidade do domínio: SES avalia autorização de IAM pra
+    # SendRawEmail contra CADA endereço da mensagem (inclusive destinatários
+    # externos, não só o remetente) — escopar pro nosso domínio nega
+    # qualquer envio pra hotmail/gmail/etc. A segurança real continua sendo
+    # o próprio SES rejeitar remetentes de domínio não verificado.
     actions   = ["ses:SendEmail", "ses:SendRawEmail"]
-    resources = [aws_ses_domain_identity.this.arn]
+    resources = ["*"]
   }
 }
 
