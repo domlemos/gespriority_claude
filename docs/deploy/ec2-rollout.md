@@ -158,6 +158,27 @@ referência/rollback — mudou de `on: push` pra `on: workflow_dispatch`,
 então não dispara mais sozinho (a infra que ele mira foi destruída, ver
 [`aws-teardown.md`](aws-teardown.md)).
 
+## 8. Acessar o Postgres com um SGBD (DBeaver, TablePlus, pgAdmin...)
+
+O Postgres só escuta em `127.0.0.1:5432` **na própria instância**
+(`docker-compose.vps.yml`) — nada exposto na rede, o security group nem
+libera 5432 pra internet. Acesso externo é via túnel do SSM Session
+Manager (precisa do [plugin da Session
+Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+instalado localmente):
+
+```bash
+aws ssm start-session \
+  --target "$(terraform -chdir=infra2/terraform output -raw instance_id)" \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["5432"],"localPortNumber":["5432"]}'
+```
+
+Com o túnel aberto, conectar o SGBD em `localhost:5432`, banco `itsm`
+(ou o valor de `DB_DATABASE`), usuário/senha do `DB_USERNAME`/
+`DB_PASSWORD` do `.env` da instância (ver seção 3 pra abrir uma sessão e
+conferir, sem colar a senha em lugar nenhum fora do `.env`).
+
 ## Diferenças permanentes em relação à infra antiga
 
 - **Sem autoscaling** — uma instância só, fixa. Sob carga real (não é

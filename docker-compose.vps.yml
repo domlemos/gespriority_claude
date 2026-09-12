@@ -55,6 +55,13 @@ services:
       POSTGRES_DB: ${DB_DATABASE:-itsm}
       POSTGRES_USER: ${DB_USERNAME:-itsm}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      # Só no loopback do host — nunca na interface pública. Acesso de
+      # fora (SGBD tipo DBeaver/TablePlus) é via túnel SSM Session
+      # Manager (AWS-StartPortForwardingSession), não por exposição de
+      # rede: o security group nem libera 5432 pra internet, isso aqui
+      # só existe pra dar ao próprio host algo pra encaminhar.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
