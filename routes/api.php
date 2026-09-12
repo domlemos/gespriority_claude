@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\RelatorioSalvoController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SubcategoriaController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\UserVisibilidadeController;
 use Illuminate\Support\Facades\Route;
 
 // Staff (guard "web") e Cliente (guard "customer") têm login e recuperação de
@@ -58,6 +59,8 @@ Route::middleware(['auth:web', 'can:users.manage'])->group(function () {
     Route::post('/users/{user}/convite', [UserController::class, 'enviarConvite'])
         ->middleware('throttle:convite');
     Route::get('/roles', [RoleController::class, 'index']);
+    Route::get('/users/{user}/grupos-visiveis', [UserVisibilidadeController::class, 'show']);
+    Route::put('/users/{user}/grupos-visiveis', [UserVisibilidadeController::class, 'update']);
 });
 
 Route::middleware(['auth:web', 'can:customers.manage'])->group(function () {
