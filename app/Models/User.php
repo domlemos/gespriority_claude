@@ -67,15 +67,36 @@ class User extends Authenticatable
         return $this->hasMany(Anexo::class);
     }
 
+    public function isAdmin(): bool
+    {
+        return $this->loadMissing('roles')->roles->contains('slug', 'admin');
+    }
+
     public function hasPermission(string $slug): bool
     {
         $this->loadMissing('roles.permissions');
 
-        return $this->roles
+        $viaRole = $this->roles
             ->pluck('permissions')
             ->flatten()
             ->pluck('slug')
             ->contains($slug);
+
+        // Admin nunca é afetado por exceção de grupo — nem pra ganhar
+        // (permissoesLiberadas) nem pra perder (permissoesBloqueadas) uma
+        // permission. Evita lockout do sistema por má configuração de
+        // grupo (ver BACKEND_SPECS.md e design spec desta feature).
+        if ($this->isAdmin()) {
+            return $viaRole;
+        }
+
+        $this->loadMissing('grupoSolucao.permissoesLiberadas', 'grupoSolucao.permissoesBloqueadas');
+
+        if ($this->grupoSolucao->permissoesBloqueadas->pluck('slug')->contains($slug)) {
+            return false;
+        }
+
+        return $viaRole || $this->grupoSolucao->permissoesLiberadas->pluck('slug')->contains($slug);
     }
 
     /**
