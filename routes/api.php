@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\AnexoController;
 use App\Http\Controllers\Api\GrupoSolucaoController;
+use App\Http\Controllers\Api\GrupoSolucaoPermissaoController;
 use App\Http\Controllers\Api\IncidenteController;
 use App\Http\Controllers\Api\IncidenteDescricaoController;
 use App\Http\Controllers\Api\ItemController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Api\RelatorioSalvoController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SubcategoriaController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\UserVisibilidadeController;
 use Illuminate\Support\Facades\Route;
 
 // Staff (guard "web") e Cliente (guard "customer") têm login e recuperação de
@@ -57,6 +59,8 @@ Route::middleware(['auth:web', 'can:users.manage'])->group(function () {
     Route::post('/users/{user}/convite', [UserController::class, 'enviarConvite'])
         ->middleware('throttle:convite');
     Route::get('/roles', [RoleController::class, 'index']);
+    Route::get('/users/{user}/grupos-visiveis', [UserVisibilidadeController::class, 'show']);
+    Route::put('/users/{user}/grupos-visiveis', [UserVisibilidadeController::class, 'update']);
 });
 
 Route::middleware(['auth:web', 'can:customers.manage'])->group(function () {
@@ -118,6 +122,11 @@ Route::middleware(['auth:web', 'can:grupos_solucao.manage'])
     ->apiResource('grupos-solucao', GrupoSolucaoController::class)
     ->parameters(['grupos-solucao' => 'grupo_solucao'])
     ->only(['store', 'update', 'destroy']);
+
+Route::middleware(['auth:web', 'can:grupos_solucao.manage'])->group(function () {
+    Route::get('/grupos-solucao/{grupo_solucao}/permissoes', [GrupoSolucaoPermissaoController::class, 'show']);
+    Route::put('/grupos-solucao/{grupo_solucao}/permissoes', [GrupoSolucaoPermissaoController::class, 'update']);
+});
 
 // Incidente — só cadastral nesta entrega (sem relação com PoliticaSla ainda).
 // Só staff (guard "web") por enquanto; Customer abrir o próprio chamado pelo

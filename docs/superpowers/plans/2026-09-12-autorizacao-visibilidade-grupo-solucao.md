@@ -783,7 +783,7 @@ Em `test_can_combine_multiple_filters` (linhas 157-171), trocar `[$token] = $thi
 - [ ] **Step 8: Rodar `IncidenteCrudTest` de novo e confirmar que passa**
 
 Run: `php artisan test --filter=IncidenteCrudTest`
-Expected: PASS — todos os testes deste arquivo, incluindo os 2 corrigidos. (Os outros 2 testes que também vão quebrar neste arquivo — `test_staff_with_view_permission_can_view_a_single_incidente_with_relations_loaded` e `test_updating_to_the_same_grupo_solucao_id_does_not_create_an_escalonamento_entry` — dependem de `show()`/`update()`, ainda não tocados nesta task; ficam para a Task 6.)
+Expected: PASS — todos os testes deste arquivo, sem exceção. (`show()`/`update()` ainda não têm nenhuma checagem de visibilidade nesta task — só `index()` foi tocado — então nenhum outro teste deste arquivo é afetado ainda; a Task 6 é quem introduz a checagem em `show()`/`update()`, e é lá que 2 outros testes deste mesmo arquivo passam a exigir correção.)
 
 - [ ] **Step 9: Commit**
 

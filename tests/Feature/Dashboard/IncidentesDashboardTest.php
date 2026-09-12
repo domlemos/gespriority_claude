@@ -20,7 +20,7 @@ class IncidentesDashboardTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function staffToken(array $permissionSlugs): string
+    private function staffToken(array $permissionSlugs, ?GrupoSolucao $grupoSolucao = null): string
     {
         $role = Role::factory()->create();
 
@@ -28,7 +28,7 @@ class IncidentesDashboardTest extends TestCase
             $role->permissions()->attach(Permission::factory()->create(['slug' => $slug]));
         }
 
-        $user = User::factory()->create();
+        $user = User::factory()->create($grupoSolucao ? ['grupo_solucao_id' => $grupoSolucao->id] : []);
         $user->roles()->attach($role);
 
         return $user->createToken('spa', ['staff'], now()->addMinutes(120))->plainTextToken;
@@ -71,7 +71,7 @@ class IncidentesDashboardTest extends TestCase
             'prazo_resposta' => $incidente->created_at->copy()->addMinutes(90),
             'prazo_resolucao' => $incidente->created_at->copy()->addMinutes(300),
         ])->save();
-        $token = $this->staffToken(['tickets.view']);
+        $token = $this->staffToken(['tickets.view'], $grupoSolucao);
 
         $response = $this->getJson('/api/dashboard/incidentes', $this->authHeader($token));
 
@@ -272,7 +272,7 @@ class IncidentesDashboardTest extends TestCase
         $grupo = GrupoSolucao::factory()->create();
         Incidente::factory()->create(['prioridade' => 'alta', 'grupo_solucao_id' => $grupo->id]);
         Incidente::factory()->create(['prioridade' => 'baixa', 'grupo_solucao_id' => $grupo->id]);
-        $token = $this->staffToken(['tickets.view']);
+        $token = $this->staffToken(['tickets.view'], $grupo);
 
         $response = $this->getJson(
             "/api/dashboard/incidentes?prioridade=alta&grupo_solucao_id={$grupo->id}",

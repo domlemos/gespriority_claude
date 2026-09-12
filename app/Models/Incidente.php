@@ -157,6 +157,27 @@ class Incidente extends Model
             );
     }
 
+    /**
+     * Restringe a incidentes que o usuário pode enxergar: o próprio grupo
+     * de solução, os grupos extras concedidos individualmente
+     * (User::gruposVisiveisExtra), e qualquer incidente ainda sem grupo
+     * (fila de triagem pendente — visível a todos, senão ninguém
+     * conseguiria rotear um chamado recém-criado). `admin` não tem
+     * restrição nenhuma (User::visibleGrupoSolucaoIds() retorna `null`).
+     */
+    public function scopeVisiveisPara(Builder $query, User $user): Builder
+    {
+        $ids = $user->visibleGrupoSolucaoIds();
+
+        if ($ids === null) {
+            return $query;
+        }
+
+        return $query->where(
+            fn (Builder $q) => $q->whereNull('grupo_solucao_id')->orWhereIn('grupo_solucao_id', $ids)
+        );
+    }
+
     /** Colunas aceitas em `sort_by` — ver scopeOrdenarPor(). */
     public const SORTABLE_COLUMNS = [
         'numero', 'titulo', 'prioridade', 'status', 'data_abertura', 'cliente', 'grupo_solucao', 'responsavel',

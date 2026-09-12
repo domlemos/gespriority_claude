@@ -24,7 +24,7 @@ class RelatorioController extends Controller
     {
         [$filtros, $agruparPor, $formato] = $this->validado($request);
 
-        return $this->responder($filtros, $agruparPor, $formato);
+        return $this->responder($filtros, $agruparPor, $formato, $request->user());
     }
 
     /**
@@ -58,9 +58,9 @@ class RelatorioController extends Controller
         return [$filtros, $agruparPor, $formato];
     }
 
-    public function responder(array $filtros, string $agruparPor, string $formato)
+    public function responder(array $filtros, string $agruparPor, string $formato, User $user)
     {
-        $linhas = $this->agregar($filtros, $agruparPor);
+        $linhas = $this->agregar($filtros, $agruparPor, $user);
 
         if ($formato === 'xlsx') {
             return Excel::download(new RelatorioIncidentesExport($linhas), "relatorio-{$agruparPor}.xlsx");
@@ -101,12 +101,12 @@ class RelatorioController extends Controller
      * de `STATUS_CONCLUIDOS`: um chamado resolvido e depois reaberto pra
      * 'em_andamento' ainda deve contar a resolução que já aconteceu.
      */
-    private function agregar(array $filtros, string $agruparPor): Collection
+    private function agregar(array $filtros, string $agruparPor, User $user): Collection
     {
         if (isset(self::EVENTOS_POR_USUARIO[$agruparPor])) {
             return $this->comRotulos(
                 $this->contarAgrupado(
-                    IncidenteEvento::query()->whereIn('tipo', self::EVENTOS_POR_USUARIO[$agruparPor])->filtrosRelatorio($filtros),
+                    IncidenteEvento::query()->whereIn('tipo', self::EVENTOS_POR_USUARIO[$agruparPor])->visiveisPara($user)->filtrosRelatorio($filtros),
                     'user_id'
                 ),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
@@ -117,7 +117,7 @@ class RelatorioController extends Controller
         if ($agruparPor === 'encaminhado_para_grupo') {
             return $this->comRotulos(
                 $this->contarAgrupado(
-                    IncidenteEvento::query()->where('tipo', IncidenteEvento::TIPO_ENCAMINHADO_GRUPO)->filtrosRelatorio($filtros),
+                    IncidenteEvento::query()->where('tipo', IncidenteEvento::TIPO_ENCAMINHADO_GRUPO)->visiveisPara($user)->filtrosRelatorio($filtros),
                     'alvo_id'
                 ),
                 fn (array $ids) => GrupoSolucao::whereIn('id', $ids)->pluck('nome', 'id'),
@@ -128,7 +128,7 @@ class RelatorioController extends Controller
         if ($agruparPor === 'encaminhado_para_responsavel') {
             return $this->comRotulos(
                 $this->contarAgrupado(
-                    IncidenteEvento::query()->where('tipo', IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL)->filtrosRelatorio($filtros),
+                    IncidenteEvento::query()->where('tipo', IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL)->visiveisPara($user)->filtrosRelatorio($filtros),
                     'alvo_id'
                 ),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
@@ -138,13 +138,13 @@ class RelatorioController extends Controller
 
         if ($agruparPor === 'aberto_por') {
             return $this->comRotulos(
-                $this->contarAgrupado(Incidente::query()->filtrosRelatorio($filtros), 'criado_por_id'),
+                $this->contarAgrupado(Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros), 'criado_por_id'),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
                 '(desconhecido)',
             );
         }
 
-        $query = Incidente::query()->filtrosRelatorio($filtros);
+        $query = Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros);
 
         if (in_array($agruparPor, ['status_sla', 'responsavel', 'grupo_solucao'], true) && empty($filtros['status'])) {
             $query->whereIn('status', Incidente::STATUS_CONCLUIDOS);
