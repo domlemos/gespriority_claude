@@ -57,6 +57,23 @@ class User extends Authenticatable
         return $this->belongsToMany(GrupoSolucao::class, 'user_grupo_solucao_visibilidade');
     }
 
+    /**
+     * `null` = sem restrição (bypass do admin, ver isAdmin()). Caso
+     * contrário, o próprio grupo do usuário mais os grupos extras
+     * concedidos individualmente (gruposVisiveisExtra) — nunca por Role
+     * inteiro, ver design spec desta feature.
+     */
+    public function visibleGrupoSolucaoIds(): ?array
+    {
+        if ($this->isAdmin()) {
+            return null;
+        }
+
+        $this->loadMissing('gruposVisiveisExtra');
+
+        return [$this->grupo_solucao_id, ...$this->gruposVisiveisExtra->pluck('id')->all()];
+    }
+
     public function incidentesResponsavel(): HasMany
     {
         return $this->hasMany(Incidente::class, 'responsavel_id');
