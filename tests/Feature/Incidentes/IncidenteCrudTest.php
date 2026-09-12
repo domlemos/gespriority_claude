@@ -237,7 +237,7 @@ class IncidenteCrudTest extends TestCase
             'item_id' => $item->id,
             'grupo_solucao_id' => $grupo->id,
         ]);
-        [$token] = $this->staffToken(['tickets.view']);
+        [$token] = $this->staffToken(['tickets.view'], $grupo);
 
         $response = $this->getJson("/api/incidentes/{$incidente->id}", $this->authHeader($token));
 
@@ -584,7 +584,7 @@ class IncidenteCrudTest extends TestCase
     {
         $grupo = GrupoSolucao::factory()->create();
         $incidente = Incidente::factory()->create(['grupo_solucao_id' => $grupo->id]);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage'], $grupo);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",

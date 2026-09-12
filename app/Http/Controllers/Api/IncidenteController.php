@@ -100,11 +100,15 @@ class IncidenteController extends Controller
 
     public function show(Incidente $incidente)
     {
+        $this->authorize('view', $incidente);
+
         return new IncidenteResource($incidente->load(self::RELATIONS));
     }
 
     public function update(Request $request, Incidente $incidente)
     {
+        $this->authorize('update', $incidente);
+
         // Update parcial de propósito (diferente de Categoria/PoliticaSla/etc,
         // que exigem reenviar o recurso inteiro): um agente frequentemente só
         // quer mudar o status, sem reenviar título/descrição a cada PUT.
