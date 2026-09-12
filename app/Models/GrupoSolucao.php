@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Permission;
 use Database\Factories\GrupoSolucaoFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['nome', 'ativo'])]
@@ -32,6 +34,18 @@ class GrupoSolucao extends Model
     public function incidentes(): HasMany
     {
         return $this->hasMany(Incidente::class);
+    }
+
+    public function permissoesLiberadas(): BelongsToMany
+    {
+        return $this->belongsToMany(Permission::class, 'grupo_solucao_permissoes')
+            ->wherePivot('tipo', 'liberada');
+    }
+
+    public function permissoesBloqueadas(): BelongsToMany
+    {
+        return $this->belongsToMany(Permission::class, 'grupo_solucao_permissoes')
+            ->wherePivot('tipo', 'bloqueada');
     }
 
     /**
