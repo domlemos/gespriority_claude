@@ -52,6 +52,11 @@ class User extends Authenticatable
         return $this->belongsTo(GrupoSolucao::class);
     }
 
+    public function gruposVisiveisExtra(): BelongsToMany
+    {
+        return $this->belongsToMany(GrupoSolucao::class, 'user_grupo_solucao_visibilidade');
+    }
+
     public function incidentesResponsavel(): HasMany
     {
         return $this->hasMany(Incidente::class, 'responsavel_id');
