@@ -1,0 +1,31 @@
+#!/bin/bash
+# Bootstrap mínimo — só o necessário pra rodar o docker-compose.vps.yml.
+# Deploy da aplicação em si (clone, .env, docker compose up, migration,
+# Certbot) é manual, ver docs/deploy/ec2-rollout.md — igual ao racional
+# do docker/php/entrypoint.prod.sh não fazer deploy sozinho, só prepara
+# o terreno.
+set -euxo pipefail
+
+dnf update -y
+dnf install -y docker git
+
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# Plugin `docker compose` (v2, sintaxe sem hífen — a mesma usada em
+# docs/deploy/vps-rollout.md e docker-compose.vps.yml), não o binário
+# standalone `docker-compose` (v1, descontinuado).
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# `docker compose build` delega no plugin buildx — sem ele o build falha
+# com "compose build requires buildx 0.17.0 or later" (dnf install docker
+# nessa AMI não traz o buildx junto, diferente do Docker Desktop).
+ARCH=$(uname -m)
+if [ "$ARCH" = "aarch64" ]; then BUILDX_ARCH="arm64"; else BUILDX_ARCH="amd64"; fi
+BUILDX_TAG=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/docker/buildx/releases/download/${BUILDX_TAG}/buildx-${BUILDX_TAG}.linux-${BUILDX_ARCH}" \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx

@@ -1,0 +1,111 @@
+# Stack alternativa ao par (docker-compose.yml dev / docker/php/Dockerfile.prod
+# ECS) pra hospedagem "convencional" — nginx + PHP-FPM + PostgreSQL num único
+# VPS, sem FrankenPHP/Octane. Ver docs/deploy/vps-rollout.md.
+#
+# Uso: docker compose -f docker-compose.vps.yml up -d --build
+
+x-php-fpm-build: &php-fpm-build
+  context: .
+  dockerfile: docker/php-fpm/Dockerfile.prod
+  args:
+    USER_ID: ${USER_ID:-1000}
+    GROUP_ID: ${GROUP_ID:-1000}
+
+services:
+  # Equivalente ao service `web` do módulo ecs/: atende requisições HTTP,
+  # atrás do nginx. Não publica porta pro host — só o nginx fala com ele.
+  app:
+    build: *php-fpm-build
+    image: gespriority-itsm-fpm:latest
+    container_name: itsm-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    networks:
+      - rede-itsm
+
+  # Equivalente ao service `queue` do módulo ecs/: mesma imagem do `app`,
+  # só troca o comando — sem autoscaling (fixo, como na AWS), reinicia
+  # sozinho a cada crash ou ao bater --max-time (evita memory leak de
+  # processo de vida longa, mesmo racional do ECS).
+  queue:
+    image: gespriority-itsm-fpm:latest
+    container_name: itsm-queue
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work", "--tries=3", "--max-time=3600"]
+    env_file:
+      - .env
+    depends_on:
+      - app
+      - postgres
+    networks:
+      - rede-itsm
+
+  # Equivalente ao RDS do módulo data/ — mesmo engine (Postgres 16, igual
+  # ao `engine_version` em infra/terraform/modules/data/main.tf), sem
+  # backup/multi-AZ gerenciado: isso vira responsabilidade de um cron de
+  # `pg_dump` no host (ver rollout).
+  postgres:
+    image: postgres:16-alpine
+    container_name: itsm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-itsm}
+      POSTGRES_USER: ${DB_USERNAME:-itsm}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rede-itsm
+
+  # Equivalente ao par ALB + listener HTTPS do módulo ecs/ — termina TLS
+  # e repassa tudo pro `app` via fastcgi. Único container com porta
+  # publicada pro host.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: itsm-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      # Na primeira subida, antes de existir certificado, trocar essa
+      # linha pra ./docker/nginx/bootstrap.conf.template — ver fase 1 do
+      # rollout. Depois do primeiro certificado emitido, volta pra essa.
+      - ./docker/nginx/app.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+    depends_on:
+      - app
+    networks:
+      - rede-itsm
+
+  # Não sobe com `docker compose up` (perfil `certbot`, opt-in) — só serve
+  # pra rodar sob demanda: emissão inicial e renovação do certificado.
+  # Ver fase 1 e "Renovação" no rollout.
+  certbot:
+    image: certbot/certbot:latest
+    container_name: itsm-certbot
+    profiles: ["certbot"]
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    networks:
+      - rede-itsm
+
+volumes:
+  postgres_data:
+    name: itsm_postgres_data
+  certbot_certs:
+    name: itsm_certbot_certs
+  certbot_webroot:
+    name: itsm_certbot_webroot
+
+networks:
+  rede-itsm:
+    name: rede-itsm-vps
+    driver: bridge

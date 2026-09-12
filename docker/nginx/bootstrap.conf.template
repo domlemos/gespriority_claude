@@ -1,0 +1,24 @@
+# Config só-HTTP usada uma única vez, na primeira subida (ver fase 1 do
+# docs/deploy/vps-rollout.md): o server block HTTPS de app.conf.template
+# referencia um certificado que só existe depois que o Certbot emitir um —
+# e o nginx recusa subir (falha no `nginx -t`) se um `ssl_certificate`
+# apontar pra um arquivo inexistente. Esse arquivo quebra esse ciclo: sobe
+# só a porta 80 (o suficiente pro desafio HTTP-01 do Certbot responder),
+# sem nenhum bloco 443. Depois do primeiro certificado emitido, troca o
+# volume montado em `nginx` no docker-compose.vps.yml de volta pra
+# app.conf.template e reinicia — dali em diante o `certbot renew`
+# periódico não precisa mais disso.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 404;
+    }
+}

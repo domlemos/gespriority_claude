@@ -1,4 +1,11 @@
-# Rollout de produção — AWS ECS Fargate
+# Rollout de produção — AWS ECS Fargate (descomissionado)
+
+> **Descomissionado em 2026-09-07** — ver
+> [`docs/deploy/aws-teardown.md`](aws-teardown.md) pro runbook usado
+> pra derrubar. A aplicação agora roda num VPS convencional
+> (`docs/deploy/vps-rollout.md`). Este checklist continua aqui como
+> referência caso a infra AWS seja reaplicada no futuro (o Terraform em
+> `infra/terraform/` não foi removido, só destruído na conta).
 
 Checklist pra primeira subida da infra. Exige credenciais AWS reais
 configuradas (`aws configure` ou variáveis de ambiente) e acesso ao

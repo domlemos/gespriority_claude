@@ -1,0 +1,61 @@
+# Vhost do backend (API Laravel) pro setup convencional nginx+php-fpm.
+# Equivalente ao par ALB+listener HTTPS do módulo ecs/ — aqui TLS é
+# terminado aqui mesmo, via Certbot (ver docs/deploy/vps-rollout.md).
+#
+# ${DOMAIN} é resolvido em runtime pelo entrypoint padrão da imagem nginx
+# (envsubst roda em todo *.template de /etc/nginx/templates/ antes do
+# nginx subir) — evita hardcodar o domínio no arquivo versionado.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    # Necessário pro Certbot validar o domínio (desafio HTTP-01) antes de
+    # existir qualquer certificado — sem isso, o passo 1 do rollout
+    # (emitir o certificado) não tem como responder ao challenge.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    # Caminhos escritos pelo Certbot (serviço `certbot` do
+    # docker-compose.vps.yml) no volume compartilhado `certbot_certs`.
+    # Não existem no primeiro `docker compose up` — ver fase 1 do
+    # rollout antes de habilitar este server block.
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    # AnexoController aceita anexos até 10 MB (ver conf.d/uploads.ini do
+    # PHP) — o corpo da requisição precisa passar pelo nginx antes disso.
+    client_max_body_size 20M;
+
+    # Sem frontend estático aqui — o SPA (Vue) é um repositório e deploy
+    # completamente separados (S3+CloudFront hoje). Esse nginx só existe
+    # pra terminar TLS e repassar tudo pro front controller do Laravel;
+    # anexos também não são arquivo estático (AnexoController::download
+    # faz Storage::download(), streamado pelo próprio PHP-FPM) — não há
+    # necessidade de nginx enxergar o filesystem da aplicação (sem
+    # `root`/`try_files`, sem volume compartilhado com o container `app`).
+    location / {
+        fastcgi_pass app:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /app/public/index.php;
+        fastcgi_param SCRIPT_NAME /index.php;
+        # Sem isso, o Laravel (atrás do fastcgi_pass, não de um proxy HTTP)
+        # não tem como saber que a conexão original é HTTPS — url()/secure
+        # cookies dependem de $request->isSecure().
+        fastcgi_param HTTPS on;
+    }
+}

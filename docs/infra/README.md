@@ -1,4 +1,12 @@
-# Infraestrutura — visão geral
+# Infraestrutura — visão geral (descomissionada)
+
+> **Decomissionada em 2026-09-07.** Esta infra foi destruída (runbook
+> em [`docs/deploy/aws-teardown.md`](../deploy/aws-teardown.md)) — a
+> aplicação passou a rodar num VPS convencional, ver
+> [`docs/deploy/vps-rollout.md`](../deploy/vps-rollout.md). Nada abaixo
+> reflete o ambiente atual; mantido só como referência histórica caso a
+> AWS volte a ser usada no futuro (`infra/terraform/` ainda existe e
+> reaplica do zero seguindo `aws-rollout.md`, a partir do passo 1).
 
 Referência de arquitetura da hospedagem em produção. Para o passo a
 passo de como subir tudo do zero, ver [`docs/deploy/aws-rollout.md`](../deploy/aws-rollout.md).

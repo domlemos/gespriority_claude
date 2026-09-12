@@ -1,0 +1,78 @@
+# syntax=docker/dockerfile:1
+#
+# Alvo alternativo ao docker/php/Dockerfile.prod (FrankenPHP/ECS): mesma
+# aplicação, servida do jeito "convencional" — nginx na frente, PHP-FPM
+# atrás — pra hospedagem que não roda Octane (ex.: VPS Hostinger). Ver
+# docs/deploy/vps-rollout.md.
+
+FROM php:8.3-fpm-alpine AS base
+
+RUN apk add --no-cache \
+        bash \
+        shadow \
+        icu-dev \
+        postgresql-dev \
+        libjpeg-turbo-dev \
+        libpng-dev \
+        freetype-dev \
+        libzip-dev \
+        $PHPIZE_DEPS \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install pdo pdo_pgsql intl pcntl gd zip opcache
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+
+
+FROM base AS vendor
+
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
+
+
+FROM node:22-alpine AS assets
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY vite.config.js ./
+COPY resources ./resources
+COPY public ./public
+RUN npm run build
+
+
+FROM base AS runtime
+
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+RUN if getent passwd www-data > /dev/null; then \
+        usermod -u ${USER_ID} www-data; \
+    else \
+        useradd -u ${USER_ID} -m www-data; \
+    fi && \
+    if getent group www-data > /dev/null; then \
+        groupmod -g ${GROUP_ID} www-data; \
+    else \
+        groupadd -g ${GROUP_ID} www-data; \
+    fi
+
+COPY docker/php-fpm/conf.d/opcache.ini /usr/local/etc/php/conf.d/zz-opcache.ini
+COPY docker/php-fpm/conf.d/uploads.ini /usr/local/etc/php/conf.d/zz-uploads.ini
+
+COPY . /app
+COPY --from=vendor /app/vendor /app/vendor
+COPY --from=assets /app/public/build /app/public/build
+COPY docker/php-fpm/entrypoint.prod.sh /usr/local/bin/entrypoint.sh
+
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && composer dump-autoload --optimize --no-dev \
+    && chown -R www-data:www-data /app
+
+USER www-data
+
+EXPOSE 9000
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["php-fpm"]

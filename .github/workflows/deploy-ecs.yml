@@ -1,8 +1,12 @@
-name: Deploy
+# ECS Fargate (infra/terraform) — infra descomissionada em 2026-09-07,
+# ver docs/deploy/aws-teardown.md. Mantido só como referência/rollback
+# (Terraform em infra/terraform/ não foi apagado, só destruído na conta):
+# reaplicar do zero (aws-rollout.md) antes de disparar isso manualmente.
+# Deploy ativo hoje é o de infra2/EC2, ver deploy-ec2.yml.
+name: Deploy (ECS — descomissionado)
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   id-token: write
