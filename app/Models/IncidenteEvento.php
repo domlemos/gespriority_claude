@@ -94,4 +94,10 @@ class IncidenteEvento extends Model
                 fn (Builder $q, int $v) => $q->whereHas('incidente.customer', fn (Builder $qc) => $qc->where('client_id', $v))
             );
     }
+
+    /** Mesma regra de Incidente::scopeVisiveisPara(), via whereHas('incidente') — o evento em si não tem grupo_solucao_id, quem tem é o incidente relacionado. */
+    public function scopeVisiveisPara(Builder $query, User $user): Builder
+    {
+        return $query->whereHas('incidente', fn (Builder $qi) => $qi->visiveisPara($user));
+    }
 }

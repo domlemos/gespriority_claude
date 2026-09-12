@@ -21,15 +21,15 @@ class RelatorioIncidentesTest extends TestCase
     use RefreshDatabase;
 
     /** @return array{0: string, 1: User} */
-    private function staffToken(array $permissionSlugs): array
+    private function staffToken(array $permissionSlugs, ?GrupoSolucao $grupoSolucao = null, bool $asAdmin = false): array
     {
-        $role = Role::factory()->create();
+        $role = Role::factory()->create($asAdmin ? ['slug' => 'admin'] : []);
 
         foreach ($permissionSlugs as $slug) {
             $role->permissions()->attach(Permission::factory()->create(['slug' => $slug]));
         }
 
-        $user = User::factory()->create();
+        $user = User::factory()->create($grupoSolucao ? ['grupo_solucao_id' => $grupoSolucao->id] : []);
         $user->roles()->attach($role);
 
         $token = $user->createToken('spa', ['staff'], now()->addMinutes(120))->plainTextToken;
@@ -332,7 +332,7 @@ class RelatorioIncidentesTest extends TestCase
         // mesmo critério de `responsavel`).
         Incidente::factory()->create(['status' => 'aberto', 'grupo_solucao_id' => $grupoA->id]);
 
-        [$token] = $this->staffToken(['relatorios.view']);
+        [$token] = $this->staffToken(['relatorios.view'], null, true);
 
         $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=grupo_solucao', $this->authHeader($token));
 
@@ -421,7 +421,7 @@ class RelatorioIncidentesTest extends TestCase
         Incidente::factory()->create(['status' => 'fechado', 'grupo_solucao_id' => $grupo->id]);
         Incidente::factory()->create(['status' => 'fechado', 'grupo_solucao_id' => null]);
 
-        [$token] = $this->staffToken(['relatorios.view']);
+        [$token] = $this->staffToken(['relatorios.view'], $grupo);
 
         $response = $this->getJson(
             "/api/relatorios/incidentes?agrupar_por=status_sla&grupo_solucao_id={$grupo->id}",

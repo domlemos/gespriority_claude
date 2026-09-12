@@ -34,6 +34,7 @@ class DashboardController extends Controller
 
         return IncidenteDashboardResource::collection(
             Incidente::query()
+                ->visiveisPara($request->user())
                 ->filtros($filtros)
                 ->ordenarPor($filtros['sort_by'] ?? null, $filtros['sort_dir'] ?? 'asc')
                 ->with(['customer.client', 'item.subcategoria.categoria', 'grupoSolucao', 'responsavel'])

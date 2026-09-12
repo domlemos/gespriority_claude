@@ -65,7 +65,7 @@ class RelatorioSalvoController extends Controller
             'formato' => ['sometimes', 'string', Rule::in(['json', 'xlsx'])],
         ])['formato'] ?? 'json';
 
-        return $controller->responder($relatorioSalvo->filtros, $relatorioSalvo->agrupar_por, $formato);
+        return $controller->responder($relatorioSalvo->filtros, $relatorioSalvo->agrupar_por, $formato, $request->user());
     }
 
     private function validated(Request $request): array
