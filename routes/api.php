@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\AnexoController;
 use App\Http\Controllers\Api\GrupoSolucaoController;
+use App\Http\Controllers\Api\GrupoSolucaoPermissaoController;
 use App\Http\Controllers\Api\IncidenteController;
 use App\Http\Controllers\Api\IncidenteDescricaoController;
 use App\Http\Controllers\Api\ItemController;
@@ -118,6 +119,11 @@ Route::middleware(['auth:web', 'can:grupos_solucao.manage'])
     ->apiResource('grupos-solucao', GrupoSolucaoController::class)
     ->parameters(['grupos-solucao' => 'grupo_solucao'])
     ->only(['store', 'update', 'destroy']);
+
+Route::middleware(['auth:web', 'can:grupos_solucao.manage'])->group(function () {
+    Route::get('/grupos-solucao/{grupo_solucao}/permissoes', [GrupoSolucaoPermissaoController::class, 'show']);
+    Route::put('/grupos-solucao/{grupo_solucao}/permissoes', [GrupoSolucaoPermissaoController::class, 'update']);
+});
 
 // Incidente — só cadastral nesta entrega (sem relação com PoliticaSla ainda).
 // Só staff (guard "web") por enquanto; Customer abrir o próprio chamado pelo
