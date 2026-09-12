@@ -42,6 +42,7 @@ class IncidenteController extends Controller
 
         return IncidenteResource::collection(
             Incidente::query()
+                ->visiveisPara($request->user())
                 ->filtros($filtros)
                 ->with(self::RELATIONS)
                 ->latest()

@@ -25,7 +25,7 @@ class IncidenteCrudTest extends TestCase
      * @param  string[]  $permissionSlugs
      * @return array{0: string, 1: User}
      */
-    private function staffToken(array $permissionSlugs): array
+    private function staffToken(array $permissionSlugs, ?GrupoSolucao $grupoSolucao = null): array
     {
         $role = Role::factory()->create();
 
@@ -33,7 +33,7 @@ class IncidenteCrudTest extends TestCase
             $role->permissions()->attach(Permission::factory()->create(['slug' => $slug]));
         }
 
-        $user = User::factory()->create();
+        $user = User::factory()->create($grupoSolucao ? ['grupo_solucao_id' => $grupoSolucao->id] : []);
         $user->roles()->attach($role);
 
         $token = $user->createToken('spa', ['staff'], now()->addMinutes(120))->plainTextToken;
@@ -135,7 +135,7 @@ class IncidenteCrudTest extends TestCase
         $grupo = GrupoSolucao::factory()->create();
         Incidente::factory()->create(['grupo_solucao_id' => $grupo->id]);
         Incidente::factory()->create(['grupo_solucao_id' => null]);
-        [$token] = $this->staffToken(['tickets.view']);
+        [$token] = $this->staffToken(['tickets.view'], $grupo);
 
         $response = $this->getJson("/api/incidentes?grupo_solucao_id={$grupo->id}", $this->authHeader($token));
 
@@ -160,7 +160,7 @@ class IncidenteCrudTest extends TestCase
         Incidente::factory()->create(['status' => 'aberto', 'prioridade' => 'alta', 'grupo_solucao_id' => $grupo->id]);
         Incidente::factory()->create(['status' => 'aberto', 'prioridade' => 'baixa', 'grupo_solucao_id' => $grupo->id]);
         Incidente::factory()->create(['status' => 'resolvido', 'prioridade' => 'alta', 'grupo_solucao_id' => $grupo->id]);
-        [$token] = $this->staffToken(['tickets.view']);
+        [$token] = $this->staffToken(['tickets.view'], $grupo);
 
         $response = $this->getJson(
             "/api/incidentes?status=aberto&prioridade=alta&grupo_solucao_id={$grupo->id}",
