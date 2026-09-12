@@ -66,8 +66,30 @@ instância.
 Dali em diante é **exatamente o mesmo fluxo do
 [`vps-rollout.md`](vps-rollout.md)**, seções 2 a 6 (clonar o repo,
 `.env`, emitir TLS via Certbot com a config de bootstrap, migration
-isolada, seeders de referência, validar `/up`) — só duas diferenças no
-`.env`, porque aqui continua tudo dentro da AWS:
+isolada, seeders de referência, validar `/up`) — com uma diferença
+importante na seção 2: **clone direto em `/opt/app`**, não em qualquer
+diretório:
+
+```bash
+git clone https://github.com/domlemos/gespriority_claude.git /opt/app
+cd /opt/app
+```
+
+Esse caminho é fixo — é o que `APP_DIR` em
+[`deploy-ec2.yml`](../../.github/workflows/deploy-ec2.yml) espera pro
+deploy automático (seção 7) conseguir achar o clone depois. Clonar em
+outro lugar (ou, pior, copiar os arquivos sem `git clone` — `rsync`/`scp`
+de um checkout local, por exemplo) faz o pipeline falhar com `fatal: not
+a git repository`, porque não sobra histórico git nenhum pra dar
+`fetch`/`checkout`.
+
+E, já que a sessão SSM roda como `root` mas o clone normalmente fica com
+dono `ec2-user`: exporte `HOME=/root` e rode `git config --global --add
+safe.directory /opt/app` antes de qualquer comando git nessa sessão —
+sem isso o git recusa operar ali por "dubious ownership".
+
+Além disso, só duas diferenças no `.env`, porque aqui continua tudo
+dentro da AWS:
 
 | Variável | VPS (Hostinger) | EC2 (aqui) |
 |---|---|---|
@@ -97,6 +119,45 @@ Atualizar esse valor no secret do repositório do frontend
 (`domlemos/gespriority_claude_front`) que o
 `.github/workflows/deploy.yml` dele usa pra assumir a role via OIDC.
 
+## 7. Deploy automático (GitHub Actions)
+
+A partir do primeiro deploy manual (seção 4) — que precisa acontecer
+uma vez pra existir algo em `/opt/app` —, todo push em `main` do backend
+dispara [`deploy-ec2.yml`](../../.github/workflows/deploy-ec2.yml) e
+atualiza a instância sozinho, sem sessão SSM manual:
+
+```bash
+git fetch origin main
+git checkout <sha do push>
+docker compose -f docker-compose.vps.yml run --rm app php artisan migrate --force
+docker compose -f docker-compose.vps.yml up -d --build app queue
+```
+
+Tudo isso rodado via `aws ssm send-command` (mesmo mecanismo do acesso
+administrativo da seção 3 — a instância nunca expõe porta 22, o pipeline
+chega nela do mesmo jeito que uma pessoa chegaria). O workflow autentica
+via OIDC assumindo a role `module.cicd.github_actions_role_arn`
+(output `backend_github_actions_role_arn` do Terraform), escopada só a
+`ssm:SendCommand` nessa instância específica — sem acesso a nada além
+disso. Configurar essa ARN no secret `AWS_GITHUB_ACTIONS_ROLE_ARN_EC2`
+do repositório do backend (`domlemos/gespriority_claude`):
+
+```bash
+gh secret set AWS_GITHUB_ACTIONS_ROLE_ARN_EC2 \
+  --repo domlemos/gespriority_claude \
+  --body "$(terraform -chdir=infra2/terraform output -raw backend_github_actions_role_arn)"
+```
+
+Se a instância for recriada (novo `instance_id`), atualizar também o
+`INSTANCE_ID` fixo no topo de `deploy-ec2.yml` — ele não lê do Terraform
+em tempo de execução, é hardcoded de propósito pra não depender de
+`terraform output` rodando dentro do CI.
+
+O pipeline ECS antigo (`deploy-ecs.yml`) continua no repo só como
+referência/rollback — mudou de `on: push` pra `on: workflow_dispatch`,
+então não dispara mais sozinho (a infra que ele mira foi destruída, ver
+[`aws-teardown.md`](aws-teardown.md)).
+
 ## Diferenças permanentes em relação à infra antiga
 
 - **Sem autoscaling** — uma instância só, fixa. Sob carga real (não é
@@ -107,7 +168,7 @@ Atualizar esse valor no secret do repositório do frontend
 - **Backup do Postgres não é gerenciado** — mesma ressalva do
   `vps-rollout.md`: sem snapshot automático tipo RDS, precisa de
   `pg_dump` agendado se algum dia importar não perder os dados.
-- **Deploy de código novo é manual** — sem pipeline tipo o antigo
-  `deploy.yml` do backend (esse fazia sentido pra ECR/ECS; aqui o
-  equivalente seria `git pull && docker compose up -d --build` dentro
-  de uma sessão SSM, como no `vps-rollout.md`).
+- **Sem ECR** — `deploy-ec2.yml` (seção 7) não builda/empurra imagem
+  pra lugar nenhum; a própria instância builda a imagem localmente a
+  cada deploy (`docker compose up -d --build`), diferente do
+  `deploy-ecs.yml` antigo que buildava na Action e publicava no ECR.

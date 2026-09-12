@@ -132,7 +132,10 @@ falha do disco.
 
 ## Deploy de código novo
 
-Sem pipeline automático aqui (isso é escopo do AWS). Manual:
+Sem pipeline automático aqui — nenhum GitHub Actions consegue alcançar
+um VPS genérico do jeito que alcança uma instância EC2 via SSM (ver
+[`ec2-rollout.md` §7](ec2-rollout.md) pro caso AWS, esse sim
+automatizado). Manual:
 
 ```bash
 git pull
