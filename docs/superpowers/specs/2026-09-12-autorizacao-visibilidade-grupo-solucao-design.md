@@ -39,6 +39,16 @@ Inclui:
    aplicado em `index()`, mais uma `IncidentePolicy` aplicada em
    `show()`/`update()` e nos recursos aninhados (`descricoes`, `anexos`),
    com o mesmo bypass para `admin`.
+3.1. O mesmo escopo se aplica às agregações sobre `Incidente`/`IncidenteEvento`
+   em `DashboardController::incidentes()` e `RelatorioController` (incluindo
+   `RelatorioSalvoController::executar()`) — decisão tomada durante o
+   planejamento: sem isso, um usuário restrito por grupo ainda conseguiria
+   inferir dados de incidentes fora do seu escopo via contagens agregadas
+   do dashboard/relatório, o que deixaria a restrição de visibilidade
+   incompleta. `IncidenteEvento` ganha `scopeVisiveisPara()` próprio
+   (`whereHas('incidente', fn ($q) => $q->visiveisPara($user))`), já que
+   suas dimensões de relatório (`resolvido_por`, `encaminhado_para_grupo`,
+   etc.) agregam sobre o evento, não diretamente sobre `Incidente`.
 4. Dois endpoints novos de administração (grupo→permissões,
    usuário→grupos visíveis extras), reaproveitando permissions já
    existentes (`grupos_solucao.manage`, `users.manage`).
