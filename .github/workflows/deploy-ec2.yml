@@ -21,7 +21,7 @@ env:
   # instância for recriada (ela tem lifecycle.ignore_changes em ami/
   # user_data justamente pra isso não acontecer em applies de rotina).
   INSTANCE_ID: i-0246eb93df7075288
-  APP_DIR: /home/ec2-user/gespriority_claude
+  APP_DIR: /opt/app
 
 jobs:
   deploy:
