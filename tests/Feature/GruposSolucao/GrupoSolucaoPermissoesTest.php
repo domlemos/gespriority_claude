@@ -92,6 +92,30 @@ class GrupoSolucaoPermissoesTest extends TestCase
         ]);
     }
 
+    public function test_omitted_permission_reverts_to_padrao(): void
+    {
+        $grupo = GrupoSolucao::factory()->create();
+        $previouslyLiberada = Permission::factory()->create(['slug' => 'tickets.assign']);
+        $grupo->permissoesLiberadas()->attach($previouslyLiberada->id, ['tipo' => 'liberada']);
+        $token = $this->staffToken(['grupos_solucao.manage']);
+
+        // PUT with empty lists — permission should revert to padrao
+        $response = $this->putJson(
+            "/api/grupos-solucao/{$grupo->id}/permissoes",
+            ['liberadas' => [], 'bloqueadas' => []],
+            $this->authHeader($token)
+        );
+
+        $response->assertOk();
+        $porId = collect($response->json('data'))->keyBy('id');
+        $this->assertSame('padrao', $porId[$previouslyLiberada->id]['estado']);
+
+        // Should be completely deleted from the override table
+        $this->assertDatabaseMissing('grupo_solucao_permissoes', [
+            'grupo_solucao_id' => $grupo->id, 'permission_id' => $previouslyLiberada->id,
+        ]);
+    }
+
     public function test_rejects_a_permission_id_in_both_lists(): void
     {
         $grupo = GrupoSolucao::factory()->create();
