@@ -12,6 +12,8 @@ class IncidenteDescricaoController extends Controller
 {
     public function index(Request $request, Incidente $incidente)
     {
+        $this->authorize('view', $incidente);
+
         return IncidenteDescricaoResource::collection(
             $incidente->descricoes()
                 ->with('user')
@@ -21,6 +23,8 @@ class IncidenteDescricaoController extends Controller
 
     public function store(Request $request, Incidente $incidente)
     {
+        $this->authorize('view', $incidente);
+
         $data = $request->validate([
             'descricao' => ['required', 'string'],
         ]);
@@ -42,6 +46,8 @@ class IncidenteDescricaoController extends Controller
 
     public function show(Incidente $incidente, IncidenteDescricao $descricao)
     {
+        $this->authorize('view', $incidente);
+
         $this->ensureBelongsTo($incidente, $descricao);
 
         return new IncidenteDescricaoResource($descricao->load('user'));
@@ -49,6 +55,8 @@ class IncidenteDescricaoController extends Controller
 
     public function update(Request $request, Incidente $incidente, IncidenteDescricao $descricao)
     {
+        $this->authorize('view', $incidente);
+
         $this->ensureBelongsTo($incidente, $descricao);
         $this->ensureCanModify($request, $descricao);
 
@@ -63,6 +71,8 @@ class IncidenteDescricaoController extends Controller
 
     public function destroy(Request $request, Incidente $incidente, IncidenteDescricao $descricao)
     {
+        $this->authorize('view', $incidente);
+
         $this->ensureBelongsTo($incidente, $descricao);
         $this->ensureCanModify($request, $descricao);
 

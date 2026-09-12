@@ -40,6 +40,8 @@ class AnexoController extends Controller
 
     public function index(Request $request, Incidente $incidente)
     {
+        $this->authorize('view', $incidente);
+
         return AnexoResource::collection(
             $incidente->anexos()
                 ->with('user')
@@ -49,6 +51,8 @@ class AnexoController extends Controller
 
     public function store(Request $request, Incidente $incidente)
     {
+        $this->authorize('view', $incidente);
+
         $data = $request->validate([
             'arquivo' => [
                 'required',
@@ -91,6 +95,8 @@ class AnexoController extends Controller
 
     public function download(Incidente $incidente, Anexo $anexo)
     {
+        $this->authorize('view', $incidente);
+
         $this->ensureBelongsTo($incidente, $anexo);
 
         return Storage::download($anexo->caminho, $anexo->nome_original);
@@ -98,6 +104,8 @@ class AnexoController extends Controller
 
     public function destroy(Incidente $incidente, Anexo $anexo)
     {
+        $this->authorize('view', $incidente);
+
         $this->ensureBelongsTo($incidente, $anexo);
 
         Storage::delete($anexo->caminho);
