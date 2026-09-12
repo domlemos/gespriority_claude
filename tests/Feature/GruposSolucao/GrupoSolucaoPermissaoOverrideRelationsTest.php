@@ -36,4 +36,18 @@ class GrupoSolucaoPermissaoOverrideRelationsTest extends TestCase
         $this->assertTrue($grupo->permissoesBloqueadas->contains('id', $bloqueada->id));
         $this->assertFalse($grupo->permissoesBloqueadas->contains('id', $liberada->id));
     }
+
+    public function test_permissoes_liberadas_returns_empty_for_grupo_with_no_overrides(): void
+    {
+        $grupo = GrupoSolucao::factory()->create();
+
+        $this->assertTrue($grupo->permissoesLiberadas->isEmpty());
+    }
+
+    public function test_permissoes_bloqueadas_returns_empty_for_grupo_with_no_overrides(): void
+    {
+        $grupo = GrupoSolucao::factory()->create();
+
+        $this->assertTrue($grupo->permissoesBloqueadas->isEmpty());
+    }
 }
