@@ -11,31 +11,31 @@ class CategoriasSeeder extends Seeder
     use WithoutModelEvents;
 
     /**
-     * Taxonomia padrão de categorias/subcategorias/itens de incidentes —
-     * massa inicial comum de ITSM (3 níveis: Categoria > Subcategoria >
-     * Item), não é exaustiva, só o suficiente pra exercitar o cadastro
-     * (mais entram depois via API mesmo).
+     * Taxonomia de categorias/subcategorias/itens de incidentes (3 níveis:
+     * Categoria > Subcategoria > Item).
      */
     private const TAXONOMIA = [
-        'Hardware' => [
-            'Computador' => ['Não liga', 'Tela azul'],
-            'Impressora' => ['Sem toner', 'Atolamento de papel'],
-            'Periféricos' => ['Mouse não funciona', 'Teclado não funciona'],
+        'Dossie' => [
+            'Detalhado' => ['Divergência', 'Falha'],
+            'Analítico' => ['Divergência', 'Falha'],
+            'Workflow' => ['Critérios', 'Aprovação'],
+            'Upscore' => ['Cálculo', 'Erro'],
+            'Fonte' => ['Não processa', 'Erro'],
         ],
-        'Software' => [
-            'Sistema Operacional' => ['Lentidão', 'Erro de atualização'],
-            'Aplicativo' => ['Não abre', 'Trava/congela'],
-            'Licença' => ['Expirada', 'Não ativa'],
+        'Veiculo' => [
+            'Gravame' => ['Chassi', 'Erro'],
+            'Chassi' => ['Erro'],
         ],
-        'Rede' => [
-            'Internet' => ['Sem conexão', 'Lentidão'],
-            'VPN' => ['Não conecta', 'Queda de conexão'],
-            'Wi-Fi' => ['Sinal fraco', 'Não conecta'],
+        'Upminer' => [
+            'Upacademy' => ['Erro', 'Vídeo não carrega'],
+            'SSO' => [],
         ],
-        'Acesso' => [
-            'Senha' => ['Esqueci a senha', 'Conta bloqueada por tentativas'],
-            'Permissão' => ['Acesso negado', 'Solicitação de novo acesso'],
-            'Conta Bloqueada' => ['Desbloqueio de conta', 'Conta suspensa'],
+        'Uplink' => [
+            'QSA' => ['Erro', 'Lentidão'],
+            'Veiculo' => [],
+        ],
+        'Fonte' => [
+            'Monitoramento' => ['Captura', 'Preventivo', 'Corretivo'],
         ],
     ];
 

@@ -41,18 +41,18 @@ class IncidentesSeeder extends Seeder
             return;
         }
 
-        $itemImpressora = Item::query()->where('nome', 'Sem toner')->first();
-        $itemInternet = Item::query()->where('nome', 'Sem conexão')->first();
+        $itemChassiGravame = $this->item('Veiculo', 'Gravame', 'Chassi');
+        $itemQsaErro = $this->item('Uplink', 'QSA', 'Erro');
         $grupoN1 = GrupoSolucao::query()->where('nome', 'Suporte N1')->first();
 
         // Incidente já triado e em andamento — demonstra o feed completo:
         // abertura -> escalonamento -> acompanhamento do agente.
         $incidente1 = Incidente::query()->create([
             'customer_id' => $customer->id,
-            'item_id' => $itemImpressora?->id,
+            'item_id' => $itemChassiGravame?->id,
             'grupo_solucao_id' => $grupoN1?->id,
             'responsavel_id' => $agente->id,
-            'titulo' => 'Impressora do 3º andar sem toner',
+            'titulo' => 'Consulta de gravame não retorna o chassi informado',
             'prioridade' => 'media',
             'origem' => 'portal',
             'status' => 'em_andamento',
@@ -76,7 +76,7 @@ class IncidentesSeeder extends Seeder
             'incidente_id' => $incidente1->id,
             'user_id' => $admin->id,
             'tipo' => IncidenteDescricao::TIPO_COMENTARIO,
-            'descricao' => 'Impressora HP do 3º andar parou de imprimir, indicando toner vazio.',
+            'descricao' => 'Cliente reporta que a consulta de gravame não está retornando o chassi do veículo, mesmo com o gravame localizado.',
         ]);
 
         if ($grupoN1) {
@@ -92,16 +92,16 @@ class IncidentesSeeder extends Seeder
             'incidente_id' => $incidente1->id,
             'user_id' => $agente->id,
             'tipo' => IncidenteDescricao::TIPO_COMENTARIO,
-            'descricao' => 'Toner realmente vazio, providenciando a troca.',
+            'descricao' => 'Confirmado, a fonte do gravame não está retornando o campo de chassi. Escalonando para o time de dados.',
         ]);
 
         // Incidente recém-aberto, ainda sem triagem — feed com só a abertura.
         $incidente2 = Incidente::query()->create([
             'customer_id' => $customer->id,
-            'item_id' => $itemInternet?->id,
+            'item_id' => $itemQsaErro?->id,
             'grupo_solucao_id' => null,
             'responsavel_id' => null,
-            'titulo' => 'Sem acesso à internet no setor financeiro',
+            'titulo' => 'Consulta de QSA retornando erro para todos os clientes',
             'prioridade' => 'urgente',
             'origem' => 'telefone',
             'status' => 'aberto',
@@ -113,7 +113,7 @@ class IncidentesSeeder extends Seeder
             'incidente_id' => $incidente2->id,
             'user_id' => $admin->id,
             'tipo' => IncidenteDescricao::TIPO_COMENTARIO,
-            'descricao' => 'Nenhum computador do setor financeiro consegue acessar sites externos desde hoje de manhã.',
+            'descricao' => 'Nenhuma consulta de QSA está retornando resultado desde hoje de manhã, afetando todos os clientes.',
         ]);
 
         $this->criarIncidentesDemoRelatorios($customer, $admin, $supervisor, $agente);
@@ -135,17 +135,15 @@ class IncidentesSeeder extends Seeder
         $grupoN2 = GrupoSolucao::query()->where('nome', 'Suporte N2')->first();
         $grupoRedes = GrupoSolucao::query()->where('nome', 'Redes')->first();
 
-        $itemNaoLiga = Item::query()->where('nome', 'Não liga')->first();
-        $itemMouse = Item::query()->where('nome', 'Mouse não funciona')->first();
-        $itemLentidaoSo = Categoria::query()->where('nome', 'Software')->first()
-            ?->subcategorias()->where('nome', 'Sistema Operacional')->first()
-            ?->itens()->where('nome', 'Lentidão')->first();
-        $itemLicencaExpirada = Item::query()->where('nome', 'Expirada')->first();
-        $itemAppNaoAbre = Item::query()->where('nome', 'Não abre')->first();
-        $itemVpnQueda = Item::query()->where('nome', 'Queda de conexão')->first();
-        $itemWifiFraco = Item::query()->where('nome', 'Sinal fraco')->first();
-        $itemContaBloqueada = Item::query()->where('nome', 'Desbloqueio de conta')->first();
-        $itemAcessoNegado = Item::query()->where('nome', 'Acesso negado')->first();
+        $itemDossieDetalhadoFalha = $this->item('Dossie', 'Detalhado', 'Falha');
+        $itemDossieAnaliticoDivergencia = $this->item('Dossie', 'Analítico', 'Divergência');
+        $itemUplinkQsaLentidao = $this->item('Uplink', 'QSA', 'Lentidão');
+        $itemDossieUpscoreErro = $this->item('Dossie', 'Upscore', 'Erro');
+        $itemUpminerUpacademyErro = $this->item('Upminer', 'Upacademy', 'Erro');
+        $itemFonteMonitoramentoPreventivo = $this->item('Fonte', 'Monitoramento', 'Preventivo');
+        $itemDossieWorkflowAprovacao = $this->item('Dossie', 'Workflow', 'Aprovação');
+        $itemVeiculoChassiErro = $this->item('Veiculo', 'Chassi', 'Erro');
+        $itemDossieFonteErro = $this->item('Dossie', 'Fonte', 'Erro');
 
         // Segundo cliente — só pra dar sentido de verdade ao filtro
         // `client_id` dos relatórios (com um cliente só, o filtro nunca
@@ -158,15 +156,15 @@ class IncidentesSeeder extends Seeder
 
         // {titulo, item, grupo, responsavel, prioridade, origem, status, dias atrás da abertura, horas até a conclusão (null = sem SLA), customer, criador}
         $incidentes = [
-            ['Notebook não liga após queda de energia', $itemNaoLiga, $grupoN1, $agente, 'alta', 'telefone', 'fechado', 10, 7, $customerPrincipal, $agente],
-            ['Sistema travando toda hora', $itemLentidaoSo, $grupoN2, $supervisor, 'media', 'portal', 'resolvido', 8, 30, $customerPrincipal, $admin],
-            ['VPN caindo direto', $itemVpnQueda, $grupoRedes, $agente, 'urgente', 'email', 'fechado', 5, 3, $customerPrincipal, $agente],
-            ['Conta bloqueada após tentativas', $itemContaBloqueada, $grupoN1, $admin, 'baixa', 'chat', 'cancelado', 3, 1, $customerPrincipal, $supervisor],
-            ['Licença do sistema expirada', $itemLicencaExpirada, $grupoN2, null, 'alta', 'portal', 'fechado', 15, 20, $customerPrincipal, $admin],
-            ['Wi-Fi com sinal fraco no 2º andar', $itemWifiFraco, $grupoRedes, $agente, 'baixa', 'presencial', 'resolvido', 20, 40, $customerPrincipal, $agente],
-            ['Acesso negado ao sistema financeiro', $itemAcessoNegado, null, $supervisor, 'media', 'portal', 'fechado', 2, 10, $segundoCustomer, $supervisor],
-            ['Mouse sem funcionar', $itemMouse, $grupoN1, $agente, 'baixa', 'portal', 'fechado', 1, null, $customerPrincipal, $agente],
-            ['Erro ao abrir aplicativo', $itemAppNaoAbre, $grupoN2, $admin, 'media', 'monitoramento', 'fechado', 25, 30, $segundoCustomer, $admin],
+            ['Dossiê detalhado retorna com falha para o CPF informado', $itemDossieDetalhadoFalha, $grupoN1, $agente, 'alta', 'telefone', 'fechado', 10, 7, $customerPrincipal, $agente],
+            ['Divergência de dados no dossiê analítico', $itemDossieAnaliticoDivergencia, $grupoN2, $supervisor, 'media', 'portal', 'resolvido', 8, 30, $customerPrincipal, $admin],
+            ['Consulta de QSA extremamente lenta', $itemUplinkQsaLentidao, $grupoRedes, $agente, 'urgente', 'email', 'fechado', 5, 3, $customerPrincipal, $agente],
+            ['Erro ao calcular o Upscore do cliente', $itemDossieUpscoreErro, $grupoN1, $admin, 'baixa', 'chat', 'cancelado', 3, 1, $customerPrincipal, $supervisor],
+            ['Erro ao acessar o Upminer Upacademy', $itemUpminerUpacademyErro, $grupoN2, null, 'alta', 'portal', 'fechado', 15, 20, $customerPrincipal, $admin],
+            ['Manutenção preventiva de fonte não executada no prazo', $itemFonteMonitoramentoPreventivo, $grupoRedes, $agente, 'baixa', 'presencial', 'resolvido', 20, 40, $customerPrincipal, $agente],
+            ['Fluxo de aprovação do dossiê travado', $itemDossieWorkflowAprovacao, null, $supervisor, 'media', 'portal', 'fechado', 2, 10, $segundoCustomer, $supervisor],
+            ['Erro ao consultar chassi do veículo', $itemVeiculoChassiErro, $grupoN1, $agente, 'baixa', 'portal', 'fechado', 1, null, $customerPrincipal, $agente],
+            ['Erro ao consultar fonte do dossiê', $itemDossieFonteErro, $grupoN2, $admin, 'media', 'monitoramento', 'fechado', 25, 30, $segundoCustomer, $admin],
             ['Chamado sem classificação de item', null, $grupoN1, $agente, 'media', 'telefone', 'fechado', 4, 10, $customerPrincipal, $agente],
         ];
 
@@ -212,7 +210,7 @@ class IncidentesSeeder extends Seeder
                 continue;
             }
 
-            // Pro primeiro incidente ("Notebook não liga..."), simula o
+            // Pro primeiro incidente ("Dossiê detalhado retorna com falha..."), simula o
             // cenário de reabertura que motivou a generalização desta
             // tabela: resolvido pelo agente, reaberto, resolvido de novo
             // pelo supervisor — as DUAS resoluções ficam registradas, não
@@ -310,5 +308,17 @@ class IncidentesSeeder extends Seeder
         $incidente->prazo_resposta = $incidente->created_at->copy()->addMinutes($politica->tempo_resposta_minutos);
         $incidente->prazo_resolucao = $incidente->created_at->copy()->addMinutes($politica->tempo_resolucao_minutos);
         $incidente->save();
+    }
+
+    /**
+     * Busca um item pelo caminho completo (categoria > subcategoria > item)
+     * — a taxonomia atual repete nomes de item entre subcategorias (ex:
+     * "Erro"), então `Item::where('nome', ...)` sozinho seria ambíguo.
+     */
+    private function item(string $categoria, string $subcategoria, string $itemNome): ?Item
+    {
+        return Categoria::query()->where('nome', $categoria)->first()
+            ?->subcategorias()->where('nome', $subcategoria)->first()
+            ?->itens()->where('nome', $itemNome)->first();
     }
 }
