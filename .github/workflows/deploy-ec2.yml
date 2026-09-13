@@ -33,6 +33,14 @@ jobs:
           role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN_EC2 }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # `build` explícito ANTES de `run --rm app ... migrate` — sem isso,
+      # `run` usava a imagem da build anterior (que não conhece migrations
+      # novas ainda no working copy no momento em que ela foi construída),
+      # reportando "Nothing to migrate" mesmo com migrations pendentes; só
+      # o `up -d --build` seguinte reconstruía a imagem nova, sem rodar
+      # migrate de novo — código novo subia em produção sem as tabelas que
+      # ele esperava (bug real, pego ao investigar um 500 em produção nos
+      # endpoints de grupo_solucao_permissoes/grupos-visiveis).
       - name: Deploy via SSM (git checkout + migrate + docker compose up)
         run: |
           cat > /tmp/ssm-params.json <<EOF
@@ -44,8 +52,9 @@ jobs:
               "cd $APP_DIR",
               "git fetch origin main",
               "git checkout $GITHUB_SHA",
+              "docker compose -f docker-compose.vps.yml build app",
               "docker compose -f docker-compose.vps.yml run --rm app php artisan migrate --force",
-              "docker compose -f docker-compose.vps.yml up -d --build app queue"
+              "docker compose -f docker-compose.vps.yml up -d app queue"
             ]
           }
           EOF
