@@ -412,7 +412,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | `onDelete('restrict')` — equipe responsável; nullable pelo mesmo motivo de `item_id` (roteamento pode ser posterior) |
 | `responsavel_id` | `bigint` FK → `users.id` nullable | `onDelete('restrict')` — agente atribuído; nullable, atribuição individual normalmente vem depois do roteamento pro grupo |
 | `titulo` | `string` | |
-| `prioridade` | `string` | reaproveita `PoliticaSla::PRIORIDADES` (`baixa`\|`media`\|`alta`\|`urgente`) — sem duplicar a lista de constantes |
+| `prioridade` | `string` | reaproveita `PoliticaSla::PRIORIDADES` (`baixa`\|`media`\|`alta`\|`urgente`) — sem duplicar a lista de constantes. Padrão vem de `Item::prioridade_padrao` quando o incidente tem `item_id`; só Admin pode enviar uma prioridade diferente desse padrão (ver nota "SLA por Categorização" abaixo) |
 | `origem` | `string` | um de `Incidente::ORIGENS` — constante própria do incidente (ver nota abaixo) |
 | `status` | `string` | um de `Incidente::STATUSES`; default `'aberto'` — **forçado no `store()`, ignora qualquer `status` enviado pelo cliente na criação** |
 | `prazo_resposta` | `timestamp` nullable | calculado **uma única vez** no `store()` (`created_at + tempo_resposta_minutos` da `PoliticaSla` aplicável via `Client::resolvedSlaFor()`) e **congelado** — nunca recalculado, nem que a política mude depois. `null` se não houver política aplicável pra essa prioridade (sem override do cliente nem padrão global) |
@@ -451,6 +451,17 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > (é fato histórico: "quando foi respondido pela primeira vez" não é desfeito por reabertura).
 > Se o incidente for resolvido de novo depois, `concluido_em` é setado com o novo timestamp
 > normalmente (a regra "não sobrescreve" só vale enquanto o valor não foi limpo).
+
+> 📌 **SLA por Categorização (`Item::prioridade_padrao`).** Cada `Item` pode ter uma
+> `prioridade_padrao` (uma de `PoliticaSla::PRIORIDADES`, nullable). Ao abrir um incidente pra um
+> item com padrão definido, a prioridade já vem pré-preenchida; só um usuário `isAdmin()` pode
+> enviar uma prioridade diferente desse padrão (`IncidenteController::prioridadeEfetivaOuNull()`) —
+> qualquer outro staff que tente recebe 422 em `prioridade`. Item sem `prioridade_padrao` mantém o
+> fluxo anterior (prioridade sempre obrigatória e livre). Diferente do resto do cálculo de SLA
+> (congelado na abertura, nunca recalculado), mudar `item_id` ou `prioridade` num incidente já
+> aberto **recalcula** `prazo_resposta`/`prazo_resolucao` (`calcularPrazosSla()` roda de novo em
+> `update()` nesses dois casos) — decisão explícita do PO, diferente do restante dos campos do
+> incidente, que nunca reabrem esse cálculo.
 
 > 📌 **`status` e `origem` são constantes do `Incidente`, não cadastros.** Diferente de
 > Categoria/Subcategoria/Item (taxonomia de negócio, muda com frequência, sem acoplamento a lógica),

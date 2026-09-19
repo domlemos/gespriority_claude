@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class IncidenteController extends Controller
 {
@@ -59,9 +60,15 @@ class IncidenteController extends Controller
             'responsavel_id' => ['nullable', 'integer', 'exists:users,id'],
             'titulo' => ['required', 'string', 'max:255'],
             'descricao' => ['required', 'string'],
-            'prioridade' => ['required', 'string', Rule::in(PoliticaSla::PRIORIDADES)],
+            'prioridade' => [
+                Rule::requiredIf(fn () => ! Item::query()->find($request->input('item_id'))?->prioridade_padrao),
+                'string', Rule::in(PoliticaSla::PRIORIDADES),
+            ],
             'origem' => ['required', 'string', Rule::in(Incidente::ORIGENS)],
         ]);
+
+        $item = ($data['item_id'] ?? null) ? Item::query()->find($data['item_id']) : null;
+        $data['prioridade'] = $this->prioridadeEfetivaOuNull($request, $data, $item);
 
         // status nunca vem do cliente na criação — todo incidente nasce
         // "aberto" (ver BACKEND_SPECS.md seção 3.1); qualquer 'status' no
@@ -123,6 +130,14 @@ class IncidenteController extends Controller
             'status' => ['sometimes', 'required', 'string', Rule::in(Incidente::STATUSES)],
         ]);
 
+        $recalcularSla = array_key_exists('item_id', $data) || array_key_exists('prioridade', $data);
+
+        if ($recalcularSla) {
+            $itemIdEfetivo = array_key_exists('item_id', $data) ? $data['item_id'] : $incidente->item_id;
+            $item = $itemIdEfetivo ? Item::query()->find($itemIdEfetivo) : null;
+            $data['prioridade'] = $this->prioridadeEfetivaOuNull($request, $data, $item) ?? $incidente->prioridade;
+        }
+
         $grupoAnteriorId = $incidente->grupo_solucao_id;
         $responsavelAnteriorId = $incidente->responsavel_id;
         $statusAnterior = $incidente->status;
@@ -143,9 +158,14 @@ class IncidenteController extends Controller
             $origemAnterior,
             $customerAnteriorId,
             $itemAnteriorId,
+            $recalcularSla,
             $request
         ) {
             $incidente->update($data);
+
+            if ($recalcularSla) {
+                $this->calcularPrazosSla($incidente);
+            }
 
             $this->registrarTransicaoDeStatus($incidente, $statusAnterior, $incidente->status);
             $this->registrarEventoDeConclusaoSeAplicavel($incidente, $request->user(), $statusAnterior, $incidente->status);
@@ -286,22 +306,57 @@ class IncidenteController extends Controller
     }
 
     /**
-     * Calcula e congela prazo_resposta/prazo_resolucao a partir da política
-     * de SLA aplicável no momento da abertura (ver Client::resolvedSlaFor())
-     * — nunca recalculado depois, mesmo que a política mude. Fica `null`
-     * (sem_sla) se não houver política aplicável pra essa prioridade.
+     * Resolve a prioridade efetiva de um incidente a partir do
+     * `Item::prioridade_padrao` vinculado e do valor explícito enviado no
+     * request. Sem `prioridade` explícita, devolve o padrão do item (ou
+     * `null`, se o item não tiver um — cabe ao chamador decidir o que fazer
+     * nesse caso: `store()` já garante via `Rule::requiredIf` que isso só
+     * acontece quando há padrão; `update()` cai de volta pra prioridade
+     * atual do incidente). Só Admin pode enviar uma prioridade diferente do
+     * padrão do item (personalização) — qualquer outro staff que tente
+     * recebe 422 em 'prioridade' (ver design "SLA por Categorização" no
+     * BACKEND_SPECS.md §3.1).
+     */
+    private function prioridadeEfetivaOuNull(Request $request, array $data, ?Item $item): ?string
+    {
+        $padrao = $item?->prioridade_padrao;
+
+        if (! array_key_exists('prioridade', $data)) {
+            return $padrao;
+        }
+
+        $explicita = $data['prioridade'];
+
+        if ($padrao !== null && $explicita !== $padrao && ! $request->user()->isAdmin()) {
+            throw ValidationException::withMessages([
+                'prioridade' => 'Apenas administradores podem personalizar a prioridade quando o item já possui uma SLA padrão.',
+            ]);
+        }
+
+        return $explicita;
+    }
+
+    /**
+     * Calcula prazo_resposta/prazo_resolucao a partir da política de SLA
+     * aplicável (ver Client::resolvedSlaFor()) e os congela — chamado uma
+     * única vez no store() (nunca recalculado por mudança de política
+     * depois), e de novo no update() quando `item_id`/`prioridade` mudam
+     * (ver "SLA por Categorização" no BACKEND_SPECS.md §3.1). Idempotente:
+     * sem política aplicável pra prioridade atual, os dois campos voltam
+     * explicitamente pra `null` (sem_sla) — necessário pro recálculo do
+     * update() não deixar um prazo da prioridade *anterior* como lixo.
      */
     private function calcularPrazosSla(Incidente $incidente): void
     {
         $politica = $incidente->loadMissing('customer.client')
             ->customer->client?->resolvedSlaFor($incidente->prioridade);
 
-        if ($politica === null) {
-            return;
-        }
-
-        $incidente->prazo_resposta = $incidente->created_at->copy()->addMinutes($politica->tempo_resposta_minutos);
-        $incidente->prazo_resolucao = $incidente->created_at->copy()->addMinutes($politica->tempo_resolucao_minutos);
+        $incidente->prazo_resposta = $politica
+            ? $incidente->created_at->copy()->addMinutes($politica->tempo_resposta_minutos)
+            : null;
+        $incidente->prazo_resolucao = $politica
+            ? $incidente->created_at->copy()->addMinutes($politica->tempo_resolucao_minutos)
+            : null;
         $incidente->save();
     }
 
