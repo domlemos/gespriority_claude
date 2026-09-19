@@ -19,6 +19,7 @@ class ItemResource extends JsonResource
             'subcategoria_id' => $this->subcategoria_id,
             'nome' => $this->nome,
             'ativo' => $this->ativo,
+            'prioridade_padrao' => $this->prioridade_padrao,
             'subcategoria' => $this->whenLoaded('subcategoria', fn () => [
                 'id' => $this->subcategoria->id,
                 'nome' => $this->subcategoria->nome,

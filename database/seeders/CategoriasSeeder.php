@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Categoria;
+use App\Models\PoliticaSla;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -56,10 +57,13 @@ class CategoriasSeeder extends Seeder
                     ['ativo' => true]
                 );
 
-                foreach ($itens as $itemNome) {
+                foreach ($itens as $indice => $itemNome) {
                     $subcategoria->itens()->updateOrCreate(
                         ['nome' => $itemNome],
-                        ['ativo' => true]
+                        [
+                            'ativo' => true,
+                            'prioridade_padrao' => PoliticaSla::PRIORIDADES[$indice % count(PoliticaSla::PRIORIDADES)],
+                        ]
                     );
                 }
             }

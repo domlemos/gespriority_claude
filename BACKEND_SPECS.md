@@ -383,6 +383,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `id` | `bigint` PK | |
 | `subcategoria_id` | `bigint` FK → `subcategorias.id` | **obrigatório** (`NOT NULL`); `onDelete('restrict')` — não é possível deletar uma `Subcategoria` com `itens` vinculados |
 | `nome` | `string` | |
+| `prioridade_padrao` | `string` nullable | um de `PoliticaSla::PRIORIDADES`, validado (`Rule::in`) — prioridade de SLA sugerida ao abrir um incidente pra este item (ver nota de "SLA por Categorização" na tabela `incidentes`); `null` mantém o fluxo anterior (prioridade sempre livre) |
 | `ativo` | `boolean` | default `true` |
 | `created_at`, `updated_at` | `timestamp` | |
 | índice | `unique(subcategoria_id, nome)` | mesmo raciocínio de `subcategorias` — `subcategoria_id` nunca é nulo, unique real no banco |

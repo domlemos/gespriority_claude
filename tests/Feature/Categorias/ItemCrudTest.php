@@ -141,6 +141,62 @@ class ItemCrudTest extends TestCase
         $this->assertDatabaseHas('itens', ['nome' => 'Sem toner', 'subcategoria_id' => $subcategoria->id]);
     }
 
+    public function test_admin_can_create_an_item_with_a_prioridade_padrao(): void
+    {
+        $subcategoria = Subcategoria::factory()->create();
+        $token = $this->staffToken(['categorias.manage']);
+
+        $response = $this->postJson('/api/itens', [
+            'subcategoria_id' => $subcategoria->id,
+            'nome' => 'Sem toner',
+            'prioridade_padrao' => 'urgente',
+        ], $this->authHeader($token));
+
+        $response->assertCreated()->assertJsonPath('data.prioridade_padrao', 'urgente');
+        $this->assertDatabaseHas('itens', ['nome' => 'Sem toner', 'prioridade_padrao' => 'urgente']);
+    }
+
+    public function test_creating_an_item_without_prioridade_padrao_leaves_it_null(): void
+    {
+        $subcategoria = Subcategoria::factory()->create();
+        $token = $this->staffToken(['categorias.manage']);
+
+        $response = $this->postJson('/api/itens', [
+            'subcategoria_id' => $subcategoria->id,
+            'nome' => 'Sem toner',
+        ], $this->authHeader($token));
+
+        $response->assertCreated()->assertJsonPath('data.prioridade_padrao', null);
+    }
+
+    public function test_creating_item_rejects_invalid_prioridade_padrao(): void
+    {
+        $subcategoria = Subcategoria::factory()->create();
+        $token = $this->staffToken(['categorias.manage']);
+
+        $response = $this->postJson('/api/itens', [
+            'subcategoria_id' => $subcategoria->id,
+            'nome' => 'Sem toner',
+            'prioridade_padrao' => 'gigante',
+        ], $this->authHeader($token));
+
+        $response->assertStatus(422)->assertJsonValidationErrors('prioridade_padrao');
+    }
+
+    public function test_admin_can_update_an_item_prioridade_padrao(): void
+    {
+        $item = Item::factory()->create(['prioridade_padrao' => null]);
+        $token = $this->staffToken(['categorias.manage']);
+
+        $response = $this->putJson("/api/itens/{$item->id}", [
+            'subcategoria_id' => $item->subcategoria_id,
+            'nome' => $item->nome,
+            'prioridade_padrao' => 'media',
+        ], $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('data.prioridade_padrao', 'media');
+    }
+
     public function test_view_only_permission_cannot_create_an_item(): void
     {
         $subcategoria = Subcategoria::factory()->create();

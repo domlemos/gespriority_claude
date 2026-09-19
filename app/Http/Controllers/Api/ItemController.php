@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ItemResource;
 use App\Models\Item;
+use App\Models\PoliticaSla;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -79,6 +80,7 @@ class ItemController extends Controller
                     ->ignore($item?->id),
             ],
             'ativo' => ['boolean'],
+            'prioridade_padrao' => ['nullable', 'string', Rule::in(PoliticaSla::PRIORIDADES)],
         ];
     }
 }
