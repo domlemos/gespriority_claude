@@ -301,12 +301,12 @@ class IncidentesSeeder extends Seeder
         $politica = $incidente->loadMissing('customer.client')
             ->customer->client?->resolvedSlaFor($incidente->prioridade);
 
-        if ($politica === null) {
-            return;
-        }
-
-        $incidente->prazo_resposta = $incidente->created_at->copy()->addMinutes($politica->tempo_resposta_minutos);
-        $incidente->prazo_resolucao = $incidente->created_at->copy()->addMinutes($politica->tempo_resolucao_minutos);
+        $incidente->prazo_resposta = $politica
+            ? $incidente->created_at->copy()->addMinutes($politica->tempo_resposta_minutos)
+            : null;
+        $incidente->prazo_resolucao = $politica
+            ? $incidente->created_at->copy()->addMinutes($politica->tempo_resolucao_minutos)
+            : null;
         $incidente->save();
     }
 

@@ -415,7 +415,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `prioridade` | `string` | reaproveita `PoliticaSla::PRIORIDADES` (`baixa`\|`media`\|`alta`\|`urgente`) — sem duplicar a lista de constantes. Padrão vem de `Item::prioridade_padrao` quando o incidente tem `item_id`; só Admin pode enviar uma prioridade diferente desse padrão (ver nota "SLA por Categorização" abaixo) |
 | `origem` | `string` | um de `Incidente::ORIGENS` — constante própria do incidente (ver nota abaixo) |
 | `status` | `string` | um de `Incidente::STATUSES`; default `'aberto'` — **forçado no `store()`, ignora qualquer `status` enviado pelo cliente na criação** |
-| `prazo_resposta` | `timestamp` nullable | calculado **uma única vez** no `store()` (`created_at + tempo_resposta_minutos` da `PoliticaSla` aplicável via `Client::resolvedSlaFor()`) e **congelado** — nunca recalculado, nem que a política mude depois. `null` se não houver política aplicável pra essa prioridade (sem override do cliente nem padrão global) |
+| `prazo_resposta` | `timestamp` nullable | calculado **uma única vez** no `store()` (`created_at + tempo_resposta_minutos` da `PoliticaSla` aplicável via `Client::resolvedSlaFor()`) e **congelado** — nunca recalculado, nem que a política mude depois (**exceto** quando `item_id`/`prioridade` mudam de valor num `update()`, ver nota "SLA por Categorização" abaixo). `null` se não houver política aplicável pra essa prioridade (sem override do cliente nem padrão global) |
 | `prazo_resolucao` | `timestamp` nullable | mesmo raciocínio de `prazo_resposta`, com `tempo_resolucao_minutos` |
 | `respondido_em` | `timestamp` nullable | setado automaticamente na 1ª vez que `status` sai de `'aberto'` (qualquer que seja o novo status, mesmo direto pra um concluído) — nunca sobrescrito depois |
 | `concluido_em` | `timestamp` nullable | setado automaticamente na 1ª vez que `status` entra em `Incidente::STATUS_CONCLUIDOS`; **limpo de volta pra `null`** se o incidente for reaberto (status volta pra um não-concluído) — ver nota de reabertura abaixo |
@@ -428,7 +428,8 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > concluído, compara a data da conclusão com o prazo histórico". Implementado assim:
 > - `prazo_resposta`/`prazo_resolucao`: colunas reais, calculadas e persistidas no `store()` (ver
 >   `IncidenteController::calcularPrazosSla()`) — **congeladas**, para não mudar retroativamente se
->   alguém editar a `PoliticaSla` depois.
+>   alguém editar a `PoliticaSla` depois (exceto no recálculo por mudança de `item_id`/`prioridade`
+>   num `update()`, ver nota "SLA por Categorização" abaixo).
 > - `status_sla_resposta`/`status_sla_resolucao` (`dentro_prazo`\|`estourado`\|`sem_sla`) e
 >   `tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos()`: **não são colunas**, são
 >   métodos calculados em `Incidente` (`statusSlaResposta()`, etc.) toda vez que são lidos —
@@ -459,9 +460,14 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > qualquer outro staff que tente recebe 422 em `prioridade`. Item sem `prioridade_padrao` mantém o
 > fluxo anterior (prioridade sempre obrigatória e livre). Diferente do resto do cálculo de SLA
 > (congelado na abertura, nunca recalculado), mudar `item_id` ou `prioridade` num incidente já
-> aberto **recalcula** `prazo_resposta`/`prazo_resolucao` (`calcularPrazosSla()` roda de novo em
-> `update()` nesses dois casos) — decisão explícita do PO, diferente do restante dos campos do
-> incidente, que nunca reabrem esse cálculo.
+> aberto **recalcula** `prazo_resposta`/`prazo_resolucao` — mas só quando o valor de `item_id`/
+> `prioridade` realmente muda, nunca num reenvio do mesmo valor (`calcularPrazosSla()` roda de
+> novo em `update()` nesses dois casos) — decisão explícita do PO, diferente do restante dos campos
+> do incidente, que nunca reabrem esse cálculo. Quem mantém o catálogo (`categorias.manage`) também
+> define/altera o `prioridade_padrao` de um Item — a restrição a Admin vale para personalizar a
+> prioridade de um incidente específico, não para configurar o catálogo; um staff com
+> `categorias.manage` mas sem `isAdmin()` pode, na prática, obter o efeito de uma prioridade
+> diferente retunando o padrão do item antes de abrir o incidente.
 
 > 📌 **`status` e `origem` são constantes do `Incidente`, não cadastros.** Diferente de
 > Categoria/Subcategoria/Item (taxonomia de negócio, muda com frequência, sem acoplamento a lógica),

@@ -25,7 +25,14 @@ class IncidenteSlaPorCategoriaTest extends TestCase
         $role = Role::factory()->create();
 
         foreach ($permissionSlugs as $slug) {
-            $role->permissions()->attach(Permission::factory()->create(['slug' => $slug]));
+            // firstOrCreate (não factory()->create() puro): alguns dos novos
+            // testes de recálculo por mudança de valor (Fix 2) precisam de
+            // um adminToken() E um staffToken(['tickets.manage']) na mesma
+            // execução — sem isso, a segunda chamada tentaria inserir outra
+            // Permission com o mesmo slug único e estouraria uma violação de
+            // constraint no SQLite.
+            $permission = Permission::query()->firstOrCreate(['slug' => $slug], ['name' => $slug]);
+            $role->permissions()->attach($permission);
         }
 
         $user = User::factory()->create();
@@ -42,7 +49,8 @@ class IncidenteSlaPorCategoriaTest extends TestCase
         $role = Role::factory()->create(['slug' => 'admin']);
 
         foreach ($permissionSlugs as $slug) {
-            $role->permissions()->attach(Permission::factory()->create(['slug' => $slug]));
+            $permission = Permission::query()->firstOrCreate(['slug' => $slug], ['name' => $slug]);
+            $role->permissions()->attach($permission);
         }
 
         $user = User::factory()->create();
@@ -240,5 +248,115 @@ class IncidenteSlaPorCategoriaTest extends TestCase
         )->assertOk();
 
         $this->assertTrue($incidente->fresh()->prazo_resposta->equalTo($prazoPersistido));
+    }
+
+    public function test_creating_incidente_with_item_id_as_array_returns_422_not_500(): void
+    {
+        $token = $this->staffToken(['tickets.manage']);
+
+        $response = $this->postJson(
+            '/api/incidentes',
+            $this->validPayload(['item_id' => [1]]),
+            $this->authHeader($token)
+        );
+
+        $response->assertStatus(422);
+    }
+
+    public function test_creating_incidente_with_non_numeric_item_id_returns_422_not_500(): void
+    {
+        $token = $this->staffToken(['tickets.manage']);
+
+        $response = $this->postJson(
+            '/api/incidentes',
+            $this->validPayload(['item_id' => 'abc']),
+            $this->authHeader($token)
+        );
+
+        $response->assertStatus(422);
+    }
+
+    public function test_updating_with_an_unchanged_item_id_does_not_revert_an_admins_personalized_prioridade(): void
+    {
+        $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
+        $incidente = Incidente::factory()->create(['item_id' => $item->id, 'prioridade' => 'baixa']);
+        $adminToken = $this->adminToken();
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['prioridade' => 'urgente'],
+            $this->authHeader($adminToken)
+        )->assertOk();
+
+        // forgetGuards(): sem isso, o guard 'web' (driver sanctum) resolvido
+        // na 1ª chamada fica em cache no AuthManager e a 2ª chamada
+        // continuaria autenticada como o admin em vez do staff recém-criado
+        // — falso positivo conhecido ao trocar de usuário dentro do mesmo
+        // teste com dois putJson().
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+        $token = $this->staffToken(['tickets.manage']);
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['item_id' => $item->id, 'status' => 'em_andamento'],
+            $this->authHeader($token)
+        )->assertOk();
+
+        $this->assertSame('urgente', $incidente->fresh()->prioridade);
+    }
+
+    public function test_non_admin_can_resend_an_already_personalized_prioridade_unchanged(): void
+    {
+        $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
+        $incidente = Incidente::factory()->create(['item_id' => $item->id, 'prioridade' => 'baixa']);
+        $adminToken = $this->adminToken();
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['prioridade' => 'urgente'],
+            $this->authHeader($adminToken)
+        )->assertOk();
+
+        // Ver comentário sobre forgetGuards() no teste acima.
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+        $token = $this->staffToken(['tickets.manage']);
+        $response = $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['prioridade' => 'urgente', 'status' => 'em_andamento'],
+            $this->authHeader($token)
+        );
+
+        $response->assertOk();
+    }
+
+    public function test_resending_the_same_prioridade_does_not_recalculate_deadlines(): void
+    {
+        $client = Client::factory()->create();
+        $customer = Customer::factory()->create(['client_id' => $client->id]);
+        PoliticaSla::factory()->create([
+            'client_id' => null, 'prioridade' => 'urgente',
+            'tempo_resposta_minutos' => 15, 'tempo_resolucao_minutos' => 240,
+        ]);
+        $token = $this->staffToken(['tickets.manage']);
+
+        $createResponse = $this->postJson(
+            '/api/incidentes',
+            $this->validPayload(['customer_id' => $customer->id, 'prioridade' => 'urgente']),
+            $this->authHeader($token)
+        );
+        $incidenteId = $createResponse->json('data.id');
+        $prazoOriginal = Incidente::find($incidenteId)->prazo_resposta;
+
+        // Muda a política DEPOIS de aberto — se o recálculo disparasse
+        // indevidamente num reenvio sem mudança de valor, o prazo
+        // (congelado) mudaria junto.
+        PoliticaSla::where('prioridade', 'urgente')->update(['tempo_resposta_minutos' => 999]);
+
+        $this->putJson(
+            "/api/incidentes/{$incidenteId}",
+            ['prioridade' => 'urgente', 'status' => 'em_andamento'],
+            $this->authHeader($token)
+        )->assertOk();
+
+        $this->assertTrue(Incidente::find($incidenteId)->prazo_resposta->equalTo($prazoOriginal));
     }
 }

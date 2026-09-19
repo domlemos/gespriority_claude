@@ -61,7 +61,11 @@ class IncidenteController extends Controller
             'titulo' => ['required', 'string', 'max:255'],
             'descricao' => ['required', 'string'],
             'prioridade' => [
-                Rule::requiredIf(fn () => ! Item::query()->find($request->input('item_id'))?->prioridade_padrao),
+                Rule::requiredIf(function () use ($request) {
+                    $itemId = $request->input('item_id');
+
+                    return ! (is_numeric($itemId) ? Item::query()->find($itemId)?->prioridade_padrao : null);
+                }),
                 'string', Rule::in(PoliticaSla::PRIORIDADES),
             ],
             'origem' => ['required', 'string', Rule::in(Incidente::ORIGENS)],
@@ -130,12 +134,17 @@ class IncidenteController extends Controller
             'status' => ['sometimes', 'required', 'string', Rule::in(Incidente::STATUSES)],
         ]);
 
-        $recalcularSla = array_key_exists('item_id', $data) || array_key_exists('prioridade', $data);
+        $itemMudou = array_key_exists('item_id', $data) && $data['item_id'] !== $incidente->item_id;
+        $prioridadeMudou = array_key_exists('prioridade', $data) && $data['prioridade'] !== $incidente->prioridade;
+        $recalcularSla = $itemMudou || $prioridadeMudou;
 
-        if ($recalcularSla) {
-            $itemIdEfetivo = array_key_exists('item_id', $data) ? $data['item_id'] : $incidente->item_id;
+        if ($itemMudou || $prioridadeMudou) {
+            $itemIdEfetivo = $itemMudou ? $data['item_id'] : $incidente->item_id;
             $item = $itemIdEfetivo ? Item::query()->find($itemIdEfetivo) : null;
-            $data['prioridade'] = $this->prioridadeEfetivaOuNull($request, $data, $item) ?? $incidente->prioridade;
+
+            $data['prioridade'] = $prioridadeMudou
+                ? ($this->prioridadeEfetivaOuNull($request, $data, $item) ?? $incidente->prioridade)
+                : (($item?->prioridade_padrao) ?? $incidente->prioridade);
         }
 
         $grupoAnteriorId = $incidente->grupo_solucao_id;

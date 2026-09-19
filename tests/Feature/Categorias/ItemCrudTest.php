@@ -141,7 +141,7 @@ class ItemCrudTest extends TestCase
         $this->assertDatabaseHas('itens', ['nome' => 'Sem toner', 'subcategoria_id' => $subcategoria->id]);
     }
 
-    public function test_admin_can_create_an_item_with_a_prioridade_padrao(): void
+    public function test_staff_with_categorias_manage_can_create_an_item_with_a_prioridade_padrao(): void
     {
         $subcategoria = Subcategoria::factory()->create();
         $token = $this->staffToken(['categorias.manage']);
@@ -183,7 +183,7 @@ class ItemCrudTest extends TestCase
         $response->assertStatus(422)->assertJsonValidationErrors('prioridade_padrao');
     }
 
-    public function test_admin_can_update_an_item_prioridade_padrao(): void
+    public function test_staff_with_categorias_manage_can_update_an_item_prioridade_padrao(): void
     {
         $item = Item::factory()->create(['prioridade_padrao' => null]);
         $token = $this->staffToken(['categorias.manage']);
