@@ -50,11 +50,17 @@ class IncidenteCrudTest extends TestCase
     {
         return array_merge([
             'customer_id' => Customer::factory()->create()->id,
+            'item_id' => $this->itemComPrioridade('alta'),
             'titulo' => 'Impressora não liga',
             'descricao' => 'Tentei ligar e nada acontece.',
-            'prioridade' => 'alta',
             'origem' => 'portal',
         ], $overrides);
+    }
+
+    // A prioridade do incidente sempre vem do `prioridade_padrao` do item.
+    private function itemComPrioridade(string $prioridade): int
+    {
+        return Item::factory()->create(['prioridade_padrao' => $prioridade])->id;
     }
 
     public function test_staff_with_view_permission_can_list_incidentes(): void
@@ -326,7 +332,7 @@ class IncidenteCrudTest extends TestCase
 
         $response = $this->postJson(
             '/api/incidentes',
-            $this->validPayload(['customer_id' => $customer->id, 'prioridade' => 'alta']),
+            $this->validPayload(['customer_id' => $customer->id, 'item_id' => $this->itemComPrioridade('alta')]),
             $this->authHeader($token)
         );
 
@@ -359,7 +365,7 @@ class IncidenteCrudTest extends TestCase
 
         $response = $this->postJson(
             '/api/incidentes',
-            $this->validPayload(['customer_id' => $customer->id, 'prioridade' => 'alta']),
+            $this->validPayload(['customer_id' => $customer->id, 'item_id' => $this->itemComPrioridade('alta')]),
             $this->authHeader($token)
         );
 
@@ -378,7 +384,7 @@ class IncidenteCrudTest extends TestCase
         // PoliticasSlaSeeder — ver §3.8) => sem política aplicável.
         $response = $this->postJson(
             '/api/incidentes',
-            $this->validPayload(['prioridade' => 'baixa']),
+            $this->validPayload(['item_id' => $this->itemComPrioridade('baixa')]),
             $this->authHeader($token)
         );
 
@@ -401,7 +407,7 @@ class IncidenteCrudTest extends TestCase
 
         $response = $this->postJson(
             '/api/incidentes',
-            $this->validPayload(['prioridade' => 'urgente']),
+            $this->validPayload(['item_id' => $this->itemComPrioridade('urgente')]),
             $this->authHeader($token)
         );
 
@@ -465,21 +471,21 @@ class IncidenteCrudTest extends TestCase
         $response = $this->postJson('/api/incidentes', [], $this->authHeader($token));
 
         $response->assertStatus(422)->assertJsonValidationErrors([
-            'customer_id', 'titulo', 'descricao', 'prioridade', 'origem',
+            'customer_id', 'item_id', 'titulo', 'descricao', 'origem',
         ]);
     }
 
-    public function test_creating_incidente_rejects_invalid_prioridade(): void
+    public function test_creating_incidente_ignores_client_provided_prioridade(): void
     {
         [$token] = $this->staffToken(['tickets.manage']);
 
         $response = $this->postJson(
             '/api/incidentes',
-            $this->validPayload(['prioridade' => 'gigante']),
+            $this->validPayload(['prioridade' => 'urgente']),
             $this->authHeader($token)
         );
 
-        $response->assertStatus(422)->assertJsonValidationErrors('prioridade');
+        $response->assertCreated()->assertJsonPath('data.prioridade', 'alta');
     }
 
     public function test_creating_incidente_rejects_invalid_origem(): void
@@ -842,18 +848,19 @@ class IncidenteCrudTest extends TestCase
         $this->assertStringContainsString('Impressora não liga - urgente', $entry->descricao);
     }
 
-    public function test_updating_prioridade_creates_an_alteracao_entry(): void
+    public function test_prioridade_change_caused_by_item_change_creates_an_alteracao_entry(): void
     {
-        $incidente = Incidente::factory()->create(['prioridade' => 'baixa']);
+        $incidente = Incidente::factory()->create(['item_id' => $this->itemComPrioridade('baixa'), 'prioridade' => 'baixa']);
         [$token] = $this->staffToken(['tickets.manage']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
-            ['prioridade' => 'urgente'],
+            ['item_id' => $this->itemComPrioridade('urgente')],
             $this->authHeader($token)
         )->assertOk();
 
-        $entry = IncidenteDescricao::where('incidente_id', $incidente->id)->where('tipo', 'alteracao')->sole();
+        $entry = IncidenteDescricao::where('incidente_id', $incidente->id)->where('tipo', 'alteracao')
+            ->where('descricao', 'like', "Campo 'Prioridade'%")->sole();
         $this->assertStringContainsString('baixa', $entry->descricao);
         $this->assertStringContainsString('urgente', $entry->descricao);
     }
@@ -894,8 +901,8 @@ class IncidenteCrudTest extends TestCase
 
     public function test_updating_item_id_from_null_creates_an_alteracao_entry(): void
     {
-        $incidente = Incidente::factory()->create(['item_id' => null]);
-        $item = Item::factory()->create(['nome' => 'Sem toner']);
+        $incidente = Incidente::factory()->create(['item_id' => null, 'prioridade' => 'media']);
+        $item = Item::factory()->create(['nome' => 'Sem toner', 'prioridade_padrao' => 'media']);
         [$token] = $this->staffToken(['tickets.manage']);
 
         $this->putJson(
@@ -908,7 +915,7 @@ class IncidenteCrudTest extends TestCase
         $this->assertStringContainsString('Sem toner', $entry->descricao);
     }
 
-    public function test_updating_item_id_to_null_creates_an_alteracao_entry(): void
+    public function test_updating_item_id_to_null_is_rejected(): void
     {
         $item = Item::factory()->create(['nome' => 'Sem toner']);
         $incidente = Incidente::factory()->create(['item_id' => $item->id]);
@@ -918,10 +925,9 @@ class IncidenteCrudTest extends TestCase
             "/api/incidentes/{$incidente->id}",
             ['item_id' => null],
             $this->authHeader($token)
-        )->assertOk();
+        )->assertStatus(422)->assertJsonValidationErrors('item_id');
 
-        $entry = IncidenteDescricao::where('incidente_id', $incidente->id)->where('tipo', 'alteracao')->sole();
-        $this->assertStringContainsString('Sem toner', $entry->descricao);
+        $this->assertSame($item->id, $incidente->fresh()->item_id);
     }
 
     public function test_updating_to_the_same_value_does_not_create_an_alteracao_entry(): void
@@ -940,12 +946,12 @@ class IncidenteCrudTest extends TestCase
 
     public function test_updating_multiple_fields_creates_multiple_alteracao_entries(): void
     {
-        $incidente = Incidente::factory()->create(['titulo' => 'Original', 'prioridade' => 'baixa', 'status' => 'aberto']);
+        $incidente = Incidente::factory()->create(['titulo' => 'Original', 'origem' => 'portal', 'status' => 'aberto']);
         [$token] = $this->staffToken(['tickets.manage']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
-            ['titulo' => 'Novo título', 'prioridade' => 'urgente', 'status' => 'em_andamento'],
+            ['titulo' => 'Novo título', 'origem' => 'telefone', 'status' => 'em_andamento'],
             $this->authHeader($token)
         )->assertOk();
 

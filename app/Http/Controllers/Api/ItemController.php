@@ -80,7 +80,7 @@ class ItemController extends Controller
                     ->ignore($item?->id),
             ],
             'ativo' => ['boolean'],
-            'prioridade_padrao' => ['nullable', 'string', Rule::in(PoliticaSla::PRIORIDADES)],
+            'prioridade_padrao' => ['required', 'string', Rule::in(PoliticaSla::PRIORIDADES)],
         ];
     }
 }

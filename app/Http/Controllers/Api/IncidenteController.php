@@ -55,24 +55,19 @@ class IncidenteController extends Controller
     {
         $data = $request->validate([
             'customer_id' => ['required', 'integer', 'exists:customers,id'],
-            'item_id' => ['nullable', 'integer', 'exists:itens,id'],
+            'item_id' => ['required', 'integer', 'exists:itens,id'],
             'grupo_solucao_id' => ['nullable', 'integer', 'exists:grupos_solucao,id'],
             'responsavel_id' => ['nullable', 'integer', 'exists:users,id'],
             'titulo' => ['required', 'string', 'max:255'],
             'descricao' => ['required', 'string'],
-            'prioridade' => [
-                Rule::requiredIf(function () use ($request) {
-                    $itemId = $request->input('item_id');
-
-                    return ! (is_numeric($itemId) ? Item::query()->find($itemId)?->prioridade_padrao : null);
-                }),
-                'string', Rule::in(PoliticaSla::PRIORIDADES),
-            ],
             'origem' => ['required', 'string', Rule::in(Incidente::ORIGENS)],
         ]);
 
-        $item = ($data['item_id'] ?? null) ? Item::query()->find($data['item_id']) : null;
-        $data['prioridade'] = $this->prioridadeEfetivaOuNull($request, $data, $item);
+        // prioridade nunca vem do cliente — é sempre derivada do
+        // `Item::prioridade_padrao` da classificação (ver "SLA por
+        // Categorização" no BACKEND_SPECS.md §3.1); qualquer 'prioridade' no
+        // payload é ignorada, mesmo que enviada.
+        $data['prioridade'] = $this->prioridadeDoItem(Item::query()->find($data['item_id']));
 
         // status nunca vem do cliente na criação — todo incidente nasce
         // "aberto" (ver BACKEND_SPECS.md seção 3.1); qualquer 'status' no
@@ -125,26 +120,20 @@ class IncidenteController extends Controller
         // quer mudar o status, sem reenviar título/descrição a cada PUT.
         $data = $request->validate([
             'customer_id' => ['sometimes', 'integer', 'exists:customers,id'],
-            'item_id' => ['sometimes', 'nullable', 'integer', 'exists:itens,id'],
+            'item_id' => ['sometimes', 'required', 'integer', 'exists:itens,id'],
             'grupo_solucao_id' => ['sometimes', 'nullable', 'integer', 'exists:grupos_solucao,id'],
             'responsavel_id' => ['sometimes', 'nullable', 'integer', 'exists:users,id'],
             'titulo' => ['sometimes', 'required', 'string', 'max:255'],
-            'prioridade' => ['sometimes', 'required', 'string', Rule::in(PoliticaSla::PRIORIDADES)],
             'origem' => ['sometimes', 'required', 'string', Rule::in(Incidente::ORIGENS)],
             'status' => ['sometimes', 'required', 'string', Rule::in(Incidente::STATUSES)],
         ]);
 
-        $itemMudou = array_key_exists('item_id', $data) && $data['item_id'] !== $incidente->item_id;
-        $prioridadeMudou = array_key_exists('prioridade', $data) && $data['prioridade'] !== $incidente->prioridade;
-        $recalcularSla = $itemMudou || $prioridadeMudou;
+        // Mesma regra do store(): prioridade não é editável pelo cliente,
+        // acompanha o item — trocar o item recalcula prioridade e prazos.
+        $recalcularSla = array_key_exists('item_id', $data) && $data['item_id'] !== $incidente->item_id;
 
-        if ($itemMudou || $prioridadeMudou) {
-            $itemIdEfetivo = $itemMudou ? $data['item_id'] : $incidente->item_id;
-            $item = $itemIdEfetivo ? Item::query()->find($itemIdEfetivo) : null;
-
-            $data['prioridade'] = $prioridadeMudou
-                ? ($this->prioridadeEfetivaOuNull($request, $data, $item) ?? $incidente->prioridade)
-                : (($item?->prioridade_padrao) ?? $incidente->prioridade);
+        if ($recalcularSla) {
+            $data['prioridade'] = $this->prioridadeDoItem(Item::query()->find($data['item_id']));
         }
 
         $grupoAnteriorId = $incidente->grupo_solucao_id;
@@ -315,41 +304,29 @@ class IncidenteController extends Controller
     }
 
     /**
-     * Resolve a prioridade efetiva de um incidente a partir do
-     * `Item::prioridade_padrao` vinculado e do valor explícito enviado no
-     * request. Sem `prioridade` explícita, devolve o padrão do item (ou
-     * `null`, se o item não tiver um — cabe ao chamador decidir o que fazer
-     * nesse caso: `store()` já garante via `Rule::requiredIf` que isso só
-     * acontece quando há padrão; `update()` cai de volta pra prioridade
-     * atual do incidente). Só Admin pode enviar uma prioridade diferente do
-     * padrão do item (personalização) — qualquer outro staff que tente
-     * recebe 422 em 'prioridade' (ver design "SLA por Categorização" no
-     * BACKEND_SPECS.md §3.1).
+     * A prioridade de um incidente é sempre o `Item::prioridade_padrao` da
+     * sua classificação — nenhum usuário (nem Admin) escolhe a prioridade
+     * manualmente (ver "SLA por Categorização" no BACKEND_SPECS.md §3.1).
+     * Item sem padrão configurado (catálogo legado, anterior à
+     * obrigatoriedade) não pode ser usado até alguém com
+     * `categorias.manage` definir um: 422 em `item_id`.
      */
-    private function prioridadeEfetivaOuNull(Request $request, array $data, ?Item $item): ?string
+    private function prioridadeDoItem(Item $item): string
     {
-        $padrao = $item?->prioridade_padrao;
-
-        if (! array_key_exists('prioridade', $data)) {
-            return $padrao;
-        }
-
-        $explicita = $data['prioridade'];
-
-        if ($padrao !== null && $explicita !== $padrao && ! $request->user()->isAdmin()) {
+        if ($item->prioridade_padrao === null) {
             throw ValidationException::withMessages([
-                'prioridade' => 'Apenas administradores podem personalizar a prioridade quando o item já possui uma SLA padrão.',
+                'item_id' => 'O item selecionado não possui prioridade padrão configurada. Defina uma no cadastro do item antes de usá-lo.',
             ]);
         }
 
-        return $explicita;
+        return $item->prioridade_padrao;
     }
 
     /**
      * Calcula prazo_resposta/prazo_resolucao a partir da política de SLA
      * aplicável (ver Client::resolvedSlaFor()) e os congela — chamado uma
      * única vez no store() (nunca recalculado por mudança de política
-     * depois), e de novo no update() quando `item_id`/`prioridade` mudam
+     * depois), e de novo no update() quando `item_id` muda
      * (ver "SLA por Categorização" no BACKEND_SPECS.md §3.1). Idempotente:
      * sem política aplicável pra prioridade atual, os dois campos voltam
      * explicitamente pra `null` (sem_sla) — necessário pro recálculo do

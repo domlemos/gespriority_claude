@@ -74,7 +74,7 @@ class IncidenteSlaPorCategoriaTest extends TestCase
         ], $overrides);
     }
 
-    public function test_creating_incidente_defaults_prioridade_from_the_item_prioridade_padrao(): void
+    public function test_creating_incidente_takes_prioridade_from_the_item_prioridade_padrao(): void
     {
         $item = Item::factory()->create(['prioridade_padrao' => 'urgente']);
         $token = $this->staffToken(['tickets.manage']);
@@ -88,8 +88,18 @@ class IncidenteSlaPorCategoriaTest extends TestCase
         $response->assertCreated()->assertJsonPath('data.prioridade', 'urgente');
     }
 
-    public function test_creating_incidente_without_item_default_still_requires_explicit_prioridade(): void
+    public function test_creating_incidente_requires_item_id(): void
     {
+        $token = $this->staffToken(['tickets.manage']);
+
+        $response = $this->postJson('/api/incidentes', $this->validPayload(), $this->authHeader($token));
+
+        $response->assertStatus(422)->assertJsonValidationErrors('item_id');
+    }
+
+    public function test_creating_incidente_for_an_item_without_prioridade_padrao_returns_422(): void
+    {
+        // Item legado, cadastrado antes de `prioridade_padrao` ser obrigatória.
         $item = Item::factory()->create(['prioridade_padrao' => null]);
         $token = $this->staffToken(['tickets.manage']);
 
@@ -99,38 +109,11 @@ class IncidenteSlaPorCategoriaTest extends TestCase
             $this->authHeader($token)
         );
 
-        $response->assertStatus(422)->assertJsonValidationErrors('prioridade');
+        $response->assertStatus(422)->assertJsonValidationErrors('item_id');
+        $this->assertSame(0, Incidente::query()->count());
     }
 
-    public function test_non_admin_can_send_a_prioridade_that_matches_the_item_default(): void
-    {
-        $item = Item::factory()->create(['prioridade_padrao' => 'alta']);
-        $token = $this->staffToken(['tickets.manage']);
-
-        $response = $this->postJson(
-            '/api/incidentes',
-            $this->validPayload(['item_id' => $item->id, 'prioridade' => 'alta']),
-            $this->authHeader($token)
-        );
-
-        $response->assertCreated()->assertJsonPath('data.prioridade', 'alta');
-    }
-
-    public function test_non_admin_cannot_override_the_item_default_prioridade(): void
-    {
-        $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
-        $token = $this->staffToken(['tickets.manage']);
-
-        $response = $this->postJson(
-            '/api/incidentes',
-            $this->validPayload(['item_id' => $item->id, 'prioridade' => 'urgente']),
-            $this->authHeader($token)
-        );
-
-        $response->assertStatus(422)->assertJsonValidationErrors('prioridade');
-    }
-
-    public function test_admin_can_personalize_the_prioridade_away_from_the_item_default(): void
+    public function test_client_provided_prioridade_is_ignored_on_create_even_for_admin(): void
     {
         $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
         $token = $this->adminToken();
@@ -141,7 +124,32 @@ class IncidenteSlaPorCategoriaTest extends TestCase
             $this->authHeader($token)
         );
 
-        $response->assertCreated()->assertJsonPath('data.prioridade', 'urgente');
+        $response->assertCreated()->assertJsonPath('data.prioridade', 'baixa');
+    }
+
+    public function test_client_provided_prioridade_is_ignored_on_update_even_for_admin(): void
+    {
+        $client = Client::factory()->create();
+        $customer = Customer::factory()->create(['client_id' => $client->id]);
+        PoliticaSla::factory()->create([
+            'client_id' => null, 'prioridade' => 'urgente',
+            'tempo_resposta_minutos' => 15, 'tempo_resolucao_minutos' => 240,
+        ]);
+        $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
+        $incidente = Incidente::factory()->create([
+            'customer_id' => $customer->id, 'item_id' => $item->id, 'prioridade' => 'baixa',
+        ]);
+        $token = $this->adminToken();
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}",
+            ['prioridade' => 'urgente'],
+            $this->authHeader($token)
+        )->assertOk()->assertJsonPath('data.prioridade', 'baixa');
+
+        $fresh = $incidente->fresh();
+        $this->assertSame('baixa', $fresh->prioridade);
+        $this->assertNull($fresh->prazo_resposta);
     }
 
     public function test_updating_item_id_applies_the_new_item_default_and_recalculates_deadlines(): void
@@ -173,31 +181,20 @@ class IncidenteSlaPorCategoriaTest extends TestCase
         );
     }
 
-    public function test_admin_overriding_prioridade_directly_recalculates_deadlines(): void
+    public function test_updating_item_id_to_an_item_without_prioridade_padrao_returns_422(): void
     {
-        $client = Client::factory()->create();
-        $customer = Customer::factory()->create(['client_id' => $client->id]);
-        PoliticaSla::factory()->create([
-            'client_id' => null, 'prioridade' => 'urgente',
-            'tempo_resposta_minutos' => 15, 'tempo_resolucao_minutos' => 240,
-        ]);
         $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
-        $incidente = Incidente::factory()->create([
-            'customer_id' => $customer->id, 'item_id' => $item->id, 'prioridade' => 'baixa',
-        ]);
-        $token = $this->adminToken();
+        $itemLegado = Item::factory()->create(['prioridade_padrao' => null]);
+        $incidente = Incidente::factory()->create(['item_id' => $item->id, 'prioridade' => 'baixa']);
+        $token = $this->staffToken(['tickets.manage']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
-            ['prioridade' => 'urgente'],
+            ['item_id' => $itemLegado->id],
             $this->authHeader($token)
-        )->assertOk();
+        )->assertStatus(422)->assertJsonValidationErrors('item_id');
 
-        $fresh = $incidente->fresh();
-        $this->assertSame(
-            $fresh->created_at->copy()->addMinutes(15)->timestamp,
-            $fresh->prazo_resposta->timestamp
-        );
+        $this->assertSame($item->id, $incidente->fresh()->item_id);
     }
 
     public function test_recalculated_deadlines_become_null_when_the_new_prioridade_has_no_applicable_policy(): void
@@ -208,11 +205,13 @@ class IncidenteSlaPorCategoriaTest extends TestCase
             'client_id' => null, 'prioridade' => 'urgente',
             'tempo_resposta_minutos' => 15, 'tempo_resolucao_minutos' => 240,
         ]);
-        $token = $this->adminToken();
+        $itemUrgente = Item::factory()->create(['prioridade_padrao' => 'urgente']);
+        $itemBaixa = Item::factory()->create(['prioridade_padrao' => 'baixa']);
+        $token = $this->staffToken(['tickets.manage']);
 
         $createResponse = $this->postJson(
             '/api/incidentes',
-            $this->validPayload(['customer_id' => $customer->id, 'prioridade' => 'urgente']),
+            $this->validPayload(['customer_id' => $customer->id, 'item_id' => $itemUrgente->id]),
             $this->authHeader($token)
         );
         $incidenteId = $createResponse->json('data.id');
@@ -220,11 +219,12 @@ class IncidenteSlaPorCategoriaTest extends TestCase
 
         $this->putJson(
             "/api/incidentes/{$incidenteId}",
-            ['prioridade' => 'baixa'],
+            ['item_id' => $itemBaixa->id],
             $this->authHeader($token)
         )->assertOk();
 
         $fresh = Incidente::find($incidenteId);
+        $this->assertSame('baixa', $fresh->prioridade);
         $this->assertNull($fresh->prazo_resposta);
         $this->assertNull($fresh->prazo_resolucao);
     }
@@ -276,59 +276,7 @@ class IncidenteSlaPorCategoriaTest extends TestCase
         $response->assertStatus(422);
     }
 
-    public function test_updating_with_an_unchanged_item_id_does_not_revert_an_admins_personalized_prioridade(): void
-    {
-        $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
-        $incidente = Incidente::factory()->create(['item_id' => $item->id, 'prioridade' => 'baixa']);
-        $adminToken = $this->adminToken();
-
-        $this->putJson(
-            "/api/incidentes/{$incidente->id}",
-            ['prioridade' => 'urgente'],
-            $this->authHeader($adminToken)
-        )->assertOk();
-
-        // forgetGuards(): sem isso, o guard 'web' (driver sanctum) resolvido
-        // na 1ª chamada fica em cache no AuthManager e a 2ª chamada
-        // continuaria autenticada como o admin em vez do staff recém-criado
-        // — falso positivo conhecido ao trocar de usuário dentro do mesmo
-        // teste com dois putJson().
-        \Illuminate\Support\Facades\Auth::forgetGuards();
-        $token = $this->staffToken(['tickets.manage']);
-        $this->putJson(
-            "/api/incidentes/{$incidente->id}",
-            ['item_id' => $item->id, 'status' => 'em_andamento'],
-            $this->authHeader($token)
-        )->assertOk();
-
-        $this->assertSame('urgente', $incidente->fresh()->prioridade);
-    }
-
-    public function test_non_admin_can_resend_an_already_personalized_prioridade_unchanged(): void
-    {
-        $item = Item::factory()->create(['prioridade_padrao' => 'baixa']);
-        $incidente = Incidente::factory()->create(['item_id' => $item->id, 'prioridade' => 'baixa']);
-        $adminToken = $this->adminToken();
-
-        $this->putJson(
-            "/api/incidentes/{$incidente->id}",
-            ['prioridade' => 'urgente'],
-            $this->authHeader($adminToken)
-        )->assertOk();
-
-        // Ver comentário sobre forgetGuards() no teste acima.
-        \Illuminate\Support\Facades\Auth::forgetGuards();
-        $token = $this->staffToken(['tickets.manage']);
-        $response = $this->putJson(
-            "/api/incidentes/{$incidente->id}",
-            ['prioridade' => 'urgente', 'status' => 'em_andamento'],
-            $this->authHeader($token)
-        );
-
-        $response->assertOk();
-    }
-
-    public function test_resending_the_same_prioridade_does_not_recalculate_deadlines(): void
+    public function test_resending_the_same_item_id_does_not_recalculate_deadlines(): void
     {
         $client = Client::factory()->create();
         $customer = Customer::factory()->create(['client_id' => $client->id]);
@@ -336,11 +284,12 @@ class IncidenteSlaPorCategoriaTest extends TestCase
             'client_id' => null, 'prioridade' => 'urgente',
             'tempo_resposta_minutos' => 15, 'tempo_resolucao_minutos' => 240,
         ]);
+        $item = Item::factory()->create(['prioridade_padrao' => 'urgente']);
         $token = $this->staffToken(['tickets.manage']);
 
         $createResponse = $this->postJson(
             '/api/incidentes',
-            $this->validPayload(['customer_id' => $customer->id, 'prioridade' => 'urgente']),
+            $this->validPayload(['customer_id' => $customer->id, 'item_id' => $item->id]),
             $this->authHeader($token)
         );
         $incidenteId = $createResponse->json('data.id');
@@ -353,7 +302,7 @@ class IncidenteSlaPorCategoriaTest extends TestCase
 
         $this->putJson(
             "/api/incidentes/{$incidenteId}",
-            ['prioridade' => 'urgente', 'status' => 'em_andamento'],
+            ['item_id' => $item->id, 'status' => 'em_andamento'],
             $this->authHeader($token)
         )->assertOk();
 

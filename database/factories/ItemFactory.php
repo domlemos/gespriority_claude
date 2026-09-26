@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Item;
+use App\Models\PoliticaSla;
 use App\Models\Subcategoria;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -24,6 +25,7 @@ class ItemFactory extends Factory
             'subcategoria_id' => Subcategoria::factory(),
             'nome' => fake()->unique()->words(2, true),
             'ativo' => true,
+            'prioridade_padrao' => fake()->randomElement(PoliticaSla::PRIORIDADES),
         ];
     }
 }

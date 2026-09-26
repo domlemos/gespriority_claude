@@ -131,6 +131,7 @@ class ItemCrudTest extends TestCase
         $response = $this->postJson('/api/itens', [
             'subcategoria_id' => $subcategoria->id,
             'nome' => 'Sem toner',
+            'prioridade_padrao' => 'media',
         ], $this->authHeader($token));
 
         $response->assertCreated()
@@ -156,7 +157,7 @@ class ItemCrudTest extends TestCase
         $this->assertDatabaseHas('itens', ['nome' => 'Sem toner', 'prioridade_padrao' => 'urgente']);
     }
 
-    public function test_creating_an_item_without_prioridade_padrao_leaves_it_null(): void
+    public function test_creating_an_item_requires_prioridade_padrao(): void
     {
         $subcategoria = Subcategoria::factory()->create();
         $token = $this->staffToken(['categorias.manage']);
@@ -166,7 +167,7 @@ class ItemCrudTest extends TestCase
             'nome' => 'Sem toner',
         ], $this->authHeader($token));
 
-        $response->assertCreated()->assertJsonPath('data.prioridade_padrao', null);
+        $response->assertStatus(422)->assertJsonValidationErrors('prioridade_padrao');
     }
 
     public function test_creating_item_rejects_invalid_prioridade_padrao(): void
@@ -253,6 +254,7 @@ class ItemCrudTest extends TestCase
         $response = $this->postJson('/api/itens', [
             'subcategoria_id' => $subcategoriaB->id,
             'nome' => 'Não liga',
+            'prioridade_padrao' => 'media',
         ], $this->authHeader($token));
 
         $response->assertCreated();
@@ -266,6 +268,7 @@ class ItemCrudTest extends TestCase
         $response = $this->putJson("/api/itens/{$item->id}", [
             'subcategoria_id' => $item->subcategoria_id,
             'nome' => 'New Name',
+            'prioridade_padrao' => 'media',
         ], $this->authHeader($token));
 
         $response->assertOk()->assertJsonPath('data.nome', 'New Name');
@@ -280,6 +283,7 @@ class ItemCrudTest extends TestCase
         $this->putJson("/api/itens/{$item->id}", [
             'subcategoria_id' => $item->subcategoria_id,
             'nome' => 'New Name',
+            'prioridade_padrao' => 'media',
         ], $this->authHeader($token))->assertStatus(403);
     }
 
