@@ -24,6 +24,15 @@ class Incidente extends Model
 
     public const ORIGENS = ['portal', 'email', 'telefone', 'chat', 'presencial', 'monitoramento'];
 
+    // Campos que, depois da abertura, só quem tem `tickets.edit_all` altera
+    // (ver IncidenteController::garantirPermissaoParaCamposRestritos()) —
+    // campo => rótulo usado na mensagem de erro.
+    public const CAMPOS_RESTRITOS_APOS_ABERTURA = [
+        'customer_id' => 'Cliente',
+        'titulo' => 'Título',
+        'origem' => 'Origem',
+    ];
+
     /** Status que encerram o incidente pra fins de SLA — congelam `concluido_em`. */
     public const STATUS_CONCLUIDOS = ['resolvido', 'fechado', 'cancelado'];
 

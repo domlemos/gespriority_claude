@@ -466,6 +466,16 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > resultante é registrada no feed como qualquer outra alteração de campo. Quem mantém o catálogo
 > (`categorias.manage`) é quem, na prática, define as prioridades, via `prioridade_padrao` dos itens.
 
+> 📌 **Campos restritos após a abertura (`tickets.edit_all`).** Depois que um incidente é aberto,
+> quem **não** tem a permission `tickets.edit_all` ("Editar todos os campos do chamado") só altera
+> classificação (`item_id`), encaminhamento (`grupo_solucao_id`/`responsavel_id`) e `status` —
+> `customer_id`, `titulo` e `origem` (`Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA`) dão 422 no campo
+> se vierem com valor **diferente** do atual (reenviar o mesmo valor é aceito, porque o formulário
+> do front sempre manda todos os campos). Um campo recusado bloqueia o `update()` inteiro. A
+> abertura (`store()`) não é afetada. Comentários/anexos continuam liberados com `tickets.manage`.
+> A permission nasce via migration de dados (`2026_09_26_120000_add_tickets_edit_all_permission`)
+> já concedida a Admin e Supervisor; Agente fica restrito. Ajustável pela tela de Papéis.
+
 > 📌 **`status` e `origem` são constantes do `Incidente`, não cadastros.** Diferente de
 > Categoria/Subcategoria/Item (taxonomia de negócio, muda com frequência, sem acoplamento a lógica),
 > `status` dirige workflow real (pausa/retoma SLA quando existir, controla transições válidas) e

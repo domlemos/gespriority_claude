@@ -30,7 +30,9 @@ class IncidenteCrudTest extends TestCase
         $role = Role::factory()->create();
 
         foreach ($permissionSlugs as $slug) {
-            $role->permissions()->attach(Permission::factory()->create(['slug' => $slug]));
+            // firstOrCreate: algumas permissions (ex. tickets.edit_all) já
+            // nascem via migration de dados, não só pelo seeder.
+            $role->permissions()->attach(Permission::query()->firstOrCreate(['slug' => $slug], ['name' => $slug]));
         }
 
         $user = User::factory()->create($grupoSolucao ? ['grupo_solucao_id' => $grupoSolucao->id] : []);
@@ -621,7 +623,7 @@ class IncidenteCrudTest extends TestCase
         // texto do log precisa refletir o horário de Brasília. Sem isso, o
         // texto mostraria a hora UTC (3h à frente do horário local).
         $incidente = Incidente::factory()->create(['origem' => 'portal']);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage', 'tickets.edit_all']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
@@ -835,7 +837,7 @@ class IncidenteCrudTest extends TestCase
     public function test_updating_titulo_creates_an_alteracao_entry(): void
     {
         $incidente = Incidente::factory()->create(['titulo' => 'Impressora não liga']);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage', 'tickets.edit_all']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
@@ -868,7 +870,7 @@ class IncidenteCrudTest extends TestCase
     public function test_updating_origem_creates_an_alteracao_entry(): void
     {
         $incidente = Incidente::factory()->create(['origem' => 'portal']);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage', 'tickets.edit_all']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
@@ -886,7 +888,7 @@ class IncidenteCrudTest extends TestCase
         $clienteAntigo = Customer::factory()->create(['name' => 'João Antigo']);
         $clienteNovo = Customer::factory()->create(['name' => 'Maria Nova']);
         $incidente = Incidente::factory()->create(['customer_id' => $clienteAntigo->id]);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage', 'tickets.edit_all']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
@@ -947,7 +949,7 @@ class IncidenteCrudTest extends TestCase
     public function test_updating_multiple_fields_creates_multiple_alteracao_entries(): void
     {
         $incidente = Incidente::factory()->create(['titulo' => 'Original', 'origem' => 'portal', 'status' => 'aberto']);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage', 'tickets.edit_all']);
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
@@ -961,7 +963,7 @@ class IncidenteCrudTest extends TestCase
     public function test_alteracao_entry_cannot_be_edited_even_by_an_admin(): void
     {
         $incidente = Incidente::factory()->create(['titulo' => 'Original']);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage', 'tickets.edit_all']);
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
             ['titulo' => 'Alterado'],
@@ -979,7 +981,7 @@ class IncidenteCrudTest extends TestCase
     public function test_alteracao_entry_cannot_be_deleted_even_by_an_admin(): void
     {
         $incidente = Incidente::factory()->create(['titulo' => 'Original']);
-        [$token] = $this->staffToken(['tickets.manage']);
+        [$token] = $this->staffToken(['tickets.manage', 'tickets.edit_all']);
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
             ['titulo' => 'Alterado'],

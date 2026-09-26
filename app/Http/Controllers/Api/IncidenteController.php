@@ -128,6 +128,8 @@ class IncidenteController extends Controller
             'status' => ['sometimes', 'required', 'string', Rule::in(Incidente::STATUSES)],
         ]);
 
+        $this->garantirPermissaoParaCamposRestritos($request->user(), $incidente, $data);
+
         // Mesma regra do store(): prioridade não é editável pelo cliente,
         // acompanha o item — trocar o item recalcula prioridade e prazos.
         $recalcularSla = array_key_exists('item_id', $data) && $data['item_id'] !== $incidente->item_id;
@@ -301,6 +303,32 @@ class IncidenteController extends Controller
             'user_id' => $autor->id,
             'tipo' => $novo,
         ]);
+    }
+
+    /**
+     * Depois de aberto, quem não tem `tickets.edit_all` (Analista/Agente)
+     * só altera classificação (item), encaminhamento (grupo/responsável) e
+     * status — cliente, título e origem ficam travados. Compara com o valor
+     * atual em vez de só checar presença no payload: o formulário do front
+     * sempre reenvia todos os campos, inclusive os que não mudaram.
+     */
+    private function garantirPermissaoParaCamposRestritos(User $user, Incidente $incidente, array $data): void
+    {
+        if ($user->hasPermission('tickets.edit_all')) {
+            return;
+        }
+
+        $erros = [];
+
+        foreach (Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA as $campo => $rotulo) {
+            if (array_key_exists($campo, $data) && $data[$campo] !== $incidente->{$campo}) {
+                $erros[$campo] = "Você não tem permissão para alterar o campo {$rotulo} de um chamado já aberto.";
+            }
+        }
+
+        if ($erros) {
+            throw ValidationException::withMessages($erros);
+        }
     }
 
     /**

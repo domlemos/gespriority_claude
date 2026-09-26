@@ -76,7 +76,7 @@ class IncidenteVisibilidadeDetalheTest extends TestCase
         $incidente = Incidente::factory()->create(['grupo_solucao_id' => $meuGrupo->id]);
         [$token] = $this->staffToken(['tickets.manage'], $meuGrupo);
 
-        $this->putJson("/api/incidentes/{$incidente->id}", ['titulo' => 'Novo'], $this->authHeader($token))
+        $this->putJson("/api/incidentes/{$incidente->id}", ['status' => 'em_andamento'], $this->authHeader($token))
             ->assertOk();
     }
 }

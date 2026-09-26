@@ -24,6 +24,7 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'Visualizar chamados', 'slug' => 'tickets.view'],
             ['name' => 'Gerenciar chamados', 'slug' => 'tickets.manage'],
             ['name' => 'Atribuir chamados', 'slug' => 'tickets.assign'],
+            ['name' => 'Editar todos os campos do chamado', 'slug' => 'tickets.edit_all'],
             ['name' => 'Visualizar políticas de SLA', 'slug' => 'slas.view'],
             ['name' => 'Gerenciar políticas de SLA', 'slug' => 'slas.manage'],
             ['name' => 'Visualizar categorias de incidentes', 'slug' => 'categorias.view'],
@@ -49,7 +50,7 @@ class RolesAndPermissionsSeeder extends Seeder
         $roles['admin']->permissions()->sync($permissions->pluck('id'));
 
         $roles['supervisor']->permissions()->sync(
-            $permissions->only(['tickets.view', 'tickets.manage', 'tickets.assign', 'slas.view', 'categorias.view', 'grupos_solucao.view', 'relatorios.view', 'relatorios.manage'])->pluck('id')
+            $permissions->only(['tickets.view', 'tickets.manage', 'tickets.assign', 'tickets.edit_all', 'slas.view', 'categorias.view', 'grupos_solucao.view', 'relatorios.view', 'relatorios.manage'])->pluck('id')
         );
 
         $roles['agente']->permissions()->sync(
