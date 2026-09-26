@@ -1,16 +1,17 @@
 <?php
 
+use App\Http\Controllers\Api\AnexoController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoriaController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DashboardController;
-use App\Http\Controllers\Api\AnexoController;
 use App\Http\Controllers\Api\GrupoSolucaoController;
 use App\Http\Controllers\Api\GrupoSolucaoPermissaoController;
 use App\Http\Controllers\Api\IncidenteController;
 use App\Http\Controllers\Api\IncidenteDescricaoController;
 use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\PoliticaSlaController;
 use App\Http\Controllers\Api\RelatorioController;
 use App\Http\Controllers\Api\RelatorioSalvoController;
@@ -171,6 +172,15 @@ Route::middleware(['auth:web', 'can:tickets.view'])
 Route::middleware(['auth:web', 'can:tickets.manage'])
     ->apiResource('incidentes.anexos', AnexoController::class)
     ->only(['store', 'destroy']);
+
+// Listas enxutas pra selects (ver LookupController) — autorização
+// (tickets.view OU relatorios.view) feita no controller, já que o
+// middleware `can:` não expressa "uma das duas".
+Route::middleware('auth:web')->prefix('lookups')->group(function () {
+    Route::get('/clients', [LookupController::class, 'clients']);
+    Route::get('/customers', [LookupController::class, 'customers']);
+    Route::get('/users', [LookupController::class, 'users']);
+});
 
 // Dashboard — visões read-only compostas/achatadas pra listagem, distintas
 // do CRUD normal (que devolve o Incidente cru com relações aninhadas). Path
