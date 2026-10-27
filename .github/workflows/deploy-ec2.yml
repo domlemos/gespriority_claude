@@ -41,6 +41,12 @@ jobs:
       # migrate de novo — código novo subia em produção sem as tabelas que
       # ele esperava (bug real, pego ao investigar um 500 em produção nos
       # endpoints de grupo_solucao_permissoes/grupos-visiveis).
+      #
+      # `--pull` no build: sem ele, o servidor reaproveitava pra sempre a
+      # imagem base `php:8.3-fpm-alpine` que já tinha em cache, e correções
+      # de segurança do PHP nunca chegavam a produção (foi assim que o
+      # servidor ficou no 8.3.35, vulnerável ao PHP2Shell, CVE-2026-109618/
+      # CVE-2026-109619, mesmo com a imagem oficial já no 8.3.36).
       - name: Deploy via SSM (git checkout + migrate + docker compose up)
         run: |
           cat > /tmp/ssm-params.json <<EOF
@@ -52,7 +58,7 @@ jobs:
               "cd $APP_DIR",
               "git fetch origin main",
               "git checkout $GITHUB_SHA",
-              "docker compose -f docker-compose.vps.yml build app",
+              "docker compose -f docker-compose.vps.yml build --pull app",
               "docker compose -f docker-compose.vps.yml run --rm app php artisan migrate --force",
               "docker compose -f docker-compose.vps.yml up -d app queue"
             ]

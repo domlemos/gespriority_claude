@@ -60,6 +60,7 @@ RUN if getent passwd www-data > /dev/null; then \
 
 COPY docker/php-fpm/conf.d/opcache.ini /usr/local/etc/php/conf.d/zz-opcache.ini
 COPY docker/php-fpm/conf.d/uploads.ini /usr/local/etc/php/conf.d/zz-uploads.ini
+COPY docker/php-fpm/conf.d/security.ini /usr/local/etc/php/conf.d/zz-security.ini
 
 COPY . /app
 COPY --from=vendor /app/vendor /app/vendor
