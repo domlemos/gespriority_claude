@@ -137,4 +137,22 @@ class LoginTest extends TestCase
         $response->assertStatus(422)->assertJsonValidationErrors('email');
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
+
+    public function test_login_rate_limit_cannot_be_bypassed_by_spoofing_x_forwarded_for(): void
+    {
+        // O nginx da EC2 recebe direto da internet e repassa o
+        // X-Forwarded-For que o cliente mandar — se a app confiar nele,
+        // trocar o cabeçalho a cada tentativa zera o throttle:login.
+        for ($i = 1; $i <= 5; $i++) {
+            $this->postJson('/api/login', [
+                'email' => 'alvo@example.com',
+                'password' => 'wrong-password',
+            ], ['X-Forwarded-For' => "203.0.113.{$i}"])->assertStatus(422);
+        }
+
+        $this->postJson('/api/login', [
+            'email' => 'alvo@example.com',
+            'password' => 'wrong-password',
+        ], ['X-Forwarded-For' => '203.0.113.6'])->assertStatus(429);
+    }
 }

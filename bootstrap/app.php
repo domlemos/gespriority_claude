@@ -19,13 +19,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // e quebrar com RouteNotFoundException em vez de devolver um 401 limpo.
         $middleware->redirectGuestsTo(fn () => null);
 
-        // A app roda atrás do ALB, que termina o TLS. Sem confiar nos
-        // cabeçalhos X-Forwarded-*, os links paginados voltam como
-        // http:// e o rate limiting por IP (throttle:login,
-        // throttle:password-recovery) vê sempre o IP privado do ALB.
-        // '*' é seguro aqui porque o security group já garante que só
-        // o ALB alcança as tasks (ver infra/terraform/modules/ecs).
-        $middleware->trustProxies(at: '*');
+        // Sem trustProxies de propósito: na EC2 (infra2) não há ALB — o
+        // nginx recebe direto da internet e repassa os X-Forwarded-* que o
+        // cliente mandar. Confiar neles deixava qualquer um trocar o
+        // próprio IP a cada tentativa e zerar o throttle:login/
+        // throttle:password-recovery. O HTTPS já chega via
+        // `fastcgi_param HTTPS on` (docker/nginx/app.conf.template).
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
