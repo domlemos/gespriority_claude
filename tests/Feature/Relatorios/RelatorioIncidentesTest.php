@@ -527,4 +527,24 @@ class RelatorioIncidentesTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('tipo');
     }
+
+    public function test_aberto_por_has_a_portal_bucket(): void
+    {
+        $agente = User::factory()->create(['name' => 'Agente A']);
+        $customer = Customer::factory()->create();
+        Incidente::factory()->create(['criado_por_id' => $agente->id]);
+        Incidente::factory()->create(['customer_id' => $customer->id])
+            ->forceFill(['criado_por_customer_id' => $customer->id])->save();
+        Incidente::factory()->create();
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=aberto_por', $this->authHeader($token));
+
+        $response->assertOk();
+        $porRotulo = collect($response->json('data'))->keyBy('rotulo');
+        $this->assertSame(1, $porRotulo['Agente A']['total']);
+        $this->assertSame(1, $porRotulo['Portal (cliente)']['total']);
+        $this->assertSame(1, $porRotulo['(desconhecido)']['total']);
+    }
 }

@@ -1339,6 +1339,10 @@ Route::middleware(['auth:web', 'can:tickets.view'])
 > `todos_status` (`sometimes|boolean`) só existem aqui, não em `IncidenteController::index()` — a UI
 > de "Filtro Avançado" da listagem do dashboard é a única consumidora até o momento.
 >
+> **`sem_classificacao`** (`sometimes`, `boolean`) — triagem: só chamados com `item_id` nulo, ou seja,
+> abertos pelo portal e ainda não classificados pelo staff (ver §3.4.10). Prioridade nula aparece
+> como `null` na resposta e status de SLA `sem_sla`.
+
 > **`todos_status` desliga a restrição padrão de status** (`STATUSES_PADRAO_LISTAGEM`, ver acima) sem
 > precisar informar um `status` específico — é o que alimenta o botão "Mostrar todos os registros" da
 > listagem (mostra incidentes de **qualquer** status, incluindo `resolvido`/`fechado`/`cancelado`).
@@ -1499,7 +1503,10 @@ combináveis; os mesmos ficam em `RelatorioSalvo.filtros`):
 > **`aberto_por` não usa `IncidenteEvento`** — "quem abriu" nunca se repete nem muda ao longo da
 > vida do chamado (diferente de resolver/fechar/encaminhar), então é só `Incidente.criado_por_id`
 > (setado uma vez em `store()`, ver §3.4.7) agrupado direto, sem a restrição implícita de
-> `STATUS_CONCLUIDOS` (é volume geral, não indicador de fechamento).
+> `STATUS_CONCLUIDOS` (é volume geral, não indicador de fechamento). Chamados abertos pelo portal
+> (`criado_por_id` nulo, `criado_por_customer_id` preenchido) saem da linha `(desconhecido)` e viram
+> uma linha própria `{chave: 'portal', rotulo: 'Portal (cliente)'}` — `(desconhecido)` fica só pros
+> legados de antes da coluna existir (`RelatorioController::separarAbertosPeloPortal()`).
 >
 > **Agrupamento por SLA é calculado em PHP, não SQL puro.** `statusSlaResolucao()` compara
 > `concluido_em` (congelado) contra `prazo_resolucao` — lógica já existente no model (mesma usada no

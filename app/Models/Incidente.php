@@ -146,6 +146,8 @@ class Incidente extends Model
             ->when($filtros['prioridade'] ?? null, fn (Builder $q, string $v) => $q->where('prioridade', $v))
             ->when($filtros['origem'] ?? null, fn (Builder $q, string $v) => $q->where('origem', $v))
             ->when($filtros['tipo'] ?? null, fn (Builder $q, string $v) => $q->where('tipo', $v))
+            // Triagem: chamados do portal chegam sem item até o staff classificar.
+            ->when(! empty($filtros['sem_classificacao']), fn (Builder $q) => $q->whereNull('item_id'))
             ->when($filtros['customer_id'] ?? null, fn (Builder $q, int $v) => $q->where('customer_id', $v))
             ->when($filtros['item_id'] ?? null, fn (Builder $q, int $v) => $q->where('item_id', $v))
             ->when($filtros['grupo_solucao_id'] ?? null, fn (Builder $q, int $v) => $q->where('grupo_solucao_id', $v))

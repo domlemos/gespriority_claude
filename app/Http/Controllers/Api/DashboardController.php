@@ -25,6 +25,8 @@ class DashboardController extends Controller
             'prioridade' => ['sometimes', 'string', Rule::in(PoliticaSla::PRIORIDADES)],
             'origem' => ['sometimes', 'string', Rule::in(Incidente::ORIGENS)],
             'tipo' => ['sometimes', 'string', Rule::in(Incidente::TIPOS)],
+            // Triagem — só chamados ainda sem classificação (ver Incidente::scopeFiltros()).
+            'sem_classificacao' => ['sometimes', 'boolean'],
             'customer_id' => ['sometimes', 'integer', 'exists:customers,id'],
             'item_id' => ['sometimes', 'integer', 'exists:itens,id'],
             'grupo_solucao_id' => ['sometimes', 'integer', 'exists:grupos_solucao,id'],

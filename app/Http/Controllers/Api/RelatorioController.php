@@ -138,11 +138,13 @@ class RelatorioController extends Controller
         }
 
         if ($agruparPor === 'aberto_por') {
-            return $this->comRotulos(
+            $linhas = $this->comRotulos(
                 $this->contarAgrupado(Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros), 'criado_por_id'),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
                 '(desconhecido)',
             );
+
+            return $this->separarAbertosPeloPortal($linhas, $user, $filtros);
         }
 
         $query = Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros);
@@ -214,6 +216,32 @@ class RelatorioController extends Controller
     }
 
     /** `count(*)` agrupado por uma coluna (ou expressão `tabela.coluna` já com join aplicado). */
+    /**
+     * Chamados abertos pelo portal também têm `criado_por_id` nulo (quem
+     * abriu foi um Customer, não staff) — sem isto cairiam em
+     * "(desconhecido)" junto dos legados de antes da coluna existir. Tira
+     * essa parte da linha nula e a devolve como um grupo próprio.
+     */
+    private function separarAbertosPeloPortal(Collection $linhas, User $user, array $filtros): Collection
+    {
+        $doPortal = Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros)
+            ->whereNull('criado_por_id')
+            ->whereNotNull('criado_por_customer_id')
+            ->count();
+
+        if ($doPortal === 0) {
+            return $linhas;
+        }
+
+        return $linhas
+            ->map(fn (array $linha) => $linha['chave'] === null
+                ? [...$linha, 'total' => $linha['total'] - $doPortal]
+                : $linha)
+            ->reject(fn (array $linha) => $linha['chave'] === null && $linha['total'] === 0)
+            ->push(['chave' => 'portal', 'rotulo' => 'Portal (cliente)', 'total' => $doPortal])
+            ->values();
+    }
+
     private function contarAgrupado(Builder $query, string $coluna): Collection
     {
         return $query->selectRaw("{$coluna} as chave, count(*) as total")
