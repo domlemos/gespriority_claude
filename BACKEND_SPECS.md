@@ -701,7 +701,7 @@ Todos sob prefixo `/api`. Guard `web` é o default para as rotas sem prefixo; as
 |---|---|---|---|---|---|
 | `POST` | `/login` | `web` | `throttle:login` | `{email, password}` | `{token, expires_at, user}` |
 | `POST` | `/customer/login` | `customer` | `throttle:login` | `{email, password}` | `{token, expires_at, user}` |
-| `GET` | `/me` | `web,customer` | `auth:web,customer` | — | `User` (via `UserResource`, ver 3.4.1) ou `Customer` puro |
+| `GET` | `/me` | `web,customer` | `auth:web,customer` | — | `User` (via `UserResource`, ver 3.4.1) ou `Customer` puro + `client: {id, name}` |
 | `POST` | `/refresh` | `web,customer` | `auth:web,customer`, `throttle:login` | — | `{token, expires_at}` — revoga o token atual e emite outro, na mesma transação |
 | `POST` | `/logout` | `web,customer` | `auth:web,customer` | — | `{message}` — revoga só `currentAccessToken()` |
 | `POST` | `/logout-all` | `web,customer` | `auth:web,customer` | — | `{message}` — `tokens()->delete()` |
@@ -727,7 +727,7 @@ O campo `user` de `/login` e o corpo de `/me` (quando o guard é `web`) passam p
 }
 ```
 
-`Customer` não tem `UserResource` equivalente — é devolvido como model puro (sem roles/permissions, que não se aplicam a esse guard).
+`Customer` não tem `UserResource` equivalente — é devolvido como model puro (sem roles/permissions, que não se aplicam a esse guard), com `client: {id, name}` carregado (o portal exibe a empresa na abertura de incidente). Vale para `/me` e para o `user` do login.
 
 ### 3.4.2. Endpoints — CRUD de `Client` (`App\Http\Controllers\Api\ClientController`)
 
@@ -1539,6 +1539,33 @@ created_at, updated_at}`. `App\Models\RelatorioSalvo::user()` usa `->withTrashed
 resto do sistema pós-soft-delete de `User`, ver §3.4.3) — `RelatorioSalvo.user_id` é
 `restrictOnDelete()` **sem** precisar de guard extra em `UserController::destroy()`, porque `User`
 nunca é apagado de verdade.
+
+### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
+
+Guard `customer` (`auth:customer`); token de staff recebe `401`. Controller separado do
+`IncidenteController` do staff de propósito — o payload do staff aceita classificação,
+encaminhamento e origem, que o cliente não pode tocar.
+
+| Método | Rota | Middleware | Body | Resposta |
+|---|---|---|---|---|
+| `GET` | `/customer/incidentes` | `auth:customer` | — | `200` — paginado (15), mais recente primeiro, **só `customer_id` = o cliente do token** (inclui os abertos pelo staff em nome dele); nenhum filtro aceito |
+| `POST` | `/customer/incidentes` | `auth:customer`, `throttle:portal-abertura` (10/min por cliente+IP) | `{titulo, descricao}` | `201` — `{data: {...}}` |
+
+`App\Http\Resources\PortalIncidenteResource`: só `id`, `titulo`, `status`, `created_at`,
+`updated_at` — sem grupo, responsável, prioridade, SLA ou classificação.
+
+> 📌 **Por auditoria, o cliente só abre em nome próprio.** Tudo além de `titulo`/`descricao` é
+> fixado no servidor e qualquer valor no payload é ignorado: `customer_id` e
+> `criado_por_customer_id` = o cliente do token; `tipo = 'incidente'` (Solicitação é só staff);
+> `origem = 'portal'`; `status = 'aberto'`; `item_id`/`prioridade`/`prazo_*`/`grupo_solucao_id`/
+> `responsavel_id`/`criado_por_id` = `null`. A descrição vira a primeira entrada do feed com
+> `customer_id` como autor.
+
+> 📌 **Classificação na triagem, SLA desde a abertura.** O cliente não classifica. O chamado nasce
+> sem grupo (visível a todo staff pela regra de `visiveisPara()`) e sem prioridade (status de SLA
+> `sem_sla`). Quando o staff define o `item_id` pela primeira vez (`PUT /incidentes/{id}`), o
+> `update()` deriva a prioridade do item e calcula os prazos a partir de `created_at` — o tempo
+> de triagem consome o prazo, de propósito (tempo percebido pelo cliente, padrão ITSM).
 
 ### 3.5. Outras decisões de implementação
 

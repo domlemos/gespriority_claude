@@ -46,6 +46,12 @@ class AppServiceProvider extends ServiceProvider
         // /customers/{customer}/convite — limita o estrago se um token com
         // users.manage/customers.manage vazar e for usado em loop pra
         // disparar convite pra todo mundo cadastrado.
+        // Abertura de incidente pelo portal — por cliente + IP, evita que um
+        // token vazado ou um script inunde a fila de triagem.
+        RateLimiter::for('portal-abertura', function (Request $request) {
+            return Limit::perMinute(10)->by($request->user()?->id.'|'.$request->ip());
+        });
+
         RateLimiter::for('convite', function (Request $request) {
             $key = ($request->user()?->id ?? $request->ip()).'|'.$request->ip();
 

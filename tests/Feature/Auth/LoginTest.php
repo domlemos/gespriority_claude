@@ -155,4 +155,15 @@ class LoginTest extends TestCase
             'password' => 'wrong-password',
         ], ['X-Forwarded-For' => '203.0.113.6'])->assertStatus(429);
     }
+
+    public function test_customer_me_includes_client(): void
+    {
+        $customer = Customer::factory()->create();
+        $token = $customer->createToken('spa', ['customer'], now()->addHours(4))->plainTextToken;
+
+        $this->getJson('/api/me', ['Authorization' => "Bearer {$token}"])
+            ->assertOk()
+            ->assertJsonPath('client.id', $customer->client_id)
+            ->assertJsonPath('client.name', $customer->client->name);
+    }
 }

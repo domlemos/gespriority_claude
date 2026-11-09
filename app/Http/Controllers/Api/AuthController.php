@@ -174,7 +174,8 @@ class AuthController extends Controller
             return new UserResource($model->loadMissing('roles.permissions'));
         }
 
-        return $model;
+        // Portal exibe a empresa do cliente (tela de abertura de incidente).
+        return $model->loadMissing('client:id,name');
     }
 
     private function guardConfig(string $guard): array

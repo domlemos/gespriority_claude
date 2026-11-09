@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\IncidenteController;
 use App\Http\Controllers\Api\IncidenteDescricaoController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LookupController;
+use App\Http\Controllers\Api\Portal\IncidenteController as PortalIncidenteController;
 use App\Http\Controllers\Api\PoliticaSlaController;
 use App\Http\Controllers\Api\RelatorioController;
 use App\Http\Controllers\Api\RelatorioSalvoController;
@@ -40,6 +41,15 @@ Route::prefix('customer')->group(function () {
     Route::post('/reset-password', [AuthController::class, 'resetPassword'])
         ->defaults('guard', 'customer')
         ->middleware('throttle:password-recovery');
+});
+
+// Portal do cliente (guard "customer") — abrir incidente em nome próprio e
+// listar os próprios chamados. Controller separado do staff de propósito
+// (ver Portal\IncidenteController); staff nunca acessa estas rotas.
+Route::prefix('customer')->middleware('auth:customer')->group(function () {
+    Route::get('/incidentes', [PortalIncidenteController::class, 'index']);
+    Route::post('/incidentes', [PortalIncidenteController::class, 'store'])
+        ->middleware('throttle:portal-abertura');
 });
 
 // Sessão autenticada: funciona para qualquer um dos dois guards, resolvido
