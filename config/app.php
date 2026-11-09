@@ -73,6 +73,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Display Timezone
+    |--------------------------------------------------------------------------
+    |
+    | Fuso usado só pra o que o usuário enxerga ou informa como data (texto do
+    | feed, período dos relatórios). O armazenamento continua em UTC.
+    |
+    */
+
+    'timezone_exibicao' => 'America/Sao_Paulo',
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |

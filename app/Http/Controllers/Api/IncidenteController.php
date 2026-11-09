@@ -26,8 +26,8 @@ class IncidenteController extends Controller
     // cálculo de prazo de SLA, etc. continuam em UTC de propósito — não é
     // pra mexer nisso). O texto "às HH:mm do dia DD/MM/AAAA" embutido nas
     // mensagens de log do feed é a exceção: é conteúdo exibido pro agente,
-    // então precisa refletir o horário local de Brasília, não UTC.
-    private const TIMEZONE_EXIBICAO = 'America/Sao_Paulo';
+    // então precisa refletir o horário local de Brasília, não UTC
+    // (config('app.timezone_exibicao')).
 
     public function index(Request $request)
     {
@@ -463,9 +463,9 @@ class IncidenteController extends Controller
         ]);
     }
 
-    /** "Agora" no horário de Brasília, só pra texto exibido — ver TIMEZONE_EXIBICAO. */
+    /** "Agora" no horário de Brasília, só pra texto exibido — ver config('app.timezone_exibicao'). */
     private function agoraLocal(): Carbon
     {
-        return now(self::TIMEZONE_EXIBICAO);
+        return now(config('app.timezone_exibicao'));
     }
 }

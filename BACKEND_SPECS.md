@@ -1456,7 +1456,7 @@ combináveis; os mesmos ficam em `RelatorioSalvo.filtros`):
 | `formato` | `sometimes`, `in:json,xlsx` | default `json` |
 | `status` | `Rule::in(Incidente::STATUSES)` | sem valor padrão restritivo (diferente de `GET /incidentes`, ver §3.4.7) — um relatório histórico não deveria esconder status por padrão |
 | `tipo` | `Rule::in(Incidente::TIPOS)` | aplicado tanto nos agrupamentos sobre `Incidente` quanto nos baseados em evento (`resolvido_por`/`fechado_por`/`encaminhado_*`, via `IncidenteEvento::scopeFiltrosRelatorio()`) |
-| `data_inicio`/`data_fim` | `date` | filtra por `concluido_em` (**não** `created_at`) — decisão explícita: os indicadores pedidos são sobre quando o chamado foi *fechado*, não aberto |
+| `data_inicio`/`data_fim` | `date` | dias em horário de Brasília (`config('app.timezone_exibicao')`), inclusivos nas duas pontas (`[início 00:00 BRT, fim+1 00:00 BRT)` convertido pra UTC); filtra por `concluido_em` (**não** `created_at`) — decisão explícita: os indicadores pedidos são sobre quando o chamado foi *fechado*, não aberto |
 | `categoria_id`/`subcategoria_id` | `exists` | via `whereHas('item.subcategoria')`/`whereHas('item')` — `Incidente` não tem essas colunas direto, só `item_id` |
 | `item_id`/`grupo_solucao_id`/`responsavel_id`/`customer_id` | `exists` | mesma coluna de `Incidente::scopeFiltros()` |
 | `client_id` | `exists:clients,id` | empresa (não confundir com `customer_id`, o usuário do portal) — via `whereHas('customer')` |

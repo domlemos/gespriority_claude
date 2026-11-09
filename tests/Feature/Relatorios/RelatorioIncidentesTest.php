@@ -547,4 +547,41 @@ class RelatorioIncidentesTest extends TestCase
         $this->assertSame(1, $porRotulo['Portal (cliente)']['total']);
         $this->assertSame(1, $porRotulo['(desconhecido)']['total']);
     }
+
+    public function test_period_uses_brasilia_days_for_event_groupings(): void
+    {
+        $setembro = User::factory()->create(['name' => 'Agente Setembro']);
+        $outubro = User::factory()->create(['name' => 'Agente Outubro']);
+        // 30/09 23:30 BRT — fora de outubro
+        IncidenteEvento::factory()->create(['user_id' => $setembro->id])
+            ->forceFill(['created_at' => '2026-10-01 02:30:00'])->save();
+        // 31/10 23:30 BRT — dentro de outubro
+        IncidenteEvento::factory()->create(['user_id' => $outubro->id])
+            ->forceFill(['created_at' => '2026-11-01 02:30:00'])->save();
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson(
+            '/api/relatorios/incidentes?agrupar_por=resolvido_por&data_inicio=2026-10-01&data_fim=2026-10-31',
+            $this->authHeader($token)
+        );
+
+        $response->assertOk();
+        $this->assertSame(['Agente Outubro'], collect($response->json('data'))->pluck('rotulo')->all());
+        $this->assertSame(1, collect($response->json('data'))->sum('total'));
+    }
+
+    public function test_period_uses_brasilia_days_for_concluido_em(): void
+    {
+        Incidente::factory()->create(['status' => 'fechado', 'concluido_em' => '2026-10-01 02:30:00']); // 30/09 BRT
+        Incidente::factory()->create(['status' => 'fechado', 'concluido_em' => '2026-11-01 02:30:00']); // 31/10 BRT
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $desde = $this->getJson('/api/relatorios/incidentes?agrupar_por=status_sla&data_inicio=2026-10-01', $this->authHeader($token));
+        $this->assertSame(1, collect($desde->json('data'))->sum('total'));
+
+        $ate = $this->getJson('/api/relatorios/incidentes?agrupar_por=status_sla&data_fim=2026-09-30', $this->authHeader($token));
+        $this->assertSame(1, collect($ate->json('data'))->sum('total'));
+    }
 }
