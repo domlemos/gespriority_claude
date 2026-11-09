@@ -105,13 +105,25 @@ dashboard e relatório.
 - **Rota** `POST /api/customer/incidentes`, `auth:customer`, com throttle próprio. Controller
   separado (ex.: `Portal\IncidenteController`) — não reaproveitar o `store()` do staff, que aceita
   campos que o cliente não pode tocar.
-- **Payload aceito:** `titulo` (required, max 255), `descricao` (required), `item_id` (ver
-  Pendências). Qualquer outro campo é ignorado.
+- **Payload aceito:** `titulo` (required, max 255), `descricao` (required). Qualquer outro campo
+  é ignorado — inclusive `item_id`: **o cliente não classifica** (decidido em 2026-11-09).
 - **Fixado no servidor:** `customer_id = $request->user()->id`; `tipo = 'incidente'`;
-  `origem = 'portal'`; `status = 'aberto'`; `grupo_solucao_id`/`responsavel_id = null`;
-  prioridade e prazos de SLA pelo mesmo caminho do staff (`prioridadeDoItem()` +
-  `calcularPrazosSla()`, hoje privados no `IncidenteController` — extrair para um lugar
-  compartilhado, sem duplicar; o que for compartilhado não pode exigir um `User` autor).
+  `origem = 'portal'`; `status = 'aberto'`; `grupo_solucao_id`/`responsavel_id`/`item_id = null`;
+  `prioridade = null` e prazos de SLA nulos até a triagem.
+- **Classificação na triagem pelo staff** (decidido em 2026-11-09):
+  - Migration: `incidentes.prioridade` passa a nullable (hoje `NOT NULL`). Só chamados do portal
+    ainda não triados ficam sem prioridade; o `store()` do staff continua exigindo `item_id`.
+  - Quando o staff define o `item_id` pela primeira vez (`update()`), a prioridade é derivada do
+    item e os prazos calculados pelo caminho já existente (`prioridadeDoItem()` +
+    `calcularPrazosSla()`, que já usa `created_at` como base — ver relógio do SLA abaixo).
+  - **Relógio do SLA:** conta desde a **abertura** (`created_at`), não desde a classificação —
+    é o comportamento atual de `calcularPrazosSla()` e o padrão ITSM (tempo percebido pelo
+    cliente). Decidido em 2026-11-09: tempo de triagem consome o prazo.
+  - Chamado sem item: status de SLA `sem_sla` (já é o que acontece sem política aplicável);
+    dashboard/relatórios/resources precisam tolerar `prioridade` nula (exibir "—"/"Não
+    classificado").
+  - Triagem: filtro "sem classificação" no dashboard (`?sem_classificacao=1` →
+    `whereNull('item_id')`) para o staff achar o que chegou do portal.
 - **Autoria:**
   - Nova coluna `criado_por_customer_id` (FK `customers`, nullable, `restrictOnDelete`), fora do
     `#[Fillable]`, setada só por esse endpoint. `criado_por_id` (staff) fica `null` nesses chamados.
@@ -148,7 +160,7 @@ dashboard e relatório.
 - Nova tela no portal "Abrir incidente" (rota `guard: 'customer'`), linkada do `PortalView`
   (substituindo o card "ainda não implementado").
 - **Solicitante** e **Empresa** exibidos preenchidos com o cliente logado, somente leitura.
-- Campos: Título, Descrição, Classificação (ver Pendências).
+- Campos: Título e Descrição (sem classificação).
 - Após criar: mensagem com o número do chamado e volta para "Meus chamados".
 - Tela **"Meus chamados"** no portal (substitui o card "ainda não implementado" do `PortalView`):
   tabela paginada com número, título, status e datas, e botão "Abrir incidente".
@@ -163,10 +175,8 @@ token de staff em `/customer/incidentes` → 401/403; token de cliente nas rotas
 
 ## Pendências (a decidir antes de implementar a Entrega 2)
 
-- **Classificação no portal.** A prioridade e o SLA vêm do `item_id`, hoje obrigatório na abertura.
-  Ou o cliente escolhe o item (expor a taxonomia ao portal — e na prática ele escolhe a
-  prioridade), ou o portal abre sem item e o staff classifica na triagem (exige `item_id` nullable
-  na abertura e SLA calculado quando o item for definido).
+- ~~Classificação no portal~~ — decidido em 2026-11-09: o staff classifica na triagem (ver acima).
+- ~~Relógio do SLA~~ — decidido em 2026-11-09: desde a abertura.
 - ~~Acompanhamento pelo portal~~ — decidido em 2026-11-09: abertura + listagem "meus chamados"
   entram na Entrega 2; detalhe/comentários ficam para depois.
 
