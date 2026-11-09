@@ -615,6 +615,8 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; quem fez a ação (`$request->user()` no momento do `PUT`) |
 | `tipo` | `string` | um de `IncidenteEvento::TIPOS` = `resolvido`\|`fechado`\|`encaminhado_grupo`\|`encaminhado_responsavel`; `default('resolvido')` no schema só pra backfill da migration de generalização (ver nota), aplicação sempre seta explícito |
 | `alvo_type`/`alvo_id` | `string` nullable / `bigint unsigned` nullable | alvo polimórfico do encaminhamento (`GrupoSolucao` ou `User`) — só preenchido pra `tipo` = `encaminhado_*`; `null` pra `resolvido`/`fechado`, que não têm "destino" |
+| `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo do incidente **no momento do evento**, preenchido pelo hook `creating` do model (só se não informado); `nullOnDelete()`, indexada. Backfill (migration `add_grupo_snapshot_to_incidente_eventos_table`): destino do `encaminhado_grupo` mais recente até o evento; senão, se não há encaminhamento posterior, o grupo atual do incidente; senão `null` (grupo inicial desconhecido — `store()` não gera evento de encaminhamento) |
+| `autor_grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo de quem executou a ação; mesmo hook/FK. Backfill é **aproximação**: grupo atual do usuário (o da época nunca foi guardado) |
 | `created_at` | `timestamp` | quando o evento aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `TokenAuditLog`) — a linha nunca é alterada depois de criada |
 | índice | `incidente_id`, `[incidente_id, tipo]` | não únicos, só performance |
 
@@ -1488,7 +1490,7 @@ combináveis; os mesmos ficam em `RelatorioSalvo.filtros`):
 > resolução que já aconteceu — restringir por status atual esconderia exatamente o caso que essas
 > dimensões existem pra cobrir); (2) `data_inicio`/`data_fim` filtram `IncidenteEvento.created_at`
 > (quando *aquele* evento aconteceu), não `Incidente.concluido_em` (que reflete só a resolução mais
-> recente e é limpo na reabertura). `IncidenteEvento::scopeFiltrosRelatorio()` replica as mesmas
+> recente e é limpo na reabertura). (3) O filtro `grupo_solucao_id` usa `incidente_eventos.grupo_solucao_id` — o grupo do incidente **no momento do evento** —, não o grupo atual do incidente (a visibilidade, `scopeVisiveisPara`, continua usando o grupo atual). `IncidenteEvento::scopeFiltrosRelatorio()` replica as mesmas
 > dimensões de filtro de `Incidente::scopeFiltrosRelatorio()`, mas via `whereHas('incidente')` em
 > vez de coluna direta, já que a tabela base é diferente. Cada dimensão filtra por `tipo`:
 > `resolvido_por`/`fechado_por` agrupam `user_id` restrito a um único `tipo`

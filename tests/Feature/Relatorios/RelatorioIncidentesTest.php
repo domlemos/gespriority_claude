@@ -219,6 +219,26 @@ class RelatorioIncidentesTest extends TestCase
         $this->assertSame(1, $porRotulo['Agente B']['total']);
     }
 
+    public function test_event_groupings_filter_by_group_at_event_time(): void
+    {
+        $grupoX = GrupoSolucao::factory()->create();
+        $grupoY = GrupoSolucao::factory()->create();
+        $incidente = Incidente::factory()->create(['grupo_solucao_id' => $grupoX->id, 'status' => 'fechado']);
+        $agente = User::factory()->create();
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id, 'tipo' => 'fechado']);
+        // Movido depois do evento: o filtro deve olhar o grupo NO momento do evento.
+        $incidente->update(['grupo_solucao_id' => $grupoY->id]);
+
+        // Admin: a visibilidade usa o grupo atual do incidente e esconderia o caso.
+        [$token] = $this->staffToken(['relatorios.view'], asAdmin: true);
+
+        $noX = $this->getJson("/api/relatorios/incidentes?agrupar_por=fechado_por&grupo_solucao_id={$grupoX->id}", $this->authHeader($token));
+        $noY = $this->getJson("/api/relatorios/incidentes?agrupar_por=fechado_por&grupo_solucao_id={$grupoY->id}", $this->authHeader($token));
+
+        $this->assertSame(1, collect($noX->json('data'))->sum('total'));
+        $this->assertSame(0, collect($noY->json('data'))->sum('total'));
+    }
+
     public function test_agrupar_por_encaminhado_por_counts_both_grupo_and_responsavel_escalations(): void
     {
         $agente = User::factory()->create(['name' => 'Agente C']);

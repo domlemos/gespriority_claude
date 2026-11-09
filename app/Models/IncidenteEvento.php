@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // reabertura (diferente de Incidente.concluido_em). Generalização de
 // IncidenteResolucao (que só cobria 'resolvido') — ver
 // BACKEND_SPECS.md §3.1 (`incidente_eventos`) pro porquê.
-#[Fillable(['incidente_id', 'user_id', 'tipo', 'alvo_type', 'alvo_id'])]
+#[Fillable(['incidente_id', 'user_id', 'tipo', 'alvo_type', 'alvo_id', 'grupo_solucao_id', 'autor_grupo_solucao_id'])]
 class IncidenteEvento extends Model
 {
     /** @use HasFactory<IncidenteEventoFactory> */
@@ -42,6 +42,27 @@ class IncidenteEvento extends Model
         self::TIPO_ENCAMINHADO_GRUPO,
         self::TIPO_ENCAMINHADO_RESPONSAVEL,
     ];
+
+    /**
+     * Congela o grupo do incidente e o grupo do autor no momento do evento.
+     * Só preenche o que não foi informado (array_key_exists, não isset),
+     * pra permitir `null` explícito (ex.: backfill, testes) sem ser
+     * sobrescrito. O evento é insert-only, então o snapshot nunca muda.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $evento) {
+            $atributos = $evento->getAttributes();
+
+            if (! array_key_exists('grupo_solucao_id', $atributos)) {
+                $evento->grupo_solucao_id = Incidente::find($evento->incidente_id)?->grupo_solucao_id;
+            }
+
+            if (! array_key_exists('autor_grupo_solucao_id', $atributos)) {
+                $evento->autor_grupo_solucao_id = User::withTrashed()->find($evento->user_id)?->grupo_solucao_id;
+            }
+        });
+    }
 
     public function incidente(): BelongsTo
     {
@@ -71,7 +92,7 @@ class IncidenteEvento extends Model
             : $this->alvo_type::query()->find($this->alvo_id);
     }
 
-    /** Mesmas dimensões de Incidente::scopeFiltrosRelatorio(), via whereHas('incidente') — a data filtra o evento (created_at), não Incidente.concluido_em. */
+    /** Mesmas dimensões de Incidente::scopeFiltrosRelatorio(), via whereHas('incidente') — exceto `grupo_solucao_id`, que usa o snapshot do grupo no momento do evento (coluna desta tabela), não o grupo atual do incidente — a data filtra o evento (created_at), não Incidente.concluido_em. */
     public function scopeFiltrosRelatorio(Builder $query, array $filtros): Builder
     {
         return $query
@@ -88,7 +109,7 @@ class IncidenteEvento extends Model
                 $filtros['categoria_id'] ?? null,
                 fn (Builder $q, int $v) => $q->whereHas('incidente.item.subcategoria', fn (Builder $qs) => $qs->where('categoria_id', $v))
             )
-            ->when($filtros['grupo_solucao_id'] ?? null, fn (Builder $q, int $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('grupo_solucao_id', $v)))
+            ->when($filtros['grupo_solucao_id'] ?? null, fn (Builder $q, int $v) => $q->where('grupo_solucao_id', $v))
             ->when($filtros['responsavel_id'] ?? null, fn (Builder $q, int $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('responsavel_id', $v)))
             ->when($filtros['customer_id'] ?? null, fn (Builder $q, int $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('customer_id', $v)))
             ->when(
