@@ -1611,7 +1611,7 @@ encaminhamento e origem, que o cliente não pode tocar.
 | Extensão `gd` | não mencionada | `libjpeg-turbo-dev`/`libpng-dev`/`freetype-dev` + `docker-php-ext-configure gd`/`docker-php-ext-install gd` | Necessária pra `AnexoController::removerMetadadosSeImagem()` (remoção de EXIF via reencode, ver §3.4.7.2) — exige `docker compose build app`, não só `restart`, num ambiente que já existia antes dessa mudança |
 | Extensão `zip` | não mencionada | `libzip-dev` + `docker-php-ext-install zip` | `phpoffice/phpspreadsheet` (via `maatwebsite/excel`) depende dela pra gerar `.xlsx` — mesma situação do `gd`, mesmo `docker compose build app` necessário (ver §3.4.9) |
 
-### 3.7. Seed padrão (`RolesAndPermissionsSeeder` + `PoliticasSlaSeeder` + `CategoriasSeeder` + `GruposSolucaoSeeder` + `IncidentesSeeder` + `DatabaseSeeder`)
+### 3.7. Seed padrão (`RolesAndPermissionsSeeder` + `PoliticasSlaSeeder` + `CategoriasSeeder` + `GruposSolucaoSeeder` + `IncidentesSeeder` + `DatabaseSeeder`) e massa de demonstração sob comando (`ChamadosDemoSeeder`)
 
 Permissions: `users.manage`, `roles.manage`, `clients.manage`, `customers.manage`, `slas.view`,
 `slas.manage`, `categorias.view`, `categorias.manage`, `grupos_solucao.view`,
@@ -1642,24 +1642,29 @@ configuração salva pra equipe toda).
 Todas com `apenas_horas_uteis = true`, `ativo = true`. São os valores que `Client::resolvedSlaFor()`
 devolve pra qualquer cliente sem política própria naquela prioridade.
 
-`CategoriasSeeder` cria uma taxonomia inicial de categorias/subcategorias/**itens** de incidentes
-(`updateOrCreate` por nome, em cada nível — idempotente), massa comum de ITSM, não exaustiva (2
-itens por subcategoria, 24 no total):
+`CategoriasSeeder` cria a taxonomia de categorias/subcategorias/**itens** de incidentes
+(`updateOrCreate` por nome, em cada nível — idempotente), espelhando os produtos atendidos:
 
 | Categoria | Subcategoria | Itens |
 |---|---|---|
-| Hardware | Computador | Não liga, Tela azul |
-| Hardware | Impressora | Sem toner, Atolamento de papel |
-| Hardware | Periféricos | Mouse não funciona, Teclado não funciona |
-| Software | Sistema Operacional | Lentidão, Erro de atualização |
-| Software | Aplicativo | Não abre, Trava/congela |
-| Software | Licença | Expirada, Não ativa |
-| Rede | Internet | Sem conexão, Lentidão |
-| Rede | VPN | Não conecta, Queda de conexão |
-| Rede | Wi-Fi | Sinal fraco, Não conecta |
-| Acesso | Senha | Esqueci a senha, Conta bloqueada por tentativas |
-| Acesso | Permissão | Acesso negado, Solicitação de novo acesso |
-| Acesso | Conta Bloqueada | Desbloqueio de conta, Conta suspensa |
+| Dossie | Detalhado | Divergência, Falha |
+| Dossie | Analítico | Divergência, Falha |
+| Dossie | Workflow | Critérios, Aprovação |
+| Dossie | Upscore | Cálculo, Erro |
+| Dossie | Fonte | Não processa, Erro |
+| Veiculo | Gravame | Chassi, Erro |
+| Veiculo | Chassi | Erro |
+| Upminer | Upacademy | Erro, Vídeo não carrega |
+| Upminer | SSO | — |
+| Uplink | QSA | Erro, Lentidão |
+| Uplink | Veiculo | — |
+| Fonte | Monitoramento | Captura, Preventivo, Corretivo |
+
+`prioridade_padrao` de cada item segue o ciclo `[null, baixa, media, alta, urgente]` com um índice
+**corrido por todo o catálogo** (não reiniciado a cada subcategoria — com 2 itens por subcategoria
+um índice reiniciado nunca passaria de `baixa`/`media`). Os itens com `null` continuam existindo de
+propósito: o `store()` do staff recusa (`422`) item sem prioridade padrão, o que mantém esse caminho
+exercitável; o `ChamadosDemoSeeder` (abaixo) só usa itens **com** prioridade padrão.
 
 > 📌 **Sem role "cliente":** uma versão anterior desta implementação criava uma role `cliente` vazia (seguindo o texto literal do rascunho original da spec) e chegava a semear um usuário fictício `cliente.interno@example.com` só pra ocupá-la. Isso foi removido — não faz sentido nenhum `User` ter uma role "Cliente", já que quem abre chamado é sempre o model/guard `Customer` (sem RBAC nenhum, ver seção 1.3). Manter essa role só confundia qual guard estava sendo testado.
 
@@ -1688,11 +1693,11 @@ incidentes de exemplo pro `cliente@example.com`, cada um já com seu feed em `in
 duplica a lógica de `calcularPrazosSla()` (sem camada de serviço pra compartilhar, ver §3.5; o
 seeder não passa pela camada HTTP então não dá pra reaproveitar o método do controller diretamente).
 
-- **"Impressora do 3º andar sem toner"** (`media`, `portal`, já roteado pro grupo Suporte N1 com o
+- **"Consulta de gravame não retorna o chassi informado"** (`media`, `portal`, já roteado pro grupo Suporte N1 com o
   `agente@example.com` como responsável, status `em_andamento`) — feed com 3 entradas: abertura
   (`comentario`, autor admin), `escalonamento` pro Suporte N1 (autor admin), e um `comentario` de
   acompanhamento do próprio agente. Demonstra o feed completo.
-- **"Sem acesso à internet no setor financeiro"** (`urgente`, `telefone`, sem roteamento ainda,
+- **"Consulta de QSA retornando erro para todos os clientes"** (`urgente`, `telefone`, sem roteamento ainda,
   status `aberto`) — feed com só a entrada de abertura. Demonstra o caso "recém-aberto".
 
 Não idempotente por design (mesmo raciocínio dos customers aleatórios — só roda `if (! Incidente::exists())`).
@@ -1708,8 +1713,8 @@ Não idempotente por design (mesmo raciocínio dos customers aleatórios — só
 > - **`responsavel`**: `agente@example.com` (5), `admin@example.com` (2), `supervisor@example.com`
 >   (2), 1 sem responsável.
 > - **`grupo_solucao`**: Suporte N1 (4), Suporte N2 (3), Redes (2), 1 sem grupo.
-> - **`categoria`/`subcategoria`/`item`**: espalhados pelas 4 categorias (Hardware/Software/Rede/
->   Acesso) da taxonomia de `CategoriasSeeder`, 1 sem `item_id`.
+> - **`categoria`/`subcategoria`/`item`**: espalhados pelas categorias (Dossie/Veiculo/Uplink/
+>   Upminer/Fonte) da taxonomia de `CategoriasSeeder`, 1 sem `item_id`.
 > - **Datas**: `created_at` retroativo de 1 a 25 dias (`now()->subDays(N)`, não datas fixas — o seeder
 >   continua fazendo sentido não importa quando rodar), pra `data_inicio`/`data_fim` terem o que
 >   filtrar.
@@ -1733,12 +1738,53 @@ Não idempotente por design (mesmo raciocínio dos customers aleatórios — só
 > - **`resolvido_por`/`fechado_por`**: um `IncidenteEvento` `resolvido` por incidente que não é
 >   `cancelado` (nunca passou por `resolvido`) — autor = `responsavel` do incidente (ou `admin` se
 >   sem responsável) — mais um `IncidenteEvento` `fechado` (mesmo autor) quando `status === 'fechado'`.
->   O **primeiro** incidente da lista ("Notebook não liga...") foge desse padrão de propósito, pra
+>   O **primeiro** incidente da lista ("Dossiê detalhado retorna com falha...") foge desse padrão de propósito, pra
 >   simular o cenário de reabertura que motivou a generalização de `incidente_resolucoes` pra
 >   `incidente_eventos` (ver §3.1): **dois** eventos `resolvido` (`agente@example.com`, depois
 >   `supervisor@example.com`) seguidos de um `fechado` (`supervisor@example.com`) — resolvido,
 >   reaberto, resolvido de novo por outra pessoa, fechado por quem resolveu por último; ambas as
 >   resoluções preservadas, não só a mais recente.
+
+#### `ChamadosDemoSeeder` — 100 chamados de demonstração, **só por comando**
+
+```bash
+docker compose exec app php artisan chamados:popular                  # 100 chamados
+docker compose exec app php artisan chamados:popular --quantidade=300 # outra quantidade
+```
+
+Comando definido em `routes/console.php` (closure `Artisan::command`), que instancia
+`Database\Seeders\ChamadosDemoSeeder`, ajusta `$quantidade` e o invoca. **Não** é chamado pelo
+`DatabaseSeeder` — `db:seed`/`migrate:fresh --seed` nunca o executam — porque **não é idempotente**:
+cada execução cria mais `--quantidade` chamados. Em produção (`app()->isProduction()`) pede
+confirmação, a menos que venha `--force`; `--quantidade` menor que 1 é recusado. Pré-requisito:
+`db:seed` já rodado (itens com prioridade padrão, usuários staff, grupos e customers) — sem isso
+lança `RuntimeException` com a instrução.
+
+O que gera (Faker `pt_BR` com seed fixa `20261109` — a mesma execução sobre a mesma base gera a mesma
+massa):
+
+- **~70% incidentes / ~30% solicitações** (`tipo`, ver §3.1). Execução local de 2026-11-09: 79
+  incidentes / 35 solicitações no total da base (100 novos + 14 pré-existentes).
+- **Classificação pela taxonomia do `CategoriasSeeder`**: item sorteado entre os ativos **com**
+  `prioridade_padrao`; `prioridade` = a do item (mesma regra do `IncidenteController`); prazos de SLA
+  calculados (lógica de `calcularPrazosSla()` duplicada, como no `IncidentesSeeder`). Títulos
+  derivados do item/subcategoria/categoria (ex.: "Lentidão em QSA (Uplink)" pra incidente, "Criar
+  script de reprocessamento para Upscore (Dossie)" pra solicitação).
+- **Solicitações** sempre abertas pelo staff (`criado_por_id`), com solicitante da empresa interna:
+  `Client` **"Equipe Interna"** + 4 customers fixos (`ana.produtos@`, `bruno.comercial@`,
+  `carla.sustentacao@`, `diego.financeiro@interno.example.com`, senha `password`) criados com
+  `firstOrCreate` (idempotente) — "a própria empresa é cadastrada como um customer".
+- **~20% dos incidentes chegam pelo portal ainda sem triagem**: `origem = portal`, `status = aberto`,
+  `item_id`/`prioridade`/prazos nulos, `criado_por_customer_id` = o cliente, descrição de abertura
+  com autor cliente (`incidente_descricoes.customer_id`) — alimentam o filtro "sem classificação" e
+  o grupo "Portal (cliente)" do relatório `aberto_por` (ver §3.4.10).
+- **Status ponderados** (aberto 20, em andamento 20, pendente 10, resolvido 20, fechado 25,
+  cancelado 5) e `created_at` espalhado pelos últimos 60 dias. Coerência com o status: fora de
+  `aberto` → `respondido_em`; concluídos → `concluido_em` (nunca no futuro); `resolvido`/`fechado`
+  → `IncidenteEvento` `resolvido` (+ `fechado`); grupo/responsável → eventos `encaminhado_*`.
+- Toda entrada tem a **descrição de abertura** no feed (autor staff ou cliente).
+
+Coberto por `tests/Feature/Seeders/ChamadosDemoSeederTest.php` (ver §3.9).
 
 Todos permitem login imediato (`POST /api/login` para os 3 users staff, `POST /api/customer/login` para o customer fixo) após `migrate:refresh --seed` ou `migrate:fresh --seed` em ambiente local.
 
@@ -1763,7 +1809,7 @@ Rodar com `docker compose exec app php artisan test` (ou `./vendor/bin/phpunit`)
 >
 > **Lição para qualquer novo ambiente Docker + PHPUnit deste tipo:** `env_file` no `docker-compose.yml` é exatamente o tipo de configuração que faz esse problema aparecer — não é geral a todo projeto Laravel, é específico de rodar os testes dentro de um container cujas variáveis já vêm setadas no processo antes do PHP iniciar. Se decidir buildar contra Postgres real em vez de sqlite no futuro, usar um banco `_testing` dedicado (nunca o mesmo `DB_DATABASE` do dev) reduziria o dano de uma futura recorrência desse tipo de bug de configuração.
 
-### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles,PoliticasSla,Categorias,GruposSolucao,Incidentes,Dashboard,Relatorios}`)
+### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles,PoliticasSla,Categorias,GruposSolucao,Incidentes,Dashboard,Relatorios,Portal,Seeders}`)
 
 Mesmo padrão do §3.8: `RefreshDatabase`, dados via factories, permissions/roles montadas ad-hoc por
 teste (nunca via `RolesAndPermissionsSeeder`).
@@ -1786,5 +1832,67 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Relatorios/RelatorioSalvoCrudTest.php` | CRUD completo (`relatorios.view` pra ler/executar, `relatorios.manage` pra criar/editar/excluir), `filtros` vazio (`{}`) é aceito (regressão — `'required'` rejeitava array vazio, corrigido pra `'present'`; achado também que `$request->validate()` some com a chave pai quando reconstrói a partir de sub-regras `filtros.*` vazias, contornado lendo o input bruto), `422` em `nome`/`agrupar_por`/`filtros` ausentes ou `agrupar_por` inválido, `executar` roda os filtros salvos contra dados atuais (json e xlsx), `403`/`401` |
 | `Incidentes/IncidenteSlaTest.php` | Métodos `statusSlaResposta()`/`statusSlaResolucao()`/`tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos()` do `Incidente` isolados (sem HTTP): `sem_sla` sem prazo, `dentro_prazo`/`estourado` comparando com "agora" enquanto aberto, uso de `respondido_em`/`concluido_em` como referência congelada em vez de "agora" quando já concluído |
 | `Dashboard/IncidentesDashboardTest.php` | Formato achatado completo (cliente/email/taxonomia/SLA), `status_sla_*`/`tempo_restante_*` calculados sem query extra (derivados de `prazo_*` já persistido, não chama mais `resolvedSlaFor()`), `estourado` quando aberto e passou do prazo, congela via `concluido_em` mesmo com o prazo já no passado em relação a "agora", `sem_sla` sem política aplicável, classificação `null` sem `item_id`, mesmo filtro do CRUD funcionando (isolado, combinado, `422` em valor inválido, mesma restrição padrão de `status`), `todos_status=1` traz todos os status (incluindo `resolvido`/`fechado`/`cancelado`), `status` explícito tem prioridade sobre `todos_status` quando os dois são enviados, `403`/`401` |
+| `Incidentes/IncidenteTipoTest.php` | `tipo` na criação (ausente → `incidente`, `solicitacao` aceito, valor inválido → `422`), troca de `tipo` com `tickets.edit_all` gera entrada `alteracao` no feed com os rótulos "Incidente"/"Solicitação", filtro `?tipo=` em `GET /incidentes` |
+| `Incidentes/IncidenteCamposRestritosTest.php` | (atualizado) `tipo` entra nos campos restritos após a abertura — `422` sem `tickets.edit_all`, reenvio do mesmo valor aceito |
+| `Incidentes/IncidenteDescricaoAutorTest.php` | Guarda "exatamente um autor" de `IncidenteDescricao` (`LogicException` sem autor ou com `user_id`+`customer_id`; só `customer_id` salva) |
+| `Portal/PortalIncidenteTest.php` | Cliente abre incidente em nome próprio com tudo fixado no servidor; campos forjados no payload (`customer_id`, `item_id`, `prioridade`, `status`, `tipo`, `origem`, grupo/responsável) ignorados; descrição de abertura com autor cliente; resposta só com `id`/`titulo`/`status`/datas; validação; "meus chamados" só traz os do cliente (nem de colega da mesma empresa); token de staff `401` nas rotas do portal e token de cliente `401` nas do staff |
+| `Portal/PortalTriagemTest.php` | Primeira classificação pelo staff 3h depois da abertura → prioridade do item e prazos contados de `created_at` (SLA de resposta já `estourado`); chamado não triado visível a todo staff com `prioridade: null`/`sem_sla`; `?sem_classificacao=1` (inclusive com `sort_by=prioridade`) |
+| `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; `--quantidade`; recusa em produção sem confirmação |
+| `Relatorios/*` e `Dashboard/*` | (atualizados) filtro `tipo` em relatório, em agrupamento por evento e em relatório salvo; grupo "Portal (cliente)" no `aberto_por`; `tipo` exposto no dashboard |
+| `Customers/CustomerCrudTest.php` | (atualizado) `409` (não `500`) ao excluir um customer que abriu pelo portal um chamado depois trocado de cliente |
+
+### 3.10. Histórico de entregas — Tipo do chamado e portal do cliente (2026-11-09)
+
+Origem: pedido "na tela de Novo Incidente, já trazer o nome do usuário logado e a empresa dele,
+permitindo alterar, pois ele pode estar abrindo para outra pessoa". A análise mostrou que só o staff
+(`User`, sem empresa) abria chamados; as regras de negócio definidas com o produto foram:
+
+1. Todo chamado tem um **tipo**: Incidente (via de regra) ou **Solicitação** (demanda pontual de
+   cliente interno — ajuste de infra, um script, contatar um cliente). É só categorização.
+2. **Staff abre os dois tipos; o cliente, pelo portal, só abre Incidente.**
+3. **Por auditoria, o cliente só abre em nome próprio** — nome e empresa vêm preenchidos e travados.
+   Abrir para outra pessoa é papel do staff.
+4. A própria empresa é cadastrada como um `Client`; não há marcação de "empresa interna".
+5. O cliente não classifica: **o staff classifica na triagem**, e o **SLA conta desde a abertura**.
+
+Spec e planos: `docs/superpowers/specs/2026-11-09-tipo-chamado-e-abertura-portal-design.md`,
+`docs/superpowers/plans/2026-11-09-tipo-chamado-entrega-1.md`,
+`docs/superpowers/plans/2026-11-09-portal-abertura-incidente-entrega-2.md` (cópia da spec no repo do
+frontend).
+
+**Entrega 1 — tipo do chamado + formulário do staff**
+- Backend: coluna `incidentes.tipo` (§3.1), `Incidente::TIPOS`/`TIPO_ROTULOS`, campo restrito após a
+  abertura com auditoria no feed, filtro `tipo` em `GET /incidentes`, dashboard (§3.4.8), relatórios
+  (inclusive agrupamentos por evento) e relatórios salvos (§3.4.9).
+- Frontend (`gespriority_claude_front`): campo **Tipo** no formulário; **Empresa → Solicitante** em
+  selects separados (empresa derivada do solicitante; o payload segue só com `customer_id`); títulos
+  "Novo Chamado"/"Chamado #id"; coluna e filtro Tipo no dashboard e filtro Tipo nos relatórios.
+
+**Entrega 2 — portal do cliente**
+- Backend: `incidentes.prioridade` nullable, `incidentes.criado_por_customer_id`,
+  `incidente_descricoes.customer_id` com regra "exatamente um autor" (§3.1); `POST`/`GET
+  /customer/incidentes` (§3.4.10); `client` no `/me` do cliente; filtro `sem_classificacao` no
+  dashboard; grupo "Portal (cliente)" no `aberto_por`; `CustomerController::destroy()` considera
+  também a autoria pelo portal (`409` em vez de FK violada).
+- Frontend: "Meus chamados" (`PortalView`) e "Abrir incidente" (`PortalIncidentNewView`, Solicitante
+  e Empresa somente leitura, `fetchMe()` ao montar); no lado do staff, "Não classificado" no
+  dashboard, checkbox "Sem classificação (triagem)" no filtro avançado (enviado como `1` — o Axios
+  serializa `true` como `"true"`, que a regra `boolean` recusa) e autor "Fulano (cliente)" no feed.
+
+**Massa de demonstração**: `php artisan chamados:popular` (§3.7).
+
+**Deploy**: as migrations `2026_11_09_120000_add_tipo_to_incidentes_table` e
+`2026_11_10_120000_add_customer_authorship_and_nullable_prioridade` rodam no `migrate --force` do
+deploy (ambas seguras em tabela populada no Postgres 16: `ADD COLUMN ... DEFAULT` sem reescrita,
+`->change()` sem perda de modificadores, `CHECK` satisfeito pelas linhas existentes). Subir o
+**backend antes do frontend** — o frontend novo chama `/customer/incidentes` e envia `tipo`.
+
+**Pendências conhecidas (não bloqueantes)**: sem limite de tamanho para `descricao` no portal (o
+throttle de 10/min limita); relatórios por categoria/subcategoria não contam chamados ainda sem
+classificação (comportamento pré-existente para `item_id` nulo); se o staff trocar o cliente de um
+chamado do portal, ele some do "meus chamados" de quem abriu; o formulário do staff exige escolher a
+classificação para salvar um chamado do portal (não dá para só encaminhar antes de classificar);
+o tipo vindo da URL de clonagem não é validado no frontend; nenhum teste cobre a execução
+(`/executar`) de relatório salvo com `filtros.tipo`.
 
 ---
