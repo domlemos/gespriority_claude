@@ -77,6 +77,7 @@ class IncidenteEvento extends Model
             ->when($filtros['data_inicio'] ?? null, fn (Builder $q, string $v) => $q->whereDate('created_at', '>=', $v))
             ->when($filtros['data_fim'] ?? null, fn (Builder $q, string $v) => $q->whereDate('created_at', '<=', $v))
             ->when($filtros['status'] ?? null, fn (Builder $q, string $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('status', $v)))
+            ->when($filtros['tipo'] ?? null, fn (Builder $q, string $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('tipo', $v)))
             ->when($filtros['item_id'] ?? null, fn (Builder $q, int $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('item_id', $v)))
             ->when(
                 $filtros['subcategoria_id'] ?? null,

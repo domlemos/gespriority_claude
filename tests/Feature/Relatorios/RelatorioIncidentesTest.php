@@ -489,4 +489,42 @@ class RelatorioIncidentesTest extends TestCase
         $this->getJson('/api/relatorios/incidentes?agrupar_por=status_sla', $this->authHeader($token))
             ->assertStatus(401);
     }
+
+    public function test_tipo_filter_applies_to_incidente_groupings(): void
+    {
+        $item = Item::factory()->create();
+        Incidente::factory()->count(2)->create(['item_id' => $item->id, 'tipo' => 'incidente']);
+        Incidente::factory()->create(['item_id' => $item->id, 'tipo' => 'solicitacao']);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=item&tipo=solicitacao', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.total', 1);
+    }
+
+    public function test_tipo_filter_applies_to_event_groupings(): void
+    {
+        $agente = User::factory()->create(['name' => 'Agente A']);
+        $incidente = Incidente::factory()->create(['status' => 'resolvido', 'tipo' => 'incidente']);
+        $solicitacao = Incidente::factory()->create(['status' => 'resolvido', 'tipo' => 'solicitacao']);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id]);
+        IncidenteEvento::factory()->create(['incidente_id' => $solicitacao->id, 'user_id' => $agente->id]);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=resolvido_por&tipo=solicitacao', $this->authHeader($token));
+
+        $response->assertOk();
+        $this->assertSame(1, collect($response->json('data'))->keyBy('rotulo')['Agente A']['total']);
+    }
+
+    public function test_rejects_invalid_tipo(): void
+    {
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $this->getJson('/api/relatorios/incidentes?agrupar_por=item&tipo=problema', $this->authHeader($token))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('tipo');
+    }
 }

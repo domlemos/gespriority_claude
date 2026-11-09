@@ -40,6 +40,7 @@ class RelatorioController extends Controller
             'agrupar_por' => ['required', 'string', Rule::in(RelatorioSalvo::AGRUPAMENTOS)],
             'formato' => ['sometimes', 'string', Rule::in(['json', 'xlsx'])],
             'status' => ['sometimes', 'string', Rule::in(Incidente::STATUSES)],
+            'tipo' => ['sometimes', 'string', Rule::in(Incidente::TIPOS)],
             'data_inicio' => ['sometimes', 'date'],
             'data_fim' => ['sometimes', 'date'],
             'categoria_id' => ['sometimes', 'integer', 'exists:categorias,id'],

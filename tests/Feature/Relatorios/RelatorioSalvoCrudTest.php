@@ -197,4 +197,21 @@ class RelatorioSalvoCrudTest extends TestCase
 
         $this->getJson('/api/relatorios-salvos', $this->authHeader($token))->assertStatus(401);
     }
+
+    public function test_saved_report_accepts_tipo_filter(): void
+    {
+        [$token] = $this->staffToken(['relatorios.manage']);
+
+        $this->postJson(
+            '/api/relatorios-salvos',
+            $this->validPayload(['filtros' => ['tipo' => 'solicitacao']]),
+            $this->authHeader($token)
+        )->assertCreated()->assertJsonPath('data.filtros.tipo', 'solicitacao');
+
+        $this->postJson(
+            '/api/relatorios-salvos',
+            $this->validPayload(['filtros' => ['tipo' => 'problema']]),
+            $this->authHeader($token)
+        )->assertStatus(422)->assertJsonValidationErrors('filtros.tipo');
+    }
 }

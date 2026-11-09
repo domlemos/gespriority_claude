@@ -159,6 +159,7 @@ class Incidente extends Model
     {
         return $query
             ->when($filtros['status'] ?? null, fn (Builder $q, string $v) => $q->where('status', $v))
+            ->when($filtros['tipo'] ?? null, fn (Builder $q, string $v) => $q->where('tipo', $v))
             ->when($filtros['data_inicio'] ?? null, fn (Builder $q, string $v) => $q->whereDate('concluido_em', '>=', $v))
             ->when($filtros['data_fim'] ?? null, fn (Builder $q, string $v) => $q->whereDate('concluido_em', '<=', $v))
             ->when($filtros['item_id'] ?? null, fn (Builder $q, int $v) => $q->where('item_id', $v))

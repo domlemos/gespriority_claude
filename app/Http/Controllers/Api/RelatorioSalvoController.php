@@ -79,6 +79,7 @@ class RelatorioSalvoController extends Controller
             // exatamente esse caso.
             'filtros' => ['present', 'array'],
             'filtros.status' => ['sometimes', 'string', Rule::in(Incidente::STATUSES)],
+            'filtros.tipo' => ['sometimes', 'string', Rule::in(Incidente::TIPOS)],
             'filtros.data_inicio' => ['sometimes', 'date'],
             'filtros.data_fim' => ['sometimes', 'date'],
             'filtros.categoria_id' => ['sometimes', 'integer', 'exists:categorias,id'],
