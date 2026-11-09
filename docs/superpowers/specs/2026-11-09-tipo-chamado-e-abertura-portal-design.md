@@ -39,8 +39,8 @@ empresa é a interna** — basta o staff buscar pela empresa ao abrir o chamado.
 - Pré-preencher solicitante/empresa na tela do staff (o staff não é `Customer`).
 - Renomear a entidade `Incidente` no código/rotas/tabelas para "Chamado". O código continua
   `Incidente`; só rótulos de UI mudam onde indicado.
-- Acompanhamento pelo portal (listar "meus chamados", ver detalhe, comentar, anexar) — fica para
-  uma entrega futura. Ver Pendências.
+- Acompanhamento detalhado pelo portal (ver detalhe/feed, comentar, anexar) — fica para uma
+  entrega futura. A **listagem "meus chamados"** entra na Entrega 2.
 
 ## Anti-objetivos (seria falha mesmo funcionando)
 
@@ -138,6 +138,10 @@ dashboard e relatório.
   `presentAuthenticatable()` passa a incluir `client: {id, name}` para o portal exibir a empresa.
 - Resposta `201` com `{id, titulo, status, created_at}` — o mínimo, sem dados internos
   (grupo/responsável/SLA).
+- **"Meus chamados"** — `GET /api/customer/incidentes`, `auth:customer`, paginado, só chamados com
+  `customer_id` = o cliente logado (escopo no query, nunca por parâmetro). Campos: `id`, `titulo`,
+  `status`, `created_at`, `updated_at` — sem grupo/responsável/SLA. Resource próprio do portal
+  (não reaproveitar `IncidenteResource`). Inclui chamados abertos pelo staff em nome dele.
 
 ### Frontend
 
@@ -145,7 +149,9 @@ dashboard e relatório.
   (substituindo o card "ainda não implementado").
 - **Solicitante** e **Empresa** exibidos preenchidos com o cliente logado, somente leitura.
 - Campos: Título, Descrição, Classificação (ver Pendências).
-- Após criar: mensagem com o número do chamado.
+- Após criar: mensagem com o número do chamado e volta para "Meus chamados".
+- Tela **"Meus chamados"** no portal (substitui o card "ainda não implementado" do `PortalView`):
+  tabela paginada com número, título, status e datas, e botão "Abrir incidente".
 
 ### Testes
 
@@ -161,8 +167,8 @@ token de staff em `/customer/incidentes` → 401/403; token de cliente nas rotas
   Ou o cliente escolhe o item (expor a taxonomia ao portal — e na prática ele escolhe a
   prioridade), ou o portal abre sem item e o staff classifica na triagem (exige `item_id` nullable
   na abertura e SLA calculado quando o item for definido).
-- **Acompanhamento pelo portal** (listar/ver/comentar os próprios chamados) — fora deste escopo,
-  mas sem ele o cliente abre e não vê mais nada.
+- ~~Acompanhamento pelo portal~~ — decidido em 2026-11-09: abertura + listagem "meus chamados"
+  entram na Entrega 2; detalhe/comentários ficam para depois.
 
 ## Deixado para quem implementar
 
