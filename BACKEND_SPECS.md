@@ -1112,6 +1112,7 @@ via `status` (`resolvido`/`fechado`/`cancelado`), nunca via `DELETE`. Como `GET`
 | `status` | `Rule::in(Incidente::STATUSES)` |
 | `prioridade` | `Rule::in(PoliticaSla::PRIORIDADES)` |
 | `origem` | `Rule::in(Incidente::ORIGENS)` |
+| `tipo` | `Rule::in(Incidente::TIPOS)` |
 | `customer_id` | `exists:customers,id` |
 | `item_id` | `exists:itens,id` |
 | `grupo_solucao_id` | `exists:grupos_solucao,id` |
@@ -1365,6 +1366,7 @@ Route::middleware(['auth:web', 'can:tickets.view'])
   "numero": 1,                          // Incidente.id
   "titulo": "Impressora do 3º andar sem toner",
   "origem": "portal",
+  "tipo": "incidente",                  // um de Incidente::TIPOS; filtrável via ?tipo=
   "status": "em_andamento",
   "prioridade": "media",
   "cliente": "Empresa Teste",           // Client.name, via incidente->customer->client

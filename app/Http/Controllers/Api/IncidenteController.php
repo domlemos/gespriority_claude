@@ -35,6 +35,7 @@ class IncidenteController extends Controller
             'status' => ['sometimes', 'string', Rule::in(Incidente::STATUSES)],
             'prioridade' => ['sometimes', 'string', Rule::in(PoliticaSla::PRIORIDADES)],
             'origem' => ['sometimes', 'string', Rule::in(Incidente::ORIGENS)],
+            'tipo' => ['sometimes', 'string', Rule::in(Incidente::TIPOS)],
             'customer_id' => ['sometimes', 'integer', 'exists:customers,id'],
             'item_id' => ['sometimes', 'integer', 'exists:itens,id'],
             'grupo_solucao_id' => ['sometimes', 'integer', 'exists:grupos_solucao,id'],

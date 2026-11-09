@@ -371,4 +371,21 @@ class IncidentesDashboardTest extends TestCase
 
         $this->getJson('/api/dashboard/incidentes', $this->authHeader($token))->assertStatus(401);
     }
+
+    public function test_filters_by_tipo_and_exposes_it(): void
+    {
+        Incidente::factory()->create(['tipo' => 'incidente', 'status' => 'aberto']);
+        $solicitacao = Incidente::factory()->create(['tipo' => 'solicitacao', 'status' => 'aberto']);
+        $token = $this->staffToken(['tickets.view']);
+
+        $this->getJson('/api/dashboard/incidentes?tipo=solicitacao', $this->authHeader($token))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.numero', $solicitacao->id)
+            ->assertJsonPath('data.0.tipo', 'solicitacao');
+
+        $this->getJson('/api/dashboard/incidentes?tipo=problema', $this->authHeader($token))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('tipo');
+    }
 }

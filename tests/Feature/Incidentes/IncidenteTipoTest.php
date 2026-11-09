@@ -100,4 +100,15 @@ class IncidenteTipoTest extends TestCase
 
         $this->assertStringContainsString("Campo 'Tipo' alterado de 'Incidente' para 'Solicitação'", $entrada->descricao);
     }
+
+    public function test_index_filters_by_tipo(): void
+    {
+        Incidente::factory()->create(['tipo' => 'incidente', 'status' => 'aberto']);
+        $solicitacao = Incidente::factory()->create(['tipo' => 'solicitacao', 'status' => 'aberto']);
+        $token = $this->staffToken(['tickets.view']);
+
+        $response = $this->getJson('/api/incidentes?tipo=solicitacao', $this->authHeader($token))->assertOk();
+
+        $this->assertSame([$solicitacao->id], array_column($response->json('data'), 'id'));
+    }
 }

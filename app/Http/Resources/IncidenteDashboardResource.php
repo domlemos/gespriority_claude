@@ -29,6 +29,7 @@ class IncidenteDashboardResource extends JsonResource
             'numero' => $this->id,
             'titulo' => $this->titulo,
             'origem' => $this->origem,
+            'tipo' => $this->tipo,
             'status' => $this->status,
             'prioridade' => $this->prioridade,
             'cliente' => $this->customer?->client?->name,
