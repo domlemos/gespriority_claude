@@ -110,6 +110,8 @@ class IncidenteEvento extends Model
                 fn (Builder $q, int $v) => $q->whereHas('incidente.item.subcategoria', fn (Builder $qs) => $qs->where('categoria_id', $v))
             )
             ->when($filtros['grupo_solucao_id'] ?? null, fn (Builder $q, int $v) => $q->where('grupo_solucao_id', $v))
+            // Grupo do autor no momento do evento (snapshot), não o atual.
+            ->when($filtros['grupo_analista_id'] ?? null, fn (Builder $q, int $v) => $q->where('autor_grupo_solucao_id', $v))
             ->when($filtros['responsavel_id'] ?? null, fn (Builder $q, int $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('responsavel_id', $v)))
             ->when($filtros['customer_id'] ?? null, fn (Builder $q, int $v) => $q->whereHas('incidente', fn (Builder $qi) => $qi->where('customer_id', $v)))
             ->when(

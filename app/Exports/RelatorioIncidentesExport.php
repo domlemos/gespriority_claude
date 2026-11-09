@@ -13,7 +13,7 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
  */
 class RelatorioIncidentesExport implements FromCollection, WithHeadings
 {
-    public function __construct(private readonly Collection $linhas) {}
+    public function __construct(private readonly Collection $linhas, private readonly string $rotuloAgrupamento) {}
 
     public function collection(): Collection
     {
@@ -22,6 +22,6 @@ class RelatorioIncidentesExport implements FromCollection, WithHeadings
 
     public function headings(): array
     {
-        return ['Categoria', 'Total'];
+        return [$this->rotuloAgrupamento, 'Total'];
     }
 }

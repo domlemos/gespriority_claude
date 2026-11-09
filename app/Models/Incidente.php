@@ -185,6 +185,11 @@ class Incidente extends Model
             )
             ->when($filtros['grupo_solucao_id'] ?? null, fn (Builder $q, int $v) => $q->where('grupo_solucao_id', $v))
             ->when($filtros['responsavel_id'] ?? null, fn (Builder $q, int $v) => $q->where('responsavel_id', $v))
+            // Grupo ATUAL do responsável (agrupamentos por evento usam o snapshot em IncidenteEvento).
+            ->when(
+                $filtros['grupo_analista_id'] ?? null,
+                fn (Builder $q, int $v) => $q->whereHas('responsavel', fn (Builder $qr) => $qr->where('grupo_solucao_id', $v))
+            )
             ->when($filtros['customer_id'] ?? null, fn (Builder $q, int $v) => $q->where('customer_id', $v))
             ->when(
                 $filtros['client_id'] ?? null,

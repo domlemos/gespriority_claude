@@ -3,6 +3,7 @@
 namespace Tests\Feature\Relatorios;
 
 use App\Models\Customer;
+use App\Models\GrupoSolucao;
 use App\Models\Incidente;
 use App\Models\Permission;
 use App\Models\RelatorioSalvo;
@@ -67,6 +68,20 @@ class RelatorioSalvoCrudTest extends TestCase
 
         $this->postJson('/api/relatorios-salvos', $this->validPayload(['agrupar_por' => 'concluido_por']), $this->authHeader($token))
             ->assertCreated();
+    }
+
+    public function test_saved_report_accepts_grupo_analista_id(): void
+    {
+        [$token] = $this->staffToken(['relatorios.manage']);
+        $grupo = GrupoSolucao::factory()->create();
+
+        $this->postJson('/api/relatorios-salvos', $this->validPayload(['filtros' => ['grupo_analista_id' => $grupo->id]]), $this->authHeader($token))
+            ->assertCreated()
+            ->assertJsonPath('data.filtros.grupo_analista_id', $grupo->id);
+
+        $this->postJson('/api/relatorios-salvos', $this->validPayload(['filtros' => ['grupo_analista_id' => 999999]]), $this->authHeader($token))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('filtros.grupo_analista_id');
     }
 
     public function test_creating_relatorio_salvo_requires_nome_agrupar_por_and_filtros(): void

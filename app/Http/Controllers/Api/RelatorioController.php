@@ -47,6 +47,7 @@ class RelatorioController extends Controller
             'subcategoria_id' => ['sometimes', 'integer', 'exists:subcategorias,id'],
             'item_id' => ['sometimes', 'integer', 'exists:itens,id'],
             'grupo_solucao_id' => ['sometimes', 'integer', 'exists:grupos_solucao,id'],
+            'grupo_analista_id' => ['sometimes', 'integer', 'exists:grupos_solucao,id'],
             'responsavel_id' => ['sometimes', 'integer', 'exists:users,id'],
             'client_id' => ['sometimes', 'integer', 'exists:clients,id'],
             'customer_id' => ['sometimes', 'integer', 'exists:customers,id'],
@@ -64,11 +65,38 @@ class RelatorioController extends Controller
         $linhas = $this->agregar($filtros, $agruparPor, $user);
 
         if ($formato === 'xlsx') {
-            return Excel::download(new RelatorioIncidentesExport($linhas), "relatorio-{$agruparPor}.xlsx");
+            return Excel::download(new RelatorioIncidentesExport($linhas, self::ROTULOS_AGRUPAMENTO[$agruparPor]), "relatorio-{$agruparPor}.xlsx");
         }
 
         return response()->json(['agrupado_por' => $agruparPor, 'data' => $linhas]);
     }
+
+    /**
+     * Títulos dos agrupamentos — os mesmos de `AGRUPAMENTO_OPTIONS` no
+     * frontend. Usados como cabeçalho da 1ª coluna da planilha.
+     */
+    public const ROTULOS_AGRUPAMENTO = [
+        'status_sla' => 'Status de SLA',
+        'responsavel' => 'Responsável',
+        'aberto_por' => 'Aberto por',
+        'resolvido_por' => 'Resolvido por',
+        'fechado_por' => 'Fechado por',
+        'concluido_por' => 'Concluído por',
+        'encaminhado_por' => 'Encaminhado por',
+        'encaminhado_para_grupo' => 'Encaminhado para (grupo)',
+        'encaminhado_para_responsavel' => 'Encaminhado para (responsável)',
+        'grupo_solucao' => 'Grupo de Solução',
+        'categoria' => 'Categoria',
+        'subcategoria' => 'Subcategoria',
+        'item' => 'Item',
+    ];
+
+    /**
+     * Agrupamentos cujas linhas são usuários: com `grupo_analista_id`, os
+     * membros ativos do grupo sem nenhum registro entram com `total: 0`
+     * (ver `comAnalistasZerados()`).
+     */
+    private const AGRUPAMENTOS_POR_USUARIO = ['resolvido_por', 'fechado_por', 'concluido_por', 'encaminhado_por', 'responsavel'];
 
     /**
      * Dimensões cuja base é `IncidenteEvento` (não `Incidente`), agrupadas
@@ -119,6 +147,39 @@ class RelatorioController extends Controller
      */
     private function agregar(array $filtros, string $agruparPor, User $user): Collection
     {
+        $linhas = $this->agregarLinhas($filtros, $agruparPor, $user);
+
+        if (isset($filtros['grupo_analista_id']) && in_array($agruparPor, self::AGRUPAMENTOS_POR_USUARIO, true)) {
+            return $this->comAnalistasZerados($linhas, (int) $filtros['grupo_analista_id']);
+        }
+
+        return $linhas;
+    }
+
+    /**
+     * `grupo_analista_id` mede um GRUPO de analistas: quem está no grupo e
+     * não apareceu no resultado precisa de uma linha explícita com 0 — é
+     * justamente o dado que o gestor procura (analista ocioso). Só
+     * usuários ativos (soft-deleted não entram). Ordena por total desc e
+     * rotulo, já que as linhas zeradas vêm depois das agregadas.
+     */
+    private function comAnalistasZerados(Collection $linhas, int $grupoId): Collection
+    {
+        $presentes = $linhas->pluck('chave')->filter()->all();
+
+        $zerados = User::query()
+            ->where('grupo_solucao_id', $grupoId)
+            ->whereNotIn('id', $presentes)
+            ->get(['id', 'name'])
+            ->map(fn (User $u) => ['chave' => $u->id, 'rotulo' => $u->name, 'total' => 0]);
+
+        return $linhas->concat($zerados)
+            ->sortBy([['total', 'desc'], ['rotulo', 'asc']])
+            ->values();
+    }
+
+    private function agregarLinhas(array $filtros, string $agruparPor, User $user): Collection
+    {
         if (isset(self::EVENTOS_POR_USUARIO[$agruparPor])) {
             return $this->comRotulos(
                 $this->contarAgrupado(
@@ -154,13 +215,22 @@ class RelatorioController extends Controller
         }
 
         if ($agruparPor === 'aberto_por') {
+            // Aqui o grupo do analista é o de quem ABRIU o chamado, não o do
+            // responsável (semântica dos demais agrupamentos de Incidente).
+            $grupoCriador = $filtros['grupo_analista_id'] ?? null;
+            unset($filtros['grupo_analista_id']);
+
+            $query = Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros)
+                ->when($grupoCriador, fn (Builder $q, int $v) => $q->whereHas('criadoPor', fn (Builder $qc) => $qc->where('grupo_solucao_id', $v)));
+
             $linhas = $this->comRotulos(
-                $this->contarAgrupado(Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros), 'criado_por_id'),
+                $this->contarAgrupado($query, 'criado_por_id'),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
                 '(desconhecido)',
             );
 
-            return $this->separarAbertosPeloPortal($linhas, $user, $filtros);
+            // Chamado do portal não tem analista criador: some com o filtro.
+            return $grupoCriador ? $linhas : $this->separarAbertosPeloPortal($linhas, $user, $filtros);
         }
 
         $query = Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros);

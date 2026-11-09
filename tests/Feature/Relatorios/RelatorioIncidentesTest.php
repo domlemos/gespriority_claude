@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Relatorios;
 
+use App\Exports\RelatorioIncidentesExport;
 use App\Models\Categoria;
 use App\Models\Client;
 use App\Models\Customer;
@@ -14,6 +15,7 @@ use App\Models\Role;
 use App\Models\Subcategoria;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Maatwebsite\Excel\Facades\Excel;
 use Tests\TestCase;
 
 class RelatorioIncidentesTest extends TestCase
@@ -523,6 +525,101 @@ class RelatorioIncidentesTest extends TestCase
             $response->headers->get('content-type')
         );
         $this->assertStringContainsString('attachment', $response->headers->get('content-disposition'));
+    }
+
+    public function test_grupo_analista_filters_by_author_group_at_event_time(): void
+    {
+        $grupoX = GrupoSolucao::factory()->create();
+        $grupoY = GrupoSolucao::factory()->create();
+        $a = User::factory()->create(['name' => 'Analista A', 'grupo_solucao_id' => $grupoX->id]);
+        $b = User::factory()->create(['name' => 'Analista B', 'grupo_solucao_id' => $grupoY->id]);
+        IncidenteEvento::factory()->create(['incidente_id' => Incidente::factory()->create(['status' => 'fechado'])->id, 'user_id' => $a->id, 'tipo' => 'fechado']);
+        IncidenteEvento::factory()->create(['incidente_id' => Incidente::factory()->create(['status' => 'fechado'])->id, 'user_id' => $b->id, 'tipo' => 'fechado']);
+        // A muda de grupo depois de concluir: o filtro olha o grupo NO momento do evento.
+        $a->update(['grupo_solucao_id' => $grupoY->id]);
+
+        [$token] = $this->staffToken(['relatorios.view'], asAdmin: true);
+
+        $noX = $this->getJson("/api/relatorios/incidentes?agrupar_por=concluido_por&grupo_analista_id={$grupoX->id}", $this->authHeader($token))->assertOk();
+        $noY = $this->getJson("/api/relatorios/incidentes?agrupar_por=concluido_por&grupo_analista_id={$grupoY->id}", $this->authHeader($token))->assertOk();
+
+        $porX = collect($noX->json('data'))->keyBy('rotulo');
+        $this->assertSame(['Analista A'], $porX->keys()->all());
+        $this->assertSame(1, $porX['Analista A']['total']);
+
+        // A é membro atual de Y, então aparece zerado: não concluiu nada enquanto estava em Y.
+        $porY = collect($noY->json('data'))->keyBy('rotulo');
+        $this->assertSame(1, $porY['Analista B']['total']);
+        $this->assertSame(0, $porY['Analista A']['total']);
+    }
+
+    public function test_grupo_analista_lists_active_members_with_zero(): void
+    {
+        $grupoX = GrupoSolucao::factory()->create();
+        $a = User::factory()->create(['name' => 'Analista A', 'grupo_solucao_id' => $grupoX->id]);
+        User::factory()->create(['name' => 'Analista C', 'grupo_solucao_id' => $grupoX->id]);
+        User::factory()->create(['name' => 'Analista D', 'grupo_solucao_id' => $grupoX->id])->delete();
+        IncidenteEvento::factory()->create(['incidente_id' => Incidente::factory()->create(['status' => 'fechado'])->id, 'user_id' => $a->id, 'tipo' => 'fechado']);
+
+        [$token] = $this->staffToken(['relatorios.view'], asAdmin: true);
+
+        $response = $this->getJson("/api/relatorios/incidentes?agrupar_por=concluido_por&grupo_analista_id={$grupoX->id}", $this->authHeader($token))->assertOk();
+
+        $this->assertSame(
+            [['rotulo' => 'Analista A', 'total' => 1], ['rotulo' => 'Analista C', 'total' => 0]],
+            collect($response->json('data'))->map(fn ($l) => ['rotulo' => $l['rotulo'], 'total' => $l['total']])->all()
+        );
+    }
+
+    public function test_grupo_analista_on_responsavel_grouping_uses_current_group(): void
+    {
+        $grupoX = GrupoSolucao::factory()->create();
+        $grupoY = GrupoSolucao::factory()->create();
+        $emX = User::factory()->create(['grupo_solucao_id' => $grupoX->id]);
+        $emY = User::factory()->create(['grupo_solucao_id' => $grupoY->id]);
+        Incidente::factory()->create(['status' => 'fechado', 'responsavel_id' => $emX->id]);
+        Incidente::factory()->create(['status' => 'fechado', 'responsavel_id' => $emY->id]);
+
+        [$token] = $this->staffToken(['relatorios.view'], asAdmin: true);
+
+        $response = $this->getJson("/api/relatorios/incidentes?agrupar_por=responsavel&grupo_analista_id={$grupoX->id}", $this->authHeader($token))->assertOk();
+
+        $this->assertSame(1, collect($response->json('data'))->sum('total'));
+    }
+
+    public function test_grupo_analista_on_aberto_por_uses_creator_group_and_drops_portal_bucket(): void
+    {
+        $grupoX = GrupoSolucao::factory()->create();
+        $grupoY = GrupoSolucao::factory()->create();
+        $emX = User::factory()->create(['name' => 'Analista X', 'grupo_solucao_id' => $grupoX->id]);
+        $emY = User::factory()->create(['name' => 'Analista Y', 'grupo_solucao_id' => $grupoY->id]);
+        $customer = Customer::factory()->create();
+        Incidente::factory()->create(['criado_por_id' => $emX->id]);
+        Incidente::factory()->create(['criado_por_id' => $emY->id]);
+        Incidente::factory()->create(['customer_id' => $customer->id])
+            ->forceFill(['criado_por_customer_id' => $customer->id])->save();
+
+        [$token] = $this->staffToken(['relatorios.view'], asAdmin: true);
+
+        $response = $this->getJson("/api/relatorios/incidentes?agrupar_por=aberto_por&grupo_analista_id={$grupoX->id}", $this->authHeader($token))->assertOk();
+
+        $this->assertSame(
+            [['rotulo' => 'Analista X', 'total' => 1]],
+            collect($response->json('data'))->map(fn ($l) => ['rotulo' => $l['rotulo'], 'total' => $l['total']])->all()
+        );
+    }
+
+    public function test_xlsx_heading_uses_grouping_label(): void
+    {
+        Excel::fake();
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $this->get('/api/relatorios/incidentes?agrupar_por=concluido_por&formato=xlsx', $this->authHeader($token))->assertOk();
+
+        Excel::assertDownloaded(
+            'relatorio-concluido_por.xlsx',
+            fn (RelatorioIncidentesExport $e) => $e->headings() === ['Concluído por', 'Total']
+        );
     }
 
     public function test_requires_agrupar_por(): void

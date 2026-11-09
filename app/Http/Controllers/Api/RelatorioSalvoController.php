@@ -86,6 +86,7 @@ class RelatorioSalvoController extends Controller
             'filtros.subcategoria_id' => ['sometimes', 'integer', 'exists:subcategorias,id'],
             'filtros.item_id' => ['sometimes', 'integer', 'exists:itens,id'],
             'filtros.grupo_solucao_id' => ['sometimes', 'integer', 'exists:grupos_solucao,id'],
+            'filtros.grupo_analista_id' => ['sometimes', 'integer', 'exists:grupos_solucao,id'],
             'filtros.responsavel_id' => ['sometimes', 'integer', 'exists:users,id'],
             'filtros.client_id' => ['sometimes', 'integer', 'exists:clients,id'],
             'filtros.customer_id' => ['sometimes', 'integer', 'exists:customers,id'],

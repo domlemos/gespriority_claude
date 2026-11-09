@@ -597,7 +597,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `id` | `bigint` PK | |
 | `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; autor — sem guard extra em `UserController::destroy()`, `User` é soft delete (ver §3.4.3), a FK nunca é violada |
 | `nome` | `string` | dado pelo usuário, ex. "SLA mensal por agente" |
-| `filtros` | `json` | espelha o payload de `GET /relatorios/incidentes` (status, tipo, data_inicio, data_fim, categoria_id, subcategoria_id, item_id, grupo_solucao_id, responsavel_id, client_id, customer_id) — schema-less de propósito, evita coluna nova por filtro novo |
+| `filtros` | `json` | espelha o payload de `GET /relatorios/incidentes` (status, tipo, data_inicio, data_fim, categoria_id, subcategoria_id, item_id, grupo_solucao_id, grupo_analista_id, responsavel_id, client_id, customer_id) — schema-less de propósito, evita coluna nova por filtro novo |
 | `agrupar_por` | `string` | um de `RelatorioSalvo::AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
 | `created_at`, `updated_at` | `timestamp` | |
 | índice | `user_id` | não único, só performance |
@@ -1441,7 +1441,7 @@ Route::middleware(['auth:web', 'can:relatorios.manage'])
 
 | Método | Rota | Permission | Resposta |
 |---|---|---|---|
-| `GET` | `/relatorios/incidentes` | `relatorios.view` | `200` — `{agrupado_por, data: [{chave, rotulo, total}, ...]}` (json) **ou** download do `.xlsx` (`formato=xlsx`) |
+| `GET` | `/relatorios/incidentes` | `relatorios.view` | `200` — `{agrupado_por, data: [{chave, rotulo, total}, ...]}` (json) **ou** download do `.xlsx` (`formato=xlsx`; cabeçalho da 1ª coluna = título do agrupamento, ex. "Concluído por", via `RelatorioController::ROTULOS_AGRUPAMENTO`) |
 | `GET` | `/relatorios-salvos` | `relatorios.view` | `200` — paginado, `user` carregado |
 | `GET` | `/relatorios-salvos/{id}` | `relatorios.view` | `200` — `{data: {...}}` |
 | `GET` | `/relatorios-salvos/{id}/executar` | `relatorios.view` | mesma resposta de `/relatorios/incidentes`, usando os filtros/agrupamento salvos — nunca um snapshot |
@@ -1462,6 +1462,7 @@ combináveis; os mesmos ficam em `RelatorioSalvo.filtros`):
 | `categoria_id`/`subcategoria_id` | `exists` | via `whereHas('item.subcategoria')`/`whereHas('item')` — `Incidente` não tem essas colunas direto, só `item_id` |
 | `item_id`/`grupo_solucao_id`/`responsavel_id`/`customer_id` | `exists` | mesma coluna de `Incidente::scopeFiltros()` |
 | `client_id` | `exists:clients,id` | empresa (não confundir com `customer_id`, o usuário do portal) — via `whereHas('customer')` |
+| `grupo_analista_id` | `sometimes`, `integer`, `exists:grupos_solucao,id` | grupo dos **analistas**. Agrupamentos por evento (`resolvido_por`/`fechado_por`/`concluido_por`/`encaminhado_*`): `incidente_eventos.autor_grupo_solucao_id` (grupo do autor *no momento do evento*). `aberto_por`: grupo atual do criador (`criadoPor`) — o balde "Portal (cliente)" some. Demais (`responsavel`, `status_sla`, `grupo_solucao`, `categoria`, `subcategoria`, `item`): grupo atual do `responsavel`. Com agrupamento por usuário (`resolvido_por`/`fechado_por`/`concluido_por`/`encaminhado_por`/`responsavel`), usuários **ativos** com `users.grupo_solucao_id` = X ausentes do resultado entram com `total: 0`, e a lista é ordenada por `total` desc, `rotulo`. Visibilidade (`scopeVisiveisPara`) não muda |
 
 > 📌 **`status_sla`/`responsavel`/`grupo_solucao` restringem a `STATUS_CONCLUIDOS` por padrão;
 > `categoria`/`subcategoria`/`item`/`aberto_por` não.** Os indicadores originais 1-3 eram
