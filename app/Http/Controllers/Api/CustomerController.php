@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CustomerResource;
 use App\Models\Customer;
+use App\Models\Incidente;
+use App\Models\IncidenteDescricao;
 use App\Notifications\ConviteUsuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -85,7 +87,14 @@ class CustomerController extends Controller
 
     public function destroy(Customer $customer)
     {
-        if ($customer->incidentes()->exists()) {
+        // Além de ser o cliente de algum chamado, pode ter aberto pelo portal
+        // um chamado que depois foi trocado de cliente — continua autor
+        // (criado_por_customer_id e a descrição de abertura, ambos restrict).
+        $temVinculo = $customer->incidentes()->exists()
+            || Incidente::query()->where('criado_por_customer_id', $customer->id)->exists()
+            || IncidenteDescricao::query()->withTrashed()->where('customer_id', $customer->id)->exists();
+
+        if ($temVinculo) {
             return response()->json([
                 'message' => 'Não é possível excluir um customer com incidentes vinculados.',
             ], 409);

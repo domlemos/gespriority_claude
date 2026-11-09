@@ -195,6 +195,26 @@ class CustomerCrudTest extends TestCase
         $this->assertDatabaseHas('customers', ['id' => $customer->id]);
     }
 
+    public function test_cannot_delete_a_customer_who_opened_a_ticket_now_assigned_to_someone_else(): void
+    {
+        // Abriu pelo portal e o staff (edit_all) depois trocou o cliente do
+        // chamado — continua autor do chamado e da descrição de abertura.
+        $autor = Customer::factory()->create();
+        $incidente = Incidente::factory()->create(['customer_id' => Customer::factory()->create()->id]);
+        $incidente->forceFill(['criado_por_customer_id' => $autor->id])->save();
+        $incidente->descricoes()->create([
+            'customer_id' => $autor->id,
+            'tipo' => 'comentario',
+            'descricao' => 'Abertura pelo portal.',
+        ]);
+        $token = $this->staffToken();
+
+        $response = $this->deleteJson("/api/customers/{$autor->id}", [], $this->authHeader($token));
+
+        $response->assertStatus(409);
+        $this->assertDatabaseHas('customers', ['id' => $autor->id]);
+    }
+
     public function test_staff_without_customers_manage_permission_is_forbidden(): void
     {
         $token = $this->staffToken('some.other.permission');

@@ -42,16 +42,16 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($key);
         });
 
-        // 5 convites/minuto por admin autenticado, para /users/{user}/convite e
-        // /customers/{customer}/convite — limita o estrago se um token com
-        // users.manage/customers.manage vazar e for usado em loop pra
-        // disparar convite pra todo mundo cadastrado.
         // Abertura de incidente pelo portal — por cliente + IP, evita que um
         // token vazado ou um script inunde a fila de triagem.
         RateLimiter::for('portal-abertura', function (Request $request) {
             return Limit::perMinute(10)->by($request->user()?->id.'|'.$request->ip());
         });
 
+        // 5 convites/minuto por admin autenticado, para /users/{user}/convite e
+        // /customers/{customer}/convite — limita o estrago se um token com
+        // users.manage/customers.manage vazar e for usado em loop pra
+        // disparar convite pra todo mundo cadastrado.
         RateLimiter::for('convite', function (Request $request) {
             $key = ($request->user()?->id ?? $request->ip()).'|'.$request->ip();
 

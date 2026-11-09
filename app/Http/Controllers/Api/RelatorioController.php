@@ -215,7 +215,6 @@ class RelatorioController extends Controller
         ])->values();
     }
 
-    /** `count(*)` agrupado por uma coluna (ou expressão `tabela.coluna` já com join aplicado). */
     /**
      * Chamados abertos pelo portal também têm `criado_por_id` nulo (quem
      * abriu foi um Customer, não staff) — sem isto cairiam em
@@ -242,6 +241,7 @@ class RelatorioController extends Controller
             ->values();
     }
 
+    /** `count(*)` agrupado por uma coluna (ou expressão `tabela.coluna` já com join aplicado). */
     private function contarAgrupado(Builder $query, string $coluna): Collection
     {
         return $query->selectRaw("{$coluna} as chave, count(*) as total")
