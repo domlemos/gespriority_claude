@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 // prazo_resposta/prazo_resolucao/respondido_em/concluido_em ficam de fora de
 // propósito — são só o controller quem escreve (cálculo automático), nunca
 // mass-assignment a partir de input do cliente (ver BACKEND_SPECS.md §3.1).
-#[Fillable(['customer_id', 'item_id', 'grupo_solucao_id', 'responsavel_id', 'titulo', 'prioridade', 'origem', 'status'])]
+#[Fillable(['customer_id', 'item_id', 'grupo_solucao_id', 'responsavel_id', 'titulo', 'prioridade', 'origem', 'status', 'tipo'])]
 class Incidente extends Model
 {
     /** @use HasFactory<IncidenteFactory> */
@@ -24,6 +24,17 @@ class Incidente extends Model
 
     public const ORIGENS = ['portal', 'email', 'telefone', 'chat', 'presencial', 'monitoramento'];
 
+    /**
+     * Categorização do chamado: incidente (via de regra) ou solicitação
+     * (demanda pontual de cliente interno — ajuste de infra, um script,
+     * contatar um cliente...). Só classifica: fluxo, status, SLA e
+     * taxonomia são os mesmos pros dois.
+     */
+    public const TIPOS = ['incidente', 'solicitacao'];
+
+    /** Rótulos exibidos no feed de auditoria quando o tipo muda. */
+    public const TIPO_ROTULOS = ['incidente' => 'Incidente', 'solicitacao' => 'Solicitação'];
+
     // Campos que, depois da abertura, só quem tem `tickets.edit_all` altera
     // (ver IncidenteController::garantirPermissaoParaCamposRestritos()) —
     // campo => rótulo usado na mensagem de erro.
@@ -31,6 +42,7 @@ class Incidente extends Model
         'customer_id' => 'Cliente',
         'titulo' => 'Título',
         'origem' => 'Origem',
+        'tipo' => 'Tipo',
     ];
 
     /** Status que encerram o incidente pra fins de SLA — congelam `concluido_em`. */

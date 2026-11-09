@@ -61,7 +61,12 @@ class IncidenteController extends Controller
             'titulo' => ['required', 'string', 'max:255'],
             'descricao' => ['required', 'string'],
             'origem' => ['required', 'string', Rule::in(Incidente::ORIGENS)],
+            // Opcional de propósito: quem chama a API sem o campo continua
+            // funcionando — ausente, o chamado nasce como incidente.
+            'tipo' => ['sometimes', 'string', Rule::in(Incidente::TIPOS)],
         ]);
+
+        $data['tipo'] ??= 'incidente';
 
         // prioridade nunca vem do cliente — é sempre derivada do
         // `Item::prioridade_padrao` da classificação (ver "SLA por
@@ -126,6 +131,7 @@ class IncidenteController extends Controller
             'titulo' => ['sometimes', 'required', 'string', 'max:255'],
             'origem' => ['sometimes', 'required', 'string', Rule::in(Incidente::ORIGENS)],
             'status' => ['sometimes', 'required', 'string', Rule::in(Incidente::STATUSES)],
+            'tipo' => ['sometimes', 'required', 'string', Rule::in(Incidente::TIPOS)],
         ]);
 
         $this->garantirPermissaoParaCamposRestritos($request->user(), $incidente, $data);
@@ -144,6 +150,7 @@ class IncidenteController extends Controller
         $tituloAnterior = $incidente->titulo;
         $prioridadeAnterior = $incidente->prioridade;
         $origemAnterior = $incidente->origem;
+        $tipoAnterior = $incidente->tipo;
         $customerAnteriorId = $incidente->customer_id;
         $itemAnteriorId = $incidente->item_id;
 
@@ -156,6 +163,7 @@ class IncidenteController extends Controller
             $tituloAnterior,
             $prioridadeAnterior,
             $origemAnterior,
+            $tipoAnterior,
             $customerAnteriorId,
             $itemAnteriorId,
             $recalcularSla,
@@ -205,6 +213,16 @@ class IncidenteController extends Controller
 
             if (array_key_exists('origem', $data)) {
                 $this->logAlteracaoSeMudou($incidente, $request->user(), 'Origem', $origemAnterior, $incidente->origem);
+            }
+
+            if (array_key_exists('tipo', $data)) {
+                $this->logAlteracaoSeMudou(
+                    $incidente,
+                    $request->user(),
+                    'Tipo',
+                    Incidente::TIPO_ROTULOS[$tipoAnterior],
+                    Incidente::TIPO_ROTULOS[$incidente->tipo],
+                );
             }
 
             if (array_key_exists('status', $data)) {

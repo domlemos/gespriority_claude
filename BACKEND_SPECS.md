@@ -415,6 +415,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `prioridade` | `string` | reaproveita `PoliticaSla::PRIORIDADES` (`baixa`\|`media`\|`alta`\|`urgente`) — sem duplicar a lista de constantes. **Nunca vem do cliente** — sempre derivada de `Item::prioridade_padrao`; `prioridade` no payload é ignorada, inclusive para Admin (ver nota "SLA por Categorização" abaixo) |
 | `origem` | `string` | um de `Incidente::ORIGENS` — constante própria do incidente (ver nota abaixo) |
 | `status` | `string` | um de `Incidente::STATUSES`; default `'aberto'` — **forçado no `store()`, ignora qualquer `status` enviado pelo cliente na criação** |
+| `tipo` | `string` indexado | um de `Incidente::TIPOS` (`incidente` \| `solicitacao`); default `'incidente'` (backfill dos existentes). Opcional no `store()` — ausente vira `incidente`. Só categoriza: fluxo, status, SLA e taxonomia são os mesmos pros dois tipos. Restrito após a abertura (ver nota de campos restritos); mudança gera entrada `alteracao` no feed com os rótulos `Incidente::TIPO_ROTULOS` |
 | `prazo_resposta` | `timestamp` nullable | calculado **uma única vez** no `store()` (`created_at + tempo_resposta_minutos` da `PoliticaSla` aplicável via `Client::resolvedSlaFor()`) e **congelado** — nunca recalculado, nem que a política mude depois (**exceto** quando `item_id` muda de valor num `update()`, ver nota "SLA por Categorização" abaixo). `null` se não houver política aplicável pra essa prioridade (sem override do cliente nem padrão global) |
 | `prazo_resolucao` | `timestamp` nullable | mesmo raciocínio de `prazo_resposta`, com `tempo_resolucao_minutos` |
 | `respondido_em` | `timestamp` nullable | setado automaticamente na 1ª vez que `status` sai de `'aberto'` (qualquer que seja o novo status, mesmo direto pra um concluído) — nunca sobrescrito depois |
@@ -469,7 +470,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > 📌 **Campos restritos após a abertura (`tickets.edit_all`).** Depois que um incidente é aberto,
 > quem **não** tem a permission `tickets.edit_all` ("Editar todos os campos do chamado") só altera
 > classificação (`item_id`), encaminhamento (`grupo_solucao_id`/`responsavel_id`) e `status` —
-> `customer_id`, `titulo` e `origem` (`Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA`) dão 422 no campo
+> `customer_id`, `titulo`, `origem` e `tipo` (`Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA`) dão 422 no campo
 > se vierem com valor **diferente** do atual (reenviar o mesmo valor é aceito, porque o formulário
 > do front sempre manda todos os campos). Um campo recusado bloqueia o `update()` inteiro. A
 > abertura (`store()`) não é afetada. Comentários/anexos continuam liberados com `tickets.manage`.
@@ -1100,8 +1101,8 @@ via `status` (`resolvido`/`fechado`/`cancelado`), nunca via `DELETE`. Como `GET`
 |---|---|---|---|---|
 | `GET` | `/incidentes` | `tickets.view` | — | `200` — paginado (`?per_page=`), filtrável (ver abaixo), ordenado por mais recente, com `customer`/`item`/`grupoSolucao`/`responsavel` carregados |
 | `GET` | `/incidentes/{incidente}` | `tickets.view` | — | `200` — `{data: {...}}` |
-| `POST` | `/incidentes` | `tickets.manage` | `{customer_id, titulo, descricao, prioridade, origem, item_id?, grupo_solucao_id?, responsavel_id?}` | `201` — `{data: {...}}`; `status` sempre `"aberto"`, **qualquer `status` enviado no payload é ignorado** |
-| `PUT`/`PATCH` | `/incidentes/{incidente}` | `tickets.manage` | qualquer subconjunto de `{customer_id, titulo, prioridade, origem, item_id, grupo_solucao_id, responsavel_id, status}` | `200` — `{data: {...}}` |
+| `POST` | `/incidentes` | `tickets.manage` | `{customer_id, titulo, descricao, prioridade, origem, tipo?, item_id?, grupo_solucao_id?, responsavel_id?}` | `201` — `{data: {...}}`; `status` sempre `"aberto"`, **qualquer `status` enviado no payload é ignorado** |
+| `PUT`/`PATCH` | `/incidentes/{incidente}` | `tickets.manage` | qualquer subconjunto de `{customer_id, titulo, prioridade, origem, tipo, item_id, grupo_solucao_id, responsavel_id, status}` | `200` — `{data: {...}}` |
 
 **Filtro por query string (`GET /incidentes`)** — todos opcionais, combinados com AND
 (`Incidente::scopeFiltros()`, ver §3.2, reaproveitado por §3.4.8):

@@ -20,6 +20,7 @@ class IncidenteResource extends JsonResource
             'prioridade' => $this->prioridade,
             'origem' => $this->origem,
             'status' => $this->status,
+            'tipo' => $this->tipo,
             'customer_id' => $this->customer_id,
             'customer' => $this->whenLoaded('customer', fn () => [
                 'id' => $this->customer->id,

@@ -62,6 +62,7 @@ class IncidenteCamposRestritosTest extends TestCase
             'titulo' => ['titulo', 'Novo título'],
             'origem' => ['origem', 'telefone'],
             'customer_id' => ['customer_id', null],
+            'tipo' => ['tipo', 'solicitacao'],
         ];
     }
 
@@ -114,6 +115,7 @@ class IncidenteCamposRestritosTest extends TestCase
             'customer_id' => $incidente->customer_id,
             'titulo' => 'Original',
             'origem' => 'portal',
+            'tipo' => 'incidente',
             'status' => 'resolvido',
         ], $this->authHeader($token))->assertOk();
 

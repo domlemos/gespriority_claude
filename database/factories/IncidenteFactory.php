@@ -30,6 +30,7 @@ class IncidenteFactory extends Factory
             'prioridade' => fake()->randomElement(PoliticaSla::PRIORIDADES),
             'origem' => fake()->randomElement(Incidente::ORIGENS),
             'status' => 'aberto',
+            'tipo' => 'incidente',
         ];
     }
 }
