@@ -340,4 +340,39 @@ class IncidenteDescricaoCrudTest extends TestCase
         $this->getJson("/api/incidentes/{$incidente->id}/descricoes", $this->authHeader($token))
             ->assertStatus(401);
     }
+
+    public function test_feed_shows_customer_authored_entry(): void
+    {
+        $customer = Customer::factory()->create(['name' => 'Maria Cliente']);
+        $incidente = Incidente::factory()->create(['customer_id' => $customer->id]);
+        IncidenteDescricao::factory()->create([
+            'incidente_id' => $incidente->id,
+            'user_id' => null,
+            'customer_id' => $customer->id,
+        ]);
+        [$token] = $this->staffToken(['tickets.view']);
+
+        $this->getJson("/api/incidentes/{$incidente->id}/descricoes", $this->authHeader($token))
+            ->assertOk()
+            ->assertJsonPath('data.0.user', null)
+            ->assertJsonPath('data.0.customer.name', 'Maria Cliente');
+    }
+
+    public function test_nobody_can_edit_a_customer_authored_entry(): void
+    {
+        $customer = Customer::factory()->create();
+        $incidente = Incidente::factory()->create(['customer_id' => $customer->id]);
+        $descricao = IncidenteDescricao::factory()->create([
+            'incidente_id' => $incidente->id,
+            'user_id' => null,
+            'customer_id' => $customer->id,
+        ]);
+        [$token] = $this->staffToken(['tickets.manage']);
+
+        $this->putJson(
+            "/api/incidentes/{$incidente->id}/descricoes/{$descricao->id}",
+            ['descricao' => 'Editando o texto do cliente.'],
+            $this->authHeader($token)
+        )->assertStatus(403);
+    }
 }

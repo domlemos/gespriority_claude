@@ -16,7 +16,7 @@ class IncidenteDescricaoController extends Controller
 
         return IncidenteDescricaoResource::collection(
             $incidente->descricoes()
-                ->with('user')
+                ->with(['user', 'customer'])
                 ->paginate($request->integer('per_page', 15))
         );
     }
@@ -39,7 +39,7 @@ class IncidenteDescricaoController extends Controller
             'descricao' => $data['descricao'],
         ]);
 
-        return (new IncidenteDescricaoResource($descricao->load('user')))
+        return (new IncidenteDescricaoResource($descricao->load(['user', 'customer'])))
             ->response()
             ->setStatusCode(201);
     }
@@ -50,7 +50,7 @@ class IncidenteDescricaoController extends Controller
 
         $this->ensureBelongsTo($incidente, $descricao);
 
-        return new IncidenteDescricaoResource($descricao->load('user'));
+        return new IncidenteDescricaoResource($descricao->load(['user', 'customer']));
     }
 
     public function update(Request $request, Incidente $incidente, IncidenteDescricao $descricao)
@@ -66,7 +66,7 @@ class IncidenteDescricaoController extends Controller
 
         $descricao->update($data);
 
-        return new IncidenteDescricaoResource($descricao->load('user'));
+        return new IncidenteDescricaoResource($descricao->load(['user', 'customer']));
     }
 
     public function destroy(Request $request, Incidente $incidente, IncidenteDescricao $descricao)

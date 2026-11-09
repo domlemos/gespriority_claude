@@ -8,17 +8,32 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use LogicException;
 
 // Excluir um comentário é soft delete de propósito — fica no feed marcado
 // (`excluido_em` no Resource), nunca é apagado de verdade (auditoria). Ver
 // BACKEND_SPECS.md §3.4.7.1.
-#[Fillable(['incidente_id', 'user_id', 'tipo', 'descricao'])]
+#[Fillable(['incidente_id', 'user_id', 'customer_id', 'tipo', 'descricao'])]
 class IncidenteDescricao extends Model
 {
     /** @use HasFactory<IncidenteDescricaoFactory> */
     use HasFactory, SoftDeletes;
 
     protected $table = 'incidente_descricoes';
+
+    /**
+     * Autor é um User (staff) OU um Customer (descrição de abertura pelo
+     * portal) — exatamente um. No Postgres há também um CHECK equivalente;
+     * esta guarda é o que vale no SQLite dos testes.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $descricao) {
+            if (($descricao->user_id === null) === ($descricao->customer_id === null)) {
+                throw new LogicException('Entrada do feed precisa de exatamente um autor (user_id ou customer_id).');
+            }
+        });
+    }
 
     /**
      * Comentários excluídos continuam visíveis no feed (Incidente::descricoes()
@@ -48,5 +63,10 @@ class IncidenteDescricao extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class)->withTrashed();
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 }

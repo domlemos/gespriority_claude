@@ -93,6 +93,12 @@ class Incidente extends Model
         return $this->belongsTo(User::class, 'criado_por_id')->withTrashed();
     }
 
+    /** Cliente que abriu pelo portal — `null` quando foi o staff (ver `criadoPor()`). */
+    public function criadoPorCustomer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'criado_por_customer_id');
+    }
+
     // withTrashed() — comentários excluídos continuam visíveis no feed
     // (marcados via 'excluido_em', ver IncidenteDescricaoResource), nunca
     // somem da listagem.

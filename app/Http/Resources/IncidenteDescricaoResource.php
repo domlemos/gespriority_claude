@@ -20,10 +20,16 @@ class IncidenteDescricaoResource extends JsonResource
             'tipo' => $this->tipo,
             'descricao' => $this->descricao,
             'excluido_em' => $this->deleted_at,
-            'user' => $this->whenLoaded('user', fn () => [
+            'user' => $this->whenLoaded('user', fn () => $this->user ? [
                 'id' => $this->user->id,
                 'name' => $this->user->name,
-            ]),
+            ] : null),
+            // Autor cliente (descrição de abertura feita pelo portal) — só um
+            // de `user`/`customer` vem preenchido.
+            'customer' => $this->whenLoaded('customer', fn () => $this->customer ? [
+                'id' => $this->customer->id,
+                'name' => $this->customer->name,
+            ] : null),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
