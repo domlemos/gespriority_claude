@@ -129,9 +129,16 @@ atualiza a instância sozinho, sem sessão SSM manual:
 ```bash
 git fetch origin main
 git checkout <sha do push>
+docker compose -f docker-compose.vps.yml build --pull app
 docker compose -f docker-compose.vps.yml run --rm app php artisan migrate --force
-docker compose -f docker-compose.vps.yml up -d --build app queue
+docker compose -f docker-compose.vps.yml up -d app queue
 ```
+
+O `--pull` no build é obrigatório: sem ele, o servidor reaproveita a
+imagem base `php:8.3-fpm-alpine` que já tem em cache e correções de
+segurança do PHP nunca chegam a produção. Foi assim que a produção ficou
+no PHP 8.3.35, vulnerável ao PHP2Shell — ver
+[`docs/security/2026-10-php2shell.md`](../security/2026-10-php2shell.md).
 
 Tudo isso rodado via `aws ssm send-command` (mesmo mecanismo do acesso
 administrativo da seção 3 — a instância nunca expõe porta 22, o pipeline
