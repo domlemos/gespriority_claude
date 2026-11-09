@@ -80,13 +80,24 @@ class RelatorioController extends Controller
     private const EVENTOS_POR_USUARIO = [
         'resolvido_por' => [IncidenteEvento::TIPO_RESOLVIDO],
         'fechado_por' => [IncidenteEvento::TIPO_FECHADO],
+        'concluido_por' => [IncidenteEvento::TIPO_RESOLVIDO, IncidenteEvento::TIPO_FECHADO],
         'encaminhado_por' => [IncidenteEvento::TIPO_ENCAMINHADO_GRUPO, IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL],
     ];
 
     /**
+     * Dimensões de evento que contam CHAMADOS distintos por usuário, não
+     * eventos: "quantos chamados o agente resolveu/fechou" não deve inflar
+     * porque o mesmo chamado foi resolvido de novo após reabertura, nem (em
+     * `concluido_por`) porque o mesmo agente resolveu e depois fechou o
+     * mesmo chamado. `encaminhado_*` continuam contando eventos (são ações).
+     */
+    private const CONTAGEM_POR_CHAMADO = ['resolvido_por', 'fechado_por', 'concluido_por'];
+
+    /**
      * `status_sla`/`responsavel`/`grupo_solucao` respondem ao pedido original
      * ("incidentes FECHADOS..."): sem `status` explícito, restringe a
-     * `STATUS_CONCLUIDOS`. `categoria`/`subcategoria`/`item`/`aberto_por` é
+     * `STATUS_ATENDIDOS` (resolvido/fechado — cancelado não é atendimento e
+     * distorceria SLA e desempenho). `categoria`/`subcategoria`/`item`/`aberto_por` é
      * volume geral — o pedido não mencionava "fechados" pra esses
      * indicadores, então não tem essa restrição implícita. `grupo_solucao`
      * segue o mesmo critério de `responsavel` (mede desempenho do grupo em
@@ -99,8 +110,12 @@ class RelatorioController extends Controller
      * na reabertura (ver `IncidenteController::registrarEventoDeConclusaoSeAplicavel()`/
      * `logEscalonamentoSeMudou()`), não uma coluna de `Incidente`, que só
      * guarda o estado *atual*. Por isso também não têm a restrição implícita
-     * de `STATUS_CONCLUIDOS`: um chamado resolvido e depois reaberto pra
+     * de `STATUS_ATENDIDOS`: um chamado resolvido e depois reaberto pra
      * 'em_andamento' ainda deve contar a resolução que já aconteceu.
+     *
+     * Contagem: `resolvido_por`/`fechado_por`/`concluido_por` contam chamados
+     * distintos por usuário (`CONTAGEM_POR_CHAMADO`); as demais dimensões de
+     * evento contam eventos. `concluido_por` une resolvido e fechado.
      */
     private function agregar(array $filtros, string $agruparPor, User $user): Collection
     {
@@ -108,7 +123,8 @@ class RelatorioController extends Controller
             return $this->comRotulos(
                 $this->contarAgrupado(
                     IncidenteEvento::query()->whereIn('tipo', self::EVENTOS_POR_USUARIO[$agruparPor])->visiveisPara($user)->filtrosRelatorio($filtros),
-                    'user_id'
+                    'user_id',
+                    in_array($agruparPor, self::CONTAGEM_POR_CHAMADO, true) ? 'incidente_id' : null,
                 ),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
                 '(usuário desconhecido)',
@@ -150,7 +166,7 @@ class RelatorioController extends Controller
         $query = Incidente::query()->visiveisPara($user)->filtrosRelatorio($filtros);
 
         if (in_array($agruparPor, ['status_sla', 'responsavel', 'grupo_solucao'], true) && empty($filtros['status'])) {
-            $query->whereIn('status', Incidente::STATUS_CONCLUIDOS);
+            $query->whereIn('status', Incidente::STATUS_ATENDIDOS);
         }
 
         return match ($agruparPor) {
@@ -241,10 +257,15 @@ class RelatorioController extends Controller
             ->values();
     }
 
-    /** `count(*)` agrupado por uma coluna (ou expressão `tabela.coluna` já com join aplicado). */
-    private function contarAgrupado(Builder $query, string $coluna): Collection
+    /**
+     * `count(*)` agrupado por uma coluna (ou expressão `tabela.coluna` já com
+     * join aplicado). Com `$contarDistinto` usa `count(distinct coluna)`.
+     */
+    private function contarAgrupado(Builder $query, string $coluna, ?string $contarDistinto = null): Collection
     {
-        return $query->selectRaw("{$coluna} as chave, count(*) as total")
+        $contagem = $contarDistinto !== null ? "count(distinct {$contarDistinto})" : 'count(*)';
+
+        return $query->selectRaw("{$coluna} as chave, {$contagem} as total")
             ->groupBy($coluna)
             ->get()
             ->map(fn ($linha) => ['chave' => $linha->chave, 'total' => (int) $linha->total]);

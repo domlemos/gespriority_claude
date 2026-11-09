@@ -61,6 +61,14 @@ class RelatorioSalvoCrudTest extends TestCase
         $this->assertDatabaseHas('relatorios_salvos', ['nome' => 'SLA mensal por agente', 'user_id' => $user->id]);
     }
 
+    public function test_saved_report_accepts_concluido_por(): void
+    {
+        [$token] = $this->staffToken(['relatorios.manage']);
+
+        $this->postJson('/api/relatorios-salvos', $this->validPayload(['agrupar_por' => 'concluido_por']), $this->authHeader($token))
+            ->assertCreated();
+    }
+
     public function test_creating_relatorio_salvo_requires_nome_agrupar_por_and_filtros(): void
     {
         [$token] = $this->staffToken(['relatorios.manage']);

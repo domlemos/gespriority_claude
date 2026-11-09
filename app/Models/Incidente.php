@@ -23,6 +23,9 @@ class Incidente extends Model
 
     public const STATUSES = ['aberto', 'em_andamento', 'pendente', 'resolvido', 'fechado', 'cancelado'];
 
+    /** Status que representam atendimento efetivo — exclui `cancelado`. Base dos relatórios de desempenho. */
+    public const STATUS_ATENDIDOS = ['resolvido', 'fechado'];
+
     public const ORIGENS = ['portal', 'email', 'telefone', 'chat', 'presencial', 'monitoramento'];
 
     /**

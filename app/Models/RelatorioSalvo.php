@@ -19,7 +19,7 @@ class RelatorioSalvo extends Model
     protected $table = 'relatorios_salvos';
 
     public const AGRUPAMENTOS = [
-        'status_sla', 'responsavel', 'aberto_por', 'resolvido_por', 'fechado_por',
+        'status_sla', 'responsavel', 'aberto_por', 'resolvido_por', 'fechado_por', 'concluido_por',
         'encaminhado_por', 'encaminhado_para_grupo', 'encaminhado_para_responsavel',
         'grupo_solucao', 'categoria', 'subcategoria', 'item',
     ];

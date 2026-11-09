@@ -167,6 +167,61 @@ class RelatorioIncidentesTest extends TestCase
         $this->assertSame(2, collect($response->json('data'))->sum('total'));
     }
 
+    public function test_concluido_por_counts_resolved_and_closed_once_per_incident(): void
+    {
+        $agenteA = User::factory()->create(['name' => 'Agente A']);
+        $agenteB = User::factory()->create(['name' => 'Agente B']);
+        $incidente1 = Incidente::factory()->create(['status' => 'fechado']);
+        $incidente2 = Incidente::factory()->create(['status' => 'fechado']);
+        $incidente3 = Incidente::factory()->create(['status' => 'resolvido']);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente1->id, 'user_id' => $agenteA->id, 'tipo' => 'resolvido']);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente1->id, 'user_id' => $agenteA->id, 'tipo' => 'fechado']);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente2->id, 'user_id' => $agenteA->id, 'tipo' => 'fechado']);
+        IncidenteEvento::factory()->create(['incidente_id' => $incidente3->id, 'user_id' => $agenteB->id, 'tipo' => 'resolvido']);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=concluido_por', $this->authHeader($token));
+
+        $response->assertOk()->assertJsonPath('agrupado_por', 'concluido_por');
+        $porRotulo = collect($response->json('data'))->keyBy('rotulo');
+        $this->assertSame(2, $porRotulo['Agente A']['total']);
+        $this->assertSame(1, $porRotulo['Agente B']['total']);
+    }
+
+    public function test_resolvido_por_counts_distinct_incidents_per_user(): void
+    {
+        $agente = User::factory()->create(['name' => 'Agente A']);
+        $incidente = Incidente::factory()->create(['status' => 'resolvido']);
+        IncidenteEvento::factory()->count(2)->create(['incidente_id' => $incidente->id, 'user_id' => $agente->id, 'tipo' => 'resolvido']);
+
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $response = $this->getJson('/api/relatorios/incidentes?agrupar_por=resolvido_por', $this->authHeader($token));
+
+        $porRotulo = collect($response->json('data'))->keyBy('rotulo');
+        $this->assertSame(1, $porRotulo['Agente A']['total']);
+    }
+
+    public function test_performance_groupings_exclude_cancelled_by_default(): void
+    {
+        $grupo = GrupoSolucao::factory()->create(['nome' => 'Suporte N1']);
+        Incidente::factory()->create(['status' => 'fechado', 'grupo_solucao_id' => $grupo->id]);
+        Incidente::factory()->create(['status' => 'resolvido', 'grupo_solucao_id' => $grupo->id]);
+        Incidente::factory()->create(['status' => 'cancelado', 'grupo_solucao_id' => $grupo->id]);
+
+        [$token] = $this->staffToken(['relatorios.view'], null, true);
+
+        $porGrupo = $this->getJson('/api/relatorios/incidentes?agrupar_por=grupo_solucao', $this->authHeader($token));
+        $this->assertSame(2, collect($porGrupo->json('data'))->sum('total'));
+
+        $porSla = $this->getJson('/api/relatorios/incidentes?agrupar_por=status_sla', $this->authHeader($token));
+        $this->assertSame(2, collect($porSla->json('data'))->sum('total'));
+
+        $cancelados = $this->getJson('/api/relatorios/incidentes?agrupar_por=grupo_solucao&status=cancelado', $this->authHeader($token));
+        $this->assertSame(1, collect($cancelados->json('data'))->sum('total'));
+    }
+
     public function test_agrupar_por_resolvido_por_filters_by_the_resolution_events_own_date(): void
     {
         $agente = User::factory()->create(['name' => 'Agente Antigo']);
