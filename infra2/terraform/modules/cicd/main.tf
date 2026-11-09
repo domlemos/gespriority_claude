@@ -28,15 +28,20 @@ data "aws_iam_policy_document" "github_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Mesmo racional de infra/terraform/modules/cicd: casa as duas formas
-    # do sub claim (com e sem os IDs numéricos que o GitHub embute por
-    # padrão em repos/orgs novos), pra não quebrar se esse default mudar.
+    # Só o job que roda no environment `production` do GitHub assume a
+    # role — com environment, o sub claim vira `...:environment:production`
+    # em vez de `...:ref:refs/heads/main`. O environment exige aprovação
+    # manual e só aceita a branch main, então um push sozinho (ex.: token
+    # do GitHub vazado) não basta pra rodar comando como root na instância.
+    # Casa as duas formas do sub claim (com e sem os IDs numéricos que o
+    # GitHub embute por padrão em repos/orgs novos), mesmo racional de
+    # infra/terraform/modules/cicd.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:${var.backend_github_repository}:ref:refs/heads/main",
-        "repo:${split("/", var.backend_github_repository)[0]}@*/${split("/", var.backend_github_repository)[1]}@*:ref:refs/heads/main",
+        "repo:${var.backend_github_repository}:environment:production",
+        "repo:${split("/", var.backend_github_repository)[0]}@*/${split("/", var.backend_github_repository)[1]}@*:environment:production",
       ]
     }
   }

@@ -26,6 +26,10 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Exige aprovação manual (Settings → Environments → production) e é a
+    # única forma de assumir a role de deploy: a trust policy OIDC só aceita
+    # o sub claim `environment:production` (infra2/terraform/modules/cicd).
+    environment: production
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
