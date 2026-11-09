@@ -120,7 +120,11 @@ class IncidenteEvento extends Model
             );
     }
 
-    /** Mesma regra de Incidente::scopeVisiveisPara(), via whereHas('incidente') — o evento em si não tem grupo_solucao_id, quem tem é o incidente relacionado. */
+    /**
+     * Mesma regra de Incidente::scopeVisiveisPara(), via whereHas('incidente'). O evento tem um snapshot
+     * `grupo_solucao_id`, mas a visibilidade usa deliberadamente o grupo ATUAL do incidente (decisão da
+     * fase 1; visibilidade baseada no snapshot fica pra fase 2).
+     */
     public function scopeVisiveisPara(Builder $query, User $user): Builder
     {
         return $query->whereHas('incidente', fn (Builder $qi) => $qi->visiveisPara($user));

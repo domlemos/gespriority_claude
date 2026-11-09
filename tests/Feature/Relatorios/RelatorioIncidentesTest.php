@@ -571,6 +571,23 @@ class RelatorioIncidentesTest extends TestCase
         );
     }
 
+    public function test_grupo_analista_on_responsavel_grouping_lists_idle_members_with_zero(): void
+    {
+        $grupoX = GrupoSolucao::factory()->create();
+        $a = User::factory()->create(['name' => 'Analista A', 'grupo_solucao_id' => $grupoX->id]);
+        User::factory()->create(['name' => 'Analista C', 'grupo_solucao_id' => $grupoX->id]);
+        Incidente::factory()->create(['status' => 'fechado', 'responsavel_id' => $a->id]);
+
+        [$token] = $this->staffToken(['relatorios.view'], asAdmin: true);
+
+        $response = $this->getJson("/api/relatorios/incidentes?agrupar_por=responsavel&grupo_analista_id={$grupoX->id}", $this->authHeader($token))->assertOk();
+
+        $this->assertSame(
+            [['rotulo' => 'Analista A', 'total' => 1], ['rotulo' => 'Analista C', 'total' => 0]],
+            collect($response->json('data'))->map(fn ($l) => ['rotulo' => $l['rotulo'], 'total' => $l['total']])->all()
+        );
+    }
+
     public function test_grupo_analista_on_responsavel_grouping_uses_current_group(): void
     {
         $grupoX = GrupoSolucao::factory()->create();
