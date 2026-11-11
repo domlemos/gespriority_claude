@@ -1691,6 +1691,29 @@ Exemplo: `Chamados concluídos (resolvidos ou fechados) de 01/10/2026 a 31/10/20
 uma linha por registro (`%` numérico com 1 casa); linha `Total`; e, só se `chamados_distintos` ≠ total geral, a
 linha final `Chamados distintos no resultado: N`.
 
+**Lista de chamados por linha/célula — `GET /relatorios/chamados`** (`auth:web` + `can:relatorios.view`,
+`RelatorioConsultaController::chamados()`). Mesmos parâmetros da consulta (validados com `ConsultaRelatorio::regras()`)
++ `chave` (obrigatório; `__vazio__` = chave nula, comparada como string), `coluna` (opcional; chave de coluna do
+período, `total` sem quebra; inexistente → 422 em `coluna`; ausente = todas), `page`/`per_page` (padrão 50, máx 200) e
+`formato` (`json`|`xlsx`). `App\Relatorios\ListaChamados` parte das mesmas `LinhaBase` da fonte (por isso bate com a
+célula): filtra por chave/coluna e ordena por `data` desc. Uma linha por **chamado** (data/autor do evento mais recente
+no escopo), exceto `encaminhamentos`, uma por **evento**, com `destino` = nome do grupo/responsável (`alvo_type`/`alvo_id`).
+Fontes de incidente (`abertos`/`cancelados`) não têm autor: `autor` = `null`. `acessivel` = o chamado é visível hoje por
+`Incidente::visiveisPara` (a linha pode aparecer por snapshot do evento num chamado que já mudou de grupo). Chamados e
+autores são carregados em uma query cada, só para a página.
+
+```json
+{ "titulo": "...", "linha": {"chave": "7", "rotulo": "Ana"}, "coluna": {"chave": "2026-10-05", "rotulo": "Sem 05/10"} | null,
+  "data": [{"incidente_id": 1, "titulo": "...", "status": "fechado", "data": "ISO-8601", "autor": {"id": 7, "name": "Ana"} | null,
+            "grupo_chamado": {"id": 2, "nome": "N2"} | null, "destino": "string" | null, "acessivel": true}],
+  "meta": {"current_page": 1, "per_page": 50, "total": 1, "last_page": 1} }
+```
+
+`formato=xlsx` baixa `relatorio-chamados.xlsx` (`RelatorioChamadosExport`, todos os itens, sem paginar): linha 1 título;
+linha 2 `Linha: {rótulo}` (+ ` · {rótulo da coluna}`); linha 3 `Gerado em … (horário de Brasília) por {nome}`; linha 4
+vazia; cabeçalho `Nº, Título, Status, Data, Analista, Grupo do chamado` (+ `Destino` em `encaminhamentos`); datas em
+Brasília `dd/mm/aaaa hh:mm`.
+
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 
 Guard `customer` (`auth:customer`); token de staff recebe `401`. Controller separado do

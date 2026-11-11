@@ -12,8 +12,9 @@ use App\Http\Controllers\Api\IncidenteController;
 use App\Http\Controllers\Api\IncidenteDescricaoController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LookupController;
-use App\Http\Controllers\Api\Portal\IncidenteController as PortalIncidenteController;
 use App\Http\Controllers\Api\PoliticaSlaController;
+use App\Http\Controllers\Api\Portal\IncidenteController as PortalIncidenteController;
+use App\Http\Controllers\Api\RelatorioConsultaController;
 use App\Http\Controllers\Api\RelatorioController;
 use App\Http\Controllers\Api\RelatorioSalvoController;
 use App\Http\Controllers\Api\RoleController;
@@ -208,6 +209,9 @@ Route::middleware(['auth:web', 'can:tickets.view'])
 // rodar não é uma ação de "gerenciar".
 Route::middleware(['auth:web', 'can:relatorios.view'])
     ->get('/relatorios/incidentes', [RelatorioController::class, 'index']);
+
+Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios/chamados', [RelatorioConsultaController::class, 'chamados']);
 
 Route::middleware(['auth:web', 'can:relatorios.view'])
     ->apiResource('relatorios-salvos', RelatorioSalvoController::class)

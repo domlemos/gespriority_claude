@@ -2,16 +2,21 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exports\RelatorioChamadosExport;
 use App\Exports\RelatorioTabelaExport;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Relatorios\AgregadorRelatorio;
 use App\Relatorios\ConsultaRelatorio;
+use App\Relatorios\ListaChamados;
 use App\Relatorios\TituloRelatorio;
+use App\Support\PeriodoRelatorio;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -35,6 +40,66 @@ class RelatorioConsultaController extends Controller
         ]);
 
         return $this->responder(ConsultaRelatorio::deDados($validado), $validado['formato'] ?? 'json', $request->user());
+    }
+
+    /**
+     * Chamados por trás de uma linha (e coluna) do relatório. Recebe os mesmos
+     * parâmetros da consulta + `chave`/`coluna`, para a lista bater com a célula.
+     */
+    public function chamados(Request $request): JsonResponse|BinaryFileResponse
+    {
+        $validado = $request->validate(ConsultaRelatorio::regras() + [
+            'chave' => ['required', 'string', 'max:191'],
+            'coluna' => ['sometimes', 'nullable', 'string'],
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:200'],
+            'formato' => ['sometimes', 'string', Rule::in(['json', 'xlsx'])],
+        ]);
+        $c = ConsultaRelatorio::deDados($validado);
+        $u = $request->user();
+        $coluna = $validado['coluna'] ?? null;
+
+        $colunas = $c->temPeriodo() ? PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra) : ['total' => 'Total'];
+        if ($coluna !== null && ! isset($colunas[$coluna])) {
+            throw ValidationException::withMessages(['coluna' => 'Coluna inexistente neste período.']);
+        }
+
+        $chave = $validado['chave'];
+        $fonte = $c->fonte();
+        $linha = ['chave' => $chave, 'rotulo' => $fonte->rotulos($c, [$chave])[$chave] ?? "#{$chave}"];
+        $colunaInfo = $coluna === null ? null : ['chave' => $coluna, 'rotulo' => $colunas[$coluna]];
+        $titulo = TituloRelatorio::montar($c);
+        $selecionadas = ListaChamados::selecionar($c, $u, $chave, $coluna);
+
+        if (($validado['formato'] ?? 'json') === 'xlsx') {
+            $descricao = "Linha: {$linha['rotulo']}".($colunaInfo ? " · {$colunaInfo['rotulo']}" : '');
+
+            return Excel::download(
+                new RelatorioChamadosExport($titulo, $descricao, ListaChamados::montar($c, $u, $selecionadas), $c->contar === 'encaminhamentos', $u, now()),
+                'relatorio-chamados.xlsx'
+            );
+        }
+
+        $porPagina = (int) ($validado['per_page'] ?? 50);
+        $pagina = new LengthAwarePaginator(
+            $selecionadas->forPage((int) ($validado['page'] ?? 1), $porPagina)->values(),
+            $selecionadas->count(),
+            $porPagina,
+            (int) ($validado['page'] ?? 1),
+        );
+
+        return response()->json([
+            'titulo' => $titulo,
+            'linha' => $linha,
+            'coluna' => $colunaInfo,
+            'data' => ListaChamados::montar($c, $u, $pagina->getCollection()),
+            'meta' => [
+                'current_page' => $pagina->currentPage(),
+                'per_page' => $pagina->perPage(),
+                'total' => $pagina->total(),
+                'last_page' => $pagina->lastPage(),
+            ],
+        ], options: JSON_PRESERVE_ZERO_FRACTION);
     }
 
     public function validado(Request $request): ConsultaRelatorio
