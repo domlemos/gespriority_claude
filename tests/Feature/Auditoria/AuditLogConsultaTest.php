@@ -84,6 +84,19 @@ class AuditLogConsultaTest extends TestCase
             ->assertJsonPath('meta.has_more', false);
     }
 
+    public function test_search_treats_like_wildcards_as_literal_text(): void
+    {
+        $h = $this->headers(['auditoria.view']);
+        $alvo = $this->log(['entidade_label' => 'Desconto 50% a_b!']);
+        $this->log(['entidade_label' => 'Desconto 500 axb']);
+
+        $this->getJson('/api/audit-logs?'.http_build_query([
+            'data_inicio' => '2026-11-10',
+            'data_fim' => '2026-11-10',
+            'busca' => '50% a_b!',
+        ]), $h)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $alvo->id);
+    }
+
     public function test_options_endpoint_lists_actions_and_entities(): void
     {
         $this->getJson('/api/audit-logs/opcoes', $this->headers(['auditoria.view']))

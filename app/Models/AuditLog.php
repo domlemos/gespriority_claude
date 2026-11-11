@@ -113,13 +113,15 @@ class AuditLog extends Model
             ->when($filtros['entidade_id'] ?? null, fn (Builder $q, int $v) => $q->where('entidade_id', $v))
             ->when($filtros['ip_address'] ?? null, fn (Builder $q, string $v) => $q->where('ip_address', $v))
             // LOWER + LIKE em vez de ILIKE: roda igual no Postgres (produção)
-            // e no SQLite (suíte de testes).
+            // e no SQLite (suíte de testes). Escape com '!', não '\': o parser
+            // de placeholders do PDO no Postgres lê `'\'` como aspa escapada,
+            // "engole" o `?` seguinte e a query quebra com HY093.
             ->when($filtros['busca'] ?? null, function (Builder $q, string $v) {
-                $termo = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_strtolower($v)).'%';
+                $termo = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($v)).'%';
 
                 $q->where(fn (Builder $qq) => $qq
-                    ->whereRaw("LOWER(ator_nome) LIKE ? ESCAPE '\\'", [$termo])
-                    ->orWhereRaw("LOWER(entidade_label) LIKE ? ESCAPE '\\'", [$termo]));
+                    ->whereRaw("LOWER(ator_nome) LIKE ? ESCAPE '!'", [$termo])
+                    ->orWhereRaw("LOWER(entidade_label) LIKE ? ESCAPE '!'", [$termo]));
             });
     }
 }
