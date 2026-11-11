@@ -7,13 +7,18 @@ use App\Relatorios\ResultadoRelatorio;
 use App\Relatorios\TituloRelatorio;
 use Carbon\CarbonInterface;
 use Maatwebsite\Excel\Concerns\FromArray;
+use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
+use Maatwebsite\Excel\Concerns\WithStrictNullComparison;
+use PhpOffice\PhpSpreadsheet\Cell\Cell;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Cell\DefaultValueBinder;
 
 /**
  * Planilha do caminho novo: título, autoria e data no topo para que o
  * arquivo faça sentido sozinho, fora do sistema. Só valores — sem fórmulas —
  * e os mesmos números do JSON (um único `ResultadoRelatorio`).
  */
-class RelatorioTabelaExport implements FromArray
+class RelatorioTabelaExport extends DefaultValueBinder implements FromArray, WithCustomValueBinder, WithStrictNullComparison
 {
     public function __construct(
         private readonly string $titulo,
@@ -21,6 +26,18 @@ class RelatorioTabelaExport implements FromArray
         private readonly User $geradoPor,
         private readonly CarbonInterface $geradoEm,
     ) {}
+
+    /** Todo texto vira string (um título `=1+1` não pode virar fórmula); números seguem numéricos. */
+    public function bindValue(Cell $cell, $value): bool
+    {
+        if (is_string($value)) {
+            $cell->setValueExplicit($value, DataType::TYPE_STRING);
+
+            return true;
+        }
+
+        return parent::bindValue($cell, $value);
+    }
 
     public function array(): array
     {
@@ -33,7 +50,7 @@ class RelatorioTabelaExport implements FromArray
         $linhas = [
             [$this->titulo],
             ['Gerado em '.$emBrasilia->format('d/m/Y H:i')." (horário de Brasília) por {$this->geradoPor->name}"],
-            [],
+            [''],
             [
                 mb_strtoupper(mb_substr($rotulo, 0, 1)).mb_substr($rotulo, 1),
                 ...array_column($colunas, 'rotulo'),

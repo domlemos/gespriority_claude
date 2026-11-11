@@ -1657,7 +1657,7 @@ incidente = `Incidente::scopeVisiveisPara` (grupo atual).
 
 ```json
 {
-  "titulo": "",
+  "titulo": "Chamados abertos (criados) de 01/10/2026 a 30/11/2026 por categoria, por mês",
   "contar": "abertos", "agrupar_por": "categoria", "quebra": "mes",
   "periodo": {"inicio": "2026-10-01", "fim": "2026-11-30"},
   "colunas": [{"chave": "2026-10-01", "rotulo": "Out/2026"}, {"chave": "2026-11-01", "rotulo": "Nov/2026"}],
@@ -1686,6 +1686,8 @@ incidente = `Incidente::scopeVisiveisPara` (grupo atual).
 - **Zero-fill:** com `grupo_analista_id` e `agrupar_por` ∈ {`analista`, `responsavel`,
   `quem_encaminhou`}, usuários ativos com `users.grupo_solucao_id` = X sem linha entram com todas as
   células 0 (`RelatorioConsultaController::zerados()` → parâmetro `$zerados` do agregador).
+- `status_sla` usa o `concluido_em` atual do chamado (não o do evento) para decidir o prazo.
+
 **Título.** `titulo` = `"{Sujeito} {período} por {agrupamento}[, por {dia|semana|mês}][ — {filtros}]"`, montado por
 `TituloRelatorio::montar()` e devolvido no JSON e na primeira linha da planilha. Sujeitos: "Chamados abertos
 (criados)", "Chamados concluídos (resolvidos ou fechados)", "Chamados resolvidos|fechados|cancelados",

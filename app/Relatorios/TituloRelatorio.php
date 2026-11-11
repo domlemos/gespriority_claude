@@ -41,7 +41,7 @@ final class TituloRelatorio
 
     private const QUEBRAS = ['dia' => 'dia', 'semana' => 'semana', 'mes' => 'mês'];
 
-    private const STATUS = [
+    public const STATUS = [
         'aberto' => 'Aberto',
         'em_andamento' => 'Em andamento',
         'pendente' => 'Pendente',

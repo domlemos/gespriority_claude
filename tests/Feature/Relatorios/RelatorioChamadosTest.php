@@ -205,7 +205,7 @@ class RelatorioChamadosTest extends TestCase
             $this->assertStringStartsWith('Chamados concluídos', $x[0][0]);
             $this->assertSame(['Linha: Ana'], $x[1]);
             $this->assertStringStartsWith('Gerado em ', $x[2][0]);
-            $this->assertSame([], $x[3]);
+            $this->assertSame([''], $x[3]);
             $this->assertSame(['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo do chamado'], $x[4]);
             $this->assertSame($incidente->id, $x[5][0]);
             $this->assertSame('Impressora', $x[5][1]);

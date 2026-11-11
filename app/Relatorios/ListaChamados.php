@@ -31,7 +31,7 @@ final class ListaChamados
         $linhas = $fonte->linhas($c, $u)->filter(fn (LinhaBase $l) => (string) ($l->chave ?? RotulosRelatorio::CHAVE_VAZIA) === $chave
             && ($coluna === null || PeriodoRelatorio::colunaDe($l->data, $c->quebra) === $coluna));
 
-        $ordenadas = $linhas->sortByDesc(fn (LinhaBase $l) => [$l->data->getTimestamp(), $l->eventoId ?? 0])->values();
+        $ordenadas = $linhas->sortByDesc(fn (LinhaBase $l) => [$l->data->getTimestamp(), $l->eventoId ?? 0, $l->incidenteId])->values();
 
         // Chamado repetido (várias conclusões na linha): fica o evento mais recente.
         return $fonte->contaEventos() ? $ordenadas : $ordenadas->unique('incidenteId')->values();

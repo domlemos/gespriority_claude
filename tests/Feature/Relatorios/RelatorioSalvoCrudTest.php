@@ -289,6 +289,19 @@ class RelatorioSalvoCrudTest extends TestCase
         $this->assertStringContainsString('de 01/11/2026 a 30/11/2026', $titulo);
     }
 
+    public function test_legacy_with_non_ymd_dates_stays_legacy_and_runs(): void
+    {
+        $relatorio = RelatorioSalvo::factory()->create([
+            'agrupar_por' => 'fechado_por',
+            'filtros' => ['data_inicio' => '2026-10-01T00:00:00Z', 'data_fim' => '2026-10-31T00:00:00Z'],
+        ]);
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $this->getJson("/api/relatorios-salvos/{$relatorio->id}", $this->authHeader($token))
+            ->assertJsonPath('data.formato_antigo', true);
+        $this->getJson("/api/relatorios-salvos/{$relatorio->id}/executar", $this->authHeader($token))->assertOk();
+    }
+
     public function test_legacy_equivalent_runs_new_path_and_is_not_old_format(): void
     {
         $relatorio = RelatorioSalvo::factory()->create([

@@ -61,11 +61,28 @@ class RelatorioSalvo extends Model
         $temInicio = isset($filtros['data_inicio']);
         $temFim = isset($filtros['data_fim']);
 
+        // Datas fora de Y-m-d (legado aceitava ISO) ficam no caminho legado.
+        foreach (['data_inicio', 'data_fim'] as $campo) {
+            if (isset($filtros[$campo]) && ! self::dataYmdValida($filtros[$campo])) {
+                return null;
+            }
+        }
+
         if ($temInicio !== $temFim || ($this->agrupar_por === 'aberto_por' && $temInicio)) {
             return null;
         }
 
         return ['contar' => $par[0], 'agrupar_por' => $par[1], 'quebra' => 'nenhuma'];
+    }
+
+    private static function dataYmdValida(mixed $v): bool
+    {
+        if (! is_string($v)) {
+            return false;
+        }
+        $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $v);
+
+        return $d !== false && $d->format('Y-m-d') === $v;
     }
 
     /**
