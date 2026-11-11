@@ -1590,6 +1590,8 @@ validação legada intactas (spec 6.5). O código fica em `app/Relatorios/`:
 | `LinhaBase` (readonly) | `chave`, `incidenteId`, `eventoId`, `autorId`, `data` (UTC) |
 | `AgregadorRelatorio::agregar($c, $linhas, $fonte, ?$zerados)` | linha × coluna de período, totais, %, ordenação |
 | `ResultadoRelatorio` | `colunas()`, `linhas()`, `totais()`, `chamadosDistintos()`, `comTitulo()`, `toArray()` |
+| `TituloRelatorio::montar($c)` | frase de título (abaixo) |
+| `App\Exports\RelatorioTabelaExport` | planilha do caminho novo (abaixo) |
 | `RotulosRelatorio` | id → nome (usuários `withTrashed`, grupos, categoria/subcategoria/item, clientes), rótulos vazios, `CHAVE_VAZIA = '__vazio__'`, `CHAVE_PORTAL = 'portal'` |
 
 `ConsultaRelatorio::fonte()` devolve `FonteIncidentes` para `abertos`/`cancelados` e `FonteEventos`
@@ -1623,7 +1625,7 @@ para `concluidos`/`resolvidos`/`fechados`/`encaminhamentos`.
 | `quebra` | `nenhuma` (padrão)\|`dia`\|`semana`\|`mes` | ≠ `nenhuma` exige período → 422 "Informe um período para quebrar por {dia\|semana\|mês}."; acima de `PeriodoRelatorio::LIMITE_COLUNAS` (dia 62, semana 53, mês 24) → 422 "Período longo demais para quebra por {…}: máximo de {N} colunas." |
 | `periodo` | `este_mes`\|`mes_passado`\|`ultimos_7_dias`, `prohibits:data_inicio,data_fim` | resolvido em Brasília no momento da execução (`PeriodoRelatorio::resolverAtalho`) |
 | `data_inicio`/`data_fim` | `date_format:Y-m-d`, uma exige a outra, `data_fim` `after_or_equal:data_inicio` | dias de Brasília inclusivos; sem período nenhum = "todo o período" |
-| `formato` | `json` | `xlsx` no caminho novo vem depois |
+| `formato` | `json`\|`xlsx` | validado na mesma passada dos demais campos (um único 422 com todos os erros) |
 | filtros | `status`, `tipo`, `categoria_id`, `subcategoria_id`, `item_id`, `grupo_solucao_id`, `grupo_analista_id`, `responsavel_id`, `client_id`, `customer_id` — mesmas regras do legado | nas fontes de incidente: estado atual do chamado (`Incidente::scopeFiltrosRelatorio`, sem as datas legadas); `grupo_analista_id` = grupo atual do responsável, exceto em `aberto_por` (grupo do criador) |
 
 **`contar` → base, data, agrupamentos:**
@@ -1675,7 +1677,19 @@ incidente = `Incidente::scopeVisiveisPara` (grupo atual).
 - **Zero-fill:** com `grupo_analista_id` e `agrupar_por` ∈ {`analista`, `responsavel`,
   `quem_encaminhou`}, usuários ativos com `users.grupo_solucao_id` = X sem linha entram com todas as
   células 0 (`RelatorioConsultaController::zerados()` → parâmetro `$zerados` do agregador).
-- `titulo` vem vazio por enquanto (a frase de título é montada numa etapa seguinte).
+**Título.** `titulo` = `"{Sujeito} {período} por {agrupamento}[, por {dia|semana|mês}][ — {filtros}]"`, montado por
+`TituloRelatorio::montar()` e devolvido no JSON e na primeira linha da planilha. Sujeitos: "Chamados abertos
+(criados)", "Chamados concluídos (resolvidos ou fechados)", "Chamados resolvidos|fechados|cancelados",
+"Encaminhamentos". Período: `de dd/mm/aaaa a dd/mm/aaaa` ou `em todo o período`. Filtros por extenso (ids
+resolvidos para nomes), separados por `; `, na ordem: grupo do analista, grupo do chamado, cliente, usuário do
+cliente (`customer_id`), categoria, subcategoria, item, tipo, responsável, status (rótulos "Em andamento" etc.).
+Exemplo: `Chamados concluídos (resolvidos ou fechados) de 01/10/2026 a 31/10/2026 por analista — grupo do analista: N2`.
+
+**Planilha (`formato=xlsx`).** Arquivo `relatorio-{contar}-{agrupar_por}.xlsx`, só valores (sem fórmulas), via
+`RelatorioTabelaExport` (`FromArray`): linha 1 título; linha 2 `Gerado em dd/mm/aaaa hh:mm (horário de Brasília) por
+{nome}`; linha 3 vazia; linha 4 cabeçalho `[agrupamento capitalizado, ...rótulos das colunas (só com quebra), Total, %]`;
+uma linha por registro (`%` numérico com 1 casa); linha `Total`; e, só se `chamados_distintos` ≠ total geral, a
+linha final `Chamados distintos no resultado: N`.
 
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 

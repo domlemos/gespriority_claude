@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exports\RelatorioTabelaExport;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Relatorios\AgregadorRelatorio;
 use App\Relatorios\ConsultaRelatorio;
+use App\Relatorios\TituloRelatorio;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Caminho novo de `GET /relatorios/incidentes` — ativado por `contar`
@@ -22,13 +26,15 @@ class RelatorioConsultaController extends Controller
     /** Agrupamentos por pessoa: com `grupo_analista_id`, os membros ociosos entram com 0. */
     private const AGRUPAMENTOS_POR_USUARIO = ['analista', 'responsavel', 'quem_encaminhou'];
 
-    public function index(Request $request): JsonResponse
+    public function index(Request $request): JsonResponse|BinaryFileResponse
     {
-        $formato = $request->validate([
-            'formato' => ['sometimes', 'string', Rule::in(['json'])],
-        ])['formato'] ?? 'json';
+        // Uma única passada de validação: `formato` entra junto com os demais
+        // campos para o 422 trazer todos os erros de uma vez.
+        $validado = $request->validate(ConsultaRelatorio::regras() + [
+            'formato' => ['sometimes', 'string', Rule::in(['json', 'xlsx'])],
+        ]);
 
-        return $this->responder($this->validado($request), $formato, $request->user());
+        return $this->responder(ConsultaRelatorio::deDados($validado), $validado['formato'] ?? 'json', $request->user());
     }
 
     public function validado(Request $request): ConsultaRelatorio
@@ -36,10 +42,18 @@ class RelatorioConsultaController extends Controller
         return ConsultaRelatorio::deDados($request->validate(ConsultaRelatorio::regras()));
     }
 
-    public function responder(ConsultaRelatorio $c, string $formato, User $u): JsonResponse
+    public function responder(ConsultaRelatorio $c, string $formato, User $u): JsonResponse|BinaryFileResponse
     {
         $fonte = $c->fonte();
-        $resultado = AgregadorRelatorio::agregar($c, $fonte->linhas($c, $u), $fonte, $this->zerados($c));
+        $resultado = AgregadorRelatorio::agregar($c, $fonte->linhas($c, $u), $fonte, $this->zerados($c))
+            ->comTitulo(TituloRelatorio::montar($c));
+
+        if ($formato === 'xlsx') {
+            return Excel::download(
+                new RelatorioTabelaExport($resultado->titulo, $resultado, $u, now()),
+                "relatorio-{$c->contar}-{$c->agruparPor}.xlsx"
+            );
+        }
 
         // `percentual` sai sempre com casa decimal (100.0, não 100): o tipo não muda conforme o valor.
         return response()->json($resultado->toArray(), options: JSON_PRESERVE_ZERO_FRACTION);
