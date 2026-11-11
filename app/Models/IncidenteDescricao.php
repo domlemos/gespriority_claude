@@ -53,7 +53,11 @@ class IncidenteDescricao extends Model
 
     public const TIPO_ALTERACAO = 'alteracao';
 
-    public const TIPOS = [self::TIPO_COMENTARIO, self::TIPO_ESCALONAMENTO, self::TIPO_ALTERACAO];
+    // Mensagem obrigatória de quem fecha o chamado — a única entrada do staff
+    // que o cliente vê no portal (o resto do feed é interno).
+    public const TIPO_ENCERRAMENTO = 'encerramento';
+
+    public const TIPOS = [self::TIPO_COMENTARIO, self::TIPO_ESCALONAMENTO, self::TIPO_ALTERACAO, self::TIPO_ENCERRAMENTO];
 
     public function incidente(): BelongsTo
     {

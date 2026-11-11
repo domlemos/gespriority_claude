@@ -133,7 +133,21 @@ class IncidenteController extends Controller
             'origem' => ['sometimes', 'required', 'string', Rule::in(Incidente::ORIGENS)],
             'status' => ['sometimes', 'required', 'string', Rule::in(Incidente::STATUSES)],
             'tipo' => ['sometimes', 'required', 'string', Rule::in(Incidente::TIPOS)],
+            // Obrigatória só na transição pra 'fechado' (abaixo); fora dela é
+            // ignorada. Vira a entrada 'encerramento' do feed, a única do
+            // staff que o cliente vê no portal.
+            'mensagem_encerramento' => ['nullable', 'string', 'max:5000'],
         ]);
+
+        $mensagemEncerramento = trim($data['mensagem_encerramento'] ?? '');
+        unset($data['mensagem_encerramento']);
+        $fechando = ($data['status'] ?? $incidente->status) === 'fechado' && $incidente->status !== 'fechado';
+
+        if ($fechando && $mensagemEncerramento === '') {
+            throw ValidationException::withMessages([
+                'mensagem_encerramento' => 'Escreva a mensagem de encerramento para o cliente.',
+            ]);
+        }
 
         $this->garantirPermissaoParaCamposRestritos($request->user(), $incidente, $data);
 
@@ -168,9 +182,19 @@ class IncidenteController extends Controller
             $customerAnteriorId,
             $itemAnteriorId,
             $recalcularSla,
-            $request
+            $request,
+            $fechando,
+            $mensagemEncerramento
         ) {
             $incidente->update($data);
+
+            if ($fechando) {
+                $incidente->descricoes()->create([
+                    'user_id' => $request->user()->id,
+                    'tipo' => IncidenteDescricao::TIPO_ENCERRAMENTO,
+                    'descricao' => $mensagemEncerramento,
+                ]);
+            }
 
             if ($recalcularSla) {
                 $this->calcularPrazosSla($incidente);
