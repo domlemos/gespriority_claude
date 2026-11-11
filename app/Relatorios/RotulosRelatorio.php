@@ -4,6 +4,7 @@ namespace App\Relatorios;
 
 use App\Models\Categoria;
 use App\Models\Client;
+use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
 use App\Models\Item;
@@ -115,5 +116,11 @@ final class RotulosRelatorio
     public static function clientes(array $ids): array
     {
         return $ids === [] ? [] : Client::whereIn('id', $ids)->pluck('name', 'id')->all();
+    }
+
+    /** Usuário do portal (`customers`) — o filtro `customer_id`, distinto de `clientes()`. */
+    public static function customers(array $ids): array
+    {
+        return $ids === [] ? [] : Customer::whereIn('id', $ids)->pluck('name', 'id')->all();
     }
 }

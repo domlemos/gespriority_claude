@@ -2,7 +2,6 @@
 
 namespace App\Relatorios;
 
-use App\Models\Customer;
 use App\Models\Incidente;
 use Carbon\Carbon;
 
@@ -87,7 +86,7 @@ final class TituloRelatorio
         $nome('grupo_solucao_id', 'grupo do chamado', RotulosRelatorio::grupos(...));
         $nome('client_id', 'cliente', RotulosRelatorio::clientes(...));
         // `customer_id` é o usuário do portal, não a empresa (spec 6A.8).
-        $nome('customer_id', 'usuário do cliente', fn (array $ids) => Customer::withTrashed()->whereIn('id', $ids)->pluck('name', 'id')->all());
+        $nome('customer_id', 'usuário do cliente', RotulosRelatorio::customers(...));
         $nome('categoria_id', 'categoria', RotulosRelatorio::categorias(...));
         $nome('subcategoria_id', 'subcategoria', RotulosRelatorio::subcategorias(...));
         $nome('item_id', 'item', RotulosRelatorio::itens(...));

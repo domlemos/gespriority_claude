@@ -3,6 +3,7 @@
 namespace Tests\Feature\Relatorios;
 
 use App\Exports\RelatorioTabelaExport;
+use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
 use App\Models\IncidenteEvento;
@@ -75,6 +76,16 @@ class RelatorioConsultaSaidaTest extends TestCase
         )->assertOk()->json('titulo');
 
         $this->assertSame('Chamados cancelados em todo o período por tipo — tipo: Solicitação; status: Em andamento', $titulo);
+    }
+
+    public function test_titulo_resolves_customer_filter_name(): void
+    {
+        $customer = Customer::factory()->create(['name' => 'Maria Portal']);
+
+        $this->getJson(
+            "/api/relatorios/incidentes?contar=abertos&agrupar_por=tipo&customer_id={$customer->id}",
+            $this->adminHeader()
+        )->assertOk()->assertJsonPath('titulo', 'Chamados abertos (criados) em todo o período por tipo — usuário do cliente: Maria Portal');
     }
 
     public function test_formato_is_validated_together_with_other_fields(): void
