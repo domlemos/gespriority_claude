@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AnexoController;
+use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoriaController;
 use App\Http\Controllers\Api\ClientController;
@@ -228,3 +229,11 @@ Route::middleware(['auth:web', 'can:relatorios.manage'])
     ->apiResource('relatorios-salvos', RelatorioSalvoController::class)
     ->parameters(['relatorios-salvos' => 'relatorioSalvo'])
     ->only(['store', 'update', 'destroy']);
+
+// Log de ações (Administração > Logs de ações) — só leitura; gravado por
+// App\Models\Concerns\Auditavel e App\Support\Auditoria. A listagem exige
+// período (ver AuditLogController); `opcoes` só devolve os rótulos dos selects.
+Route::middleware(['auth:web', 'can:auditoria.view'])->group(function () {
+    Route::get('/audit-logs', [AuditLogController::class, 'index']);
+    Route::get('/audit-logs/opcoes', [AuditLogController::class, 'opcoes']);
+});

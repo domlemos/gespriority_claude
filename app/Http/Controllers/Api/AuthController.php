@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\Customer;
-use App\Models\TokenAuditLog;
 use App\Models\User;
+use App\Support\Auditoria;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -49,6 +49,15 @@ class AuthController extends Controller
         $model = $config['model']::query()->where('email', $credentials['email'])->first();
 
         if (! $model || ! Hash::check($credentials['password'], $model->password)) {
+            // Sem ator autenticado: guarda o e-mail tentado (e o id, se a
+            // conta existe) pra dar pra filtrar tentativas contra um usuário.
+            Auditoria::registrar(
+                'login_falhou',
+                atorNome: $credentials['email'],
+                atorType: $guard === 'customer' ? 'customer' : 'user',
+                atorId: $model?->getKey(),
+            );
+
             throw ValidationException::withMessages([
                 'email' => [__('auth.failed')],
             ]);
@@ -60,7 +69,7 @@ class AuthController extends Controller
             now()->addMinutes($config['ttl_minutes'])
         );
 
-        $this->audit($model, 'issued', $request);
+        Auditoria::registrar('login', ator: $model);
 
         return response()->json([
             'token' => $token->plainTextToken,
@@ -94,7 +103,7 @@ class AuthController extends Controller
             return $new;
         });
 
-        $this->audit($user, 'refreshed', $request);
+        Auditoria::registrar('token_renovado', ator: $user);
 
         return response()->json([
             'token' => $token->plainTextToken,
@@ -108,7 +117,7 @@ class AuthController extends Controller
 
         $user->currentAccessToken()->delete();
 
-        $this->audit($user, 'revoked', $request);
+        Auditoria::registrar('logout', ator: $user);
 
         return response()->json(['message' => 'Logged out.']);
     }
@@ -119,7 +128,7 @@ class AuthController extends Controller
 
         $user->tokens()->delete();
 
-        $this->audit($user, 'revoked_all', $request);
+        Auditoria::registrar('logout_todos', ator: $user);
 
         return response()->json(['message' => 'Logged out from all devices.']);
     }
@@ -156,6 +165,8 @@ class AuthController extends Controller
                 ])->save();
 
                 $model->tokens()->delete();
+
+                Auditoria::registrar('senha_redefinida', ator: $model);
             }
         );
 
@@ -186,17 +197,5 @@ class AuthController extends Controller
     private function guardNameFor(User|Customer $user): string
     {
         return $user instanceof Customer ? 'customer' : 'web';
-    }
-
-    private function audit(User|Customer $model, string $action, Request $request): void
-    {
-        $log = new TokenAuditLog([
-            'action' => $action,
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-        ]);
-
-        $log->tokenable()->associate($model);
-        $log->save();
     }
 }

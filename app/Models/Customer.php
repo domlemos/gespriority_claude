@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -18,7 +19,7 @@ use Laravel\Sanctum\HasApiTokens;
 class Customer extends Authenticatable
 {
     /** @use HasFactory<CustomerFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use Auditavel, HasApiTokens, HasFactory, Notifiable;
 
     protected function casts(): array
     {

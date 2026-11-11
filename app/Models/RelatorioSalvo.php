@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use Database\Factories\RelatorioSalvoFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RelatorioSalvo extends Model
 {
     /** @use HasFactory<RelatorioSalvoFactory> */
-    use HasFactory;
+    use Auditavel, HasFactory;
 
     // Pluralização automática do Eloquent daria 'relatorio_salvos' (só o
     // último termo pluralizado); a tabela é 'relatorios_salvos'.

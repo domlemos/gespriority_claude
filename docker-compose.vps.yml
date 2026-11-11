@@ -43,6 +43,23 @@ services:
     networks:
       - rede-itsm
 
+  # Agendador do Laravel (routes/console.php) — hoje só a limpeza diária do
+  # log de ações (`model:prune` em AuditLog, retenção de 6 meses). Mesma
+  # imagem do `app`; `schedule:work` roda o `schedule:run` a cada minuto,
+  # sem precisar de cron no host.
+  scheduler:
+    image: gespriority-itsm-fpm:latest
+    container_name: itsm-scheduler
+    restart: unless-stopped
+    command: ["php", "artisan", "schedule:work"]
+    env_file:
+      - .env
+    depends_on:
+      - app
+      - postgres
+    networks:
+      - rede-itsm
+
   # Equivalente ao RDS do módulo data/ — mesmo engine (Postgres 16, igual
   # ao `engine_version` em infra/terraform/modules/data/main.tf), sem
   # backup/multi-AZ gerenciado: isso vira responsabilidade de um cron de

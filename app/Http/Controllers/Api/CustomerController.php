@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\Incidente;
 use App\Models\IncidenteDescricao;
 use App\Notifications\ConviteUsuario;
+use App\Support\Auditoria;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -81,6 +82,8 @@ class CustomerController extends Controller
         $token = Password::broker('customers')->createToken($customer);
 
         $customer->notify(new ConviteUsuario($token));
+
+        Auditoria::registrar('convite_enviado', $customer);
 
         return response()->json(['message' => 'Convite enviado.']);
     }

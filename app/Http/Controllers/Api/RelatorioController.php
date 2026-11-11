@@ -12,6 +12,7 @@ use App\Models\Item;
 use App\Models\RelatorioSalvo;
 use App\Models\Subcategoria;
 use App\Models\User;
+use App\Support\Auditoria;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -70,6 +71,13 @@ class RelatorioController extends Controller
         $linhas = $this->agregar($filtros, $agruparPor, $user);
 
         if ($formato === 'xlsx') {
+            Auditoria::registrar(
+                'exportado',
+                alteracoes: ['parametros' => [...$filtros, 'agrupar_por' => $agruparPor]],
+                entidadeType: 'relatorio',
+                entidadeLabel: 'Incidentes por '.self::ROTULOS_AGRUPAMENTO[$agruparPor],
+            );
+
             return Excel::download(new RelatorioIncidentesExport($linhas, self::ROTULOS_AGRUPAMENTO[$agruparPor]), "relatorio-{$agruparPor}.xlsx");
         }
 

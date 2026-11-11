@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use Database\Factories\ItemFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Item extends Model
 {
     /** @use HasFactory<ItemFactory> */
-    use HasFactory;
+    use Auditavel, HasFactory;
 
     protected $table = 'itens';
 

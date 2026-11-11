@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\Permission;
+use App\Models\Concerns\Auditavel;
 use Database\Factories\GrupoSolucaoFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class GrupoSolucao extends Model
 {
     /** @use HasFactory<GrupoSolucaoFactory> */
-    use HasFactory;
+    use Auditavel, HasFactory;
 
     protected $table = 'grupos_solucao';
 

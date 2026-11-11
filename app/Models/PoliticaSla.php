@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use Database\Factories\PoliticaSlaFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class PoliticaSla extends Model
 {
     /** @use HasFactory<PoliticaSlaFactory> */
-    use HasFactory;
+    use Auditavel, HasFactory;
 
     protected $table = 'politicas_sla';
 

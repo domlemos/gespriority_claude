@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AnexoResource;
 use App\Models\Anexo;
 use App\Models\Incidente;
+use App\Support\Auditoria;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -98,6 +99,8 @@ class AnexoController extends Controller
         $this->authorize('view', $incidente);
 
         $this->ensureBelongsTo($incidente, $anexo);
+
+        Auditoria::registrar('download', $anexo);
 
         return Storage::download($anexo->caminho, $anexo->nome_original);
     }

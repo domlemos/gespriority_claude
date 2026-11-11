@@ -139,7 +139,7 @@ automatizado). Manual:
 
 ```bash
 git pull
-docker compose -f docker-compose.vps.yml up -d --build app queue
+docker compose -f docker-compose.vps.yml up -d --build app queue scheduler
 ```
 
 `opcache.validate_timestamps=0` (ver `docker/php-fpm/conf.d/opcache.ini`)
@@ -153,5 +153,5 @@ no commit anterior e reconstruir:
 
 ```bash
 git checkout <commit-anterior>
-docker compose -f docker-compose.vps.yml up -d --build app queue
+docker compose -f docker-compose.vps.yml up -d --build app queue scheduler
 ```

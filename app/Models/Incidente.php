@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use App\Support\PeriodoRelatorio;
 use Carbon\Carbon;
 use Database\Factories\IncidenteFactory;
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Incidente extends Model
 {
     /** @use HasFactory<IncidenteFactory> */
-    use HasFactory;
+    use Auditavel, HasFactory;
 
     public const STATUSES = ['aberto', 'em_andamento', 'pendente', 'resolvido', 'fechado', 'cancelado'];
 
@@ -66,6 +67,27 @@ class Incidente extends Model
             'respondido_em' => 'datetime',
             'concluido_em' => 'datetime',
         ];
+    }
+
+    /**
+     * Log de ações (Auditavel): só as colunas editáveis pela API (não prazos
+     * de SLA/concluido_em recalculados pelo sistema) e só os NOMES dos campos
+     * alterados — os valores de/para já ficam no feed do chamado
+     * (IncidenteDescricao 'alteracao'/'escalonamento'), sem duplicar.
+     */
+    public function camposAuditaveis(): array
+    {
+        return $this->getFillable();
+    }
+
+    public function auditoriaResumida(): bool
+    {
+        return true;
+    }
+
+    public function rotuloAuditoria(): string
+    {
+        return "#{$this->id} {$this->titulo}";
     }
 
     public function customer(): BelongsTo

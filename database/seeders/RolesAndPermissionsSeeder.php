@@ -33,6 +33,7 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'Gerenciar grupos de solução', 'slug' => 'grupos_solucao.manage'],
             ['name' => 'Visualizar relatórios', 'slug' => 'relatorios.view'],
             ['name' => 'Gerenciar relatórios salvos', 'slug' => 'relatorios.manage'],
+            ['name' => 'Visualizar logs de ações', 'slug' => 'auditoria.view'],
         ])->mapWithKeys(fn (array $data) => [
             $data['slug'] => Permission::query()->updateOrCreate(['slug' => $data['slug']], $data),
         ]);

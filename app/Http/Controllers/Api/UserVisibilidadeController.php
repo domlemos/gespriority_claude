@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GrupoSolucao;
 use App\Models\User;
+use App\Support\Auditoria;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -30,7 +31,9 @@ class UserVisibilidadeController extends Controller
             ],
         ]);
 
+        $antes = $user->gruposVisiveisExtra()->pluck('nome')->all();
         $user->gruposVisiveisExtra()->sync($data['grupo_solucao_ids']);
+        Auditoria::registrarRelacao($user, 'grupos_visiveis', $antes, $user->gruposVisiveisExtra()->pluck('nome')->all());
 
         return response()->json(['data' => $this->payload($user->fresh())]);
     }

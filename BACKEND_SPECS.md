@@ -323,15 +323,29 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `expires_at` | `timestamp` nullable | **TTL por guard aplicado aqui** — 2h (`web`) / 4h (`customer`), setado explicitamente em `createToken()` |
 | `created_at`, `updated_at` | `timestamp` | |
 
-#### `token_audit_logs` (auditoria de emissão/revogação — item da seção 1.3)
+#### `audit_logs` (log de ações de usuários — substitui `token_audit_logs`, ver §3.4.11)
 | Coluna | Tipo | Notas |
 |---|---|---|
 | `id` | `bigint` PK | |
-| `tokenable_type` / `tokenable_id` | morph nullable | `User` ou `Customer` dono do token |
-| `action` | `string` | `issued` \| `refreshed` \| `revoked` \| `revoked_all` |
-| `ip_address` | `string(45)` nullable | suporta IPv6; de `$request->ip()` |
-| `user_agent` | `text` nullable | de `$request->userAgent()` |
-| `created_at` | `timestamp` (`useCurrent()`) | **sem** `updated_at` (`const UPDATED_AT = null` no model — é um log append-only) |
+| `ator_type` | `string(20)` nullable | alias curto `user` \| `customer` (não o nome da classe — ver `AuditLog::ENTIDADES`); preenchido também em `login_falhou` (guard tentado) |
+| `ator_id` | `bigint` nullable | sem FK de propósito (log sobrevive a qualquer exclusão); `null` em `login_falhou` contra e-mail inexistente |
+| `ator_nome` | `string` nullable | **snapshot** do nome no momento da ação; em `login_falhou`, o e-mail tentado |
+| `acao` | `string(40)` | slug de `AuditLog::ACOES`: `criado`, `atualizado`, `excluido`, `login`, `login_falhou`, `token_renovado`, `logout`, `logout_todos`, `senha_redefinida`, `convite_enviado`, `download`, `exportado` |
+| `entidade_type` / `entidade_id` | `string(40)` / `bigint`, nullable | alias de `AuditLog::ENTIDADES` (`user`, `customer`, `client`, `politica_sla`, `categoria`, `subcategoria`, `item`, `grupo_solucao`, `relatorio_salvo`, `incidente`, `incidente_descricao`, `anexo`, `relatorio`); `null` em login/logout |
+| `entidade_label` | `string` nullable | **snapshot** legível (nome, `#id título` do chamado, nome do arquivo, título do relatório exportado) |
+| `alteracoes` | `jsonb` nullable | `{campo: {de, para}}` (CRUD e relações N:N); `{campos: [...]}` (chamado — só nomes, ver §3.4.11); `{parametros: {...}}` (exportação) |
+| `ip_address` | `string(45)` nullable | `$request->ip()` |
+| `user_agent` | `text` nullable | truncado em 1000 caracteres |
+| `created_at` | `timestamp` (`useCurrent()`) | **sem** `updated_at` (`const UPDATED_AT = null` — append-only) |
+
+Índices: `created_at`; `(ator_type, ator_id, created_at)`; `(entidade_type, entidade_id)`;
+`(acao, created_at)`. Retenção de **6 meses** (`AuditLog::RETENCAO_MESES`, `MassPrunable`).
+
+> 📌 **Migração de `token_audit_logs`:** a migration `2026_11_12_000000_create_audit_logs_table`
+> copia os registros antigos (`issued`→`login`, `refreshed`→`token_renovado`, `revoked`→`logout`,
+> `revoked_all`→`logout_todos`, nome do autor resolvido por join) e remove a tabela antiga e o model
+> `TokenAuditLog`. O `down()` faz o caminho inverso. Registros com mais de 6 meses serão apagados
+> na primeira execução do `model:prune` agendado.
 
 #### `politicas_sla` (`App\Models\PoliticaSla` — política de SLA, em horas expressas via campos `_minutos`)
 > 📌 **"SLA em horas" vs. colunas `_minutos`:** o requisito de negócio expressa a SLA em horas
@@ -512,8 +526,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > 📌 **Por que virou tabela e não JSON:** cresce sem limite (chamado escalado várias vezes ao longo
 > de semanas), precisa de FK de verdade com `users` (integridade referencial que JSON não garante),
 > e precisa de `UPDATE`/`DELETE` de uma entrada específica sem reescrever um blob inteiro — mesmo
-> raciocínio de `token_audit_logs` (já implementado como tabela desde o módulo de autenticação, ver
-> §1.3), que é o mesmo tipo de problema (quem fez o quê, quando, relacionado a quê).
+> raciocínio de `token_audit_logs` (hoje `audit_logs`, ver §3.4.11), que é o mesmo tipo de problema (quem fez o quê, quando, relacionado a quê).
 >
 > **`tipo = 'comentario'`**: criado explicitamente por um agente via `POST
 > /incidentes/{incidente}/descricoes`. Editável/excluível **só pelo próprio autor**
@@ -619,7 +632,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `alvo_type`/`alvo_id` | `string` nullable / `bigint unsigned` nullable | alvo polimórfico do encaminhamento (`GrupoSolucao` ou `User`) — só preenchido pra `tipo` = `encaminhado_*`; `null` pra `resolvido`/`fechado`, que não têm "destino" |
 | `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo do incidente **no momento do evento**, preenchido pelo hook `creating` do model (só se não informado); `nullOnDelete()`, indexada. Backfill (migration `add_grupo_snapshot_to_incidente_eventos_table`): destino do `encaminhado_grupo` mais recente até o evento; senão, se não há encaminhamento posterior, o grupo atual do incidente; senão `null` (grupo inicial desconhecido — `store()` não gera evento de encaminhamento) |
 | `autor_grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo de quem executou a ação; mesmo hook/FK. Backfill é **aproximação**: grupo atual do usuário (o da época nunca foi guardado) |
-| `created_at` | `timestamp` | quando o evento aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `TokenAuditLog`) — a linha nunca é alterada depois de criada |
+| `created_at` | `timestamp` | quando o evento aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `AuditLog`) — a linha nunca é alterada depois de criada |
 | índice | `incidente_id`, `[incidente_id, tipo]` | não únicos, só performance |
 
 > 📌 **Log de eventos, não uma coluna em `Incidente` — de propósito.** Motivação original: um
@@ -659,7 +672,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `App\Models\Customer` | `HasApiTokens`, `Notifiable`; `client(): BelongsTo` → `Client`; `incidentes(): HasMany` → `Incidente`; **sem** `roles()`/`hasPermission()`; `scopeFiltros(array $filtros): Builder` — `name`/`email` busca parcial (`LIKE`), `client_id` igualdade exata, ver §3.4.3 |
 | `App\Models\Role` | `permissions(): BelongsToMany` → `Permission`; `users(): BelongsToMany` → `User` |
 | `App\Models\Permission` | `roles(): BelongsToMany` → `Role` |
-| `App\Models\TokenAuditLog` | `tokenable(): MorphTo`; `const UPDATED_AT = null` |
+| `App\Models\AuditLog` | `MassPrunable` (`prunable()`: `created_at` anterior a `RETENCAO_MESES`); `const UPDATED_AT = null`; `const ACOES` (slug → rótulo), `const ENTIDADES` (alias → [classe, rótulo]); `aliasDe(Model): ?string`; `scopeFiltros(array)` — período obrigatório (dias de Brasília via `PeriodoRelatorio`), `user_id`/`customer_id`, `ator_type`, `acao[]`, `entidade_type`, `entidade_id`, `ip_address`, `busca` (`LOWER(...) LIKE` em `ator_nome`/`entidade_label`, roda em Postgres e SQLite). Gravado por `App\Models\Concerns\Auditavel` (trait nos models de cadastro/chamado) e `App\Support\Auditoria` — ver §3.4.11 |
 | `App\Models\PoliticaSla` | `$table = 'politicas_sla'` (pluralização automática do Eloquent não bate com o nome em português); `client(): BelongsTo` → `Client`; `const PRIORIDADES = ['baixa','media','alta','urgente']`; `scopeFiltros(array $filtros): Builder` — `nome` (parcial), `prioridade` (exata), `ativo`/`apenas_horas_uteis` (exatos, via `array_key_exists()` pra não perder `false` explícito), `client_id` (exato, com sentinel `'global'` pra `client_id IS NULL`), ver §3.4.4 |
 | `App\Models\Categoria` | `subcategorias(): HasMany` → `Subcategoria` (sem `$table` explícito — `categoria`→`categorias` é o único caso em português onde a pluralização automática do Eloquent acerta por coincidência); `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `ativo` (via `array_key_exists`, não `??`, ver §3.4.5) |
 | `App\Models\Subcategoria` | `categoria(): BelongsTo` → `Categoria`; `itens(): HasMany` → `Item`; `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `categoria_id` (igualdade exata), `ativo` (via `array_key_exists`) |
@@ -1761,6 +1774,52 @@ encaminhamento e origem, que o cliente não pode tocar.
 > `update()` deriva a prioridade do item e calcula os prazos a partir de `created_at` — o tempo
 > de triagem consome o prazo, de propósito (tempo percebido pelo cliente, padrão ITSM).
 
+### 3.4.11. Endpoints — Log de ações (`App\Http\Controllers\Api\AuditLogController`)
+
+Tela **Administração > Auditoria > Logs de ações** do frontend. Permission `auditoria.view` (só
+`admin`, concedida pela migration `2026_11_12_000001_add_auditoria_view_permission` — produção não
+roda o seeder a cada deploy).
+
+| Método | Rota | Middleware | Parâmetros | Resposta |
+|---|---|---|---|---|
+| `GET` | `/audit-logs` | `auth:web`, `can:auditoria.view` | **`data_inicio`, `data_fim` obrigatórios** (`Y-m-d`, dias de Brasília, inclusivos, no máximo 93 dias); opcionais `user_id`, `customer_id`, `ator_type` (`user`\|`customer`), `acao[]`, `entidade_type`, `entidade_id`, `ip_address`, `busca` (até 100 caracteres), `page` | `200` — `{data: [{id, created_at, acao, acao_rotulo, ator: {type, id, nome}\|null, entidade: {type, type_rotulo, id, label}\|null, alteracoes, ip_address, user_agent}], meta: {current_page, per_page: 50, has_more}}`, mais recente primeiro; `422` sem período ou com período acima do limite |
+| `GET` | `/audit-logs/opcoes` | idem | — | `200` — `{acoes: [{value, title}], entidades: [{value, title}], max_dias, retencao_meses}` (não consulta a tabela) |
+
+> 📌 **Nada carrega sem filtro.** A tela abre só com o formulário (o período vem preenchido com os
+> últimos 7 dias, mas nada é consultado) e só chama `/audit-logs` ao clicar em **Consultar**. O
+> backend reforça: sem período → `422`, período limitado, e `simplePaginate` (sem `COUNT(*)` numa
+> tabela que só cresce — o frontend usa "Carregar mais").
+
+**O que é registrado**
+
+| Origem | Ações |
+|---|---|
+| Trait `Auditavel` (eventos `created`/`updated`/`deleted` do Eloquent) em `User`, `Customer`, `Client`, `PoliticaSla`, `Categoria`, `Subcategoria`, `Item`, `GrupoSolucao`, `RelatorioSalvo`, `Incidente`, `IncidenteDescricao`, `Anexo` | `criado` (valores iniciais não nulos como `{campo: {de: null, para}}`), `atualizado` (só as colunas que mudaram, `{de, para}`; sem linha se nada auditável mudou), `excluido` (inclui soft delete) |
+| `Auditoria::registrarRelacao()` — `sync()` de pivot não dispara evento de model | papéis do usuário (`papeis`), grupos visíveis extras (`grupos_visiveis`), permissões liberadas/bloqueadas do grupo de solução (`permissoes_liberadas`/`permissoes_bloqueadas`, por slug) |
+| `AuthController` | `login`, `login_falhou` (e-mail tentado + id da conta, se existir), `token_renovado`, `logout`, `logout_todos`, `senha_redefinida` |
+| `UserController`/`CustomerController::enviarConvite()` | `convite_enviado` |
+| `AnexoController::download()` | `download` |
+| `RelatorioController`/`RelatorioConsultaController` (`formato=xlsx`, inclusive via `relatorios-salvos/{id}/executar`) | `exportado`, com os parâmetros da consulta |
+
+Regras:
+- **Só com usuário autenticado.** O trait ignora eventos sem `Auth::user()` — seeders,
+  `chamados:popular`, factories e o `save()` interno do reset de senha (que tem log explícito) não
+  geram linhas. O autor é o usuário do guard que autenticou o request (`web` ou `customer`), então
+  ações do portal aparecem com autor "Usuário de cliente".
+- **Nunca grava segredo:** `password`/`remember_token` (e `id`/timestamps) ficam fora; troca de
+  senha aparece como `senha: (alterada)`.
+- **Chamado, modo econômico:** em `Incidente` só as colunas do `#[Fillable]` são consideradas
+  (prazos de SLA/`concluido_em` recalculados não geram linha) e `alteracoes` guarda **só os nomes**
+  (`{campos: ["status", ...]}`) — os valores de/para já ficam no feed do chamado
+  (`alteracao`/`escalonamento`). Em `IncidenteDescricao` só entra `comentario` (entradas de sistema
+  são efeito de uma ação já registrada), sem o texto.
+- **Leituras comuns não são registradas** — só download de anexo e exportação de planilha.
+- **Síncrono**, no mesmo request (e na mesma transação, quando a ação está num
+  `DB::transaction()`): rollback leva o log junto.
+- **Retenção de 6 meses:** `model:prune --model=App\Models\AuditLog` agendado diariamente às 03:30
+  em `routes/console.php`; em produção roda no container `scheduler` (`php artisan schedule:work`,
+  `docker-compose.vps.yml`), que o deploy sobe junto com `app` e `queue`.
+
 ### 3.5. Outras decisões de implementação
 
 - **`AppServiceProvider::boot()`**:
@@ -1804,7 +1863,7 @@ Permissions: `users.manage`, `roles.manage`, `clients.manage`, `customers.manage
 `slas.manage`, `categorias.view`, `categorias.manage`, `grupos_solucao.view`,
 `grupos_solucao.manage`, `tickets.view`, `tickets.manage`, `tickets.assign` (`tickets.assign` é
 placeholder ainda não usado por nenhuma lógica — ver nota em §3.4.7), `relatorios.view`,
-`relatorios.manage` (ver §3.4.9). `admin` recebe todas; `supervisor` recebe `relatorios.view` **e**
+`relatorios.manage` (ver §3.4.9), `auditoria.view` (log de ações, ver §3.4.11). `admin` recebe todas; `supervisor` recebe `relatorios.view` **e**
 `relatorios.manage`; `agente` recebe só `relatorios.view` (roda/vê relatórios, não cria/edita
 configuração salva pra equipe toda).
 
@@ -1996,7 +2055,7 @@ Rodar com `docker compose exec app php artisan test` (ou `./vendor/bin/phpunit`)
 >
 > **Lição para qualquer novo ambiente Docker + PHPUnit deste tipo:** `env_file` no `docker-compose.yml` é exatamente o tipo de configuração que faz esse problema aparecer — não é geral a todo projeto Laravel, é específico de rodar os testes dentro de um container cujas variáveis já vêm setadas no processo antes do PHP iniciar. Se decidir buildar contra Postgres real em vez de sqlite no futuro, usar um banco `_testing` dedicado (nunca o mesmo `DB_DATABASE` do dev) reduziria o dano de uma futura recorrência desse tipo de bug de configuração.
 
-### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles,PoliticasSla,Categorias,GruposSolucao,Incidentes,Dashboard,Relatorios,Portal,Seeders}`)
+### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles,PoliticasSla,Categorias,GruposSolucao,Incidentes,Dashboard,Relatorios,Portal,Seeders,Auditoria}`)
 
 Mesmo padrão do §3.8: `RefreshDatabase`, dados via factories, permissions/roles montadas ad-hoc por
 teste (nunca via `RolesAndPermissionsSeeder`).
@@ -2027,6 +2086,8 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; `--quantidade`; recusa em produção sem confirmação |
 | `Relatorios/*` e `Dashboard/*` | (atualizados) filtro `tipo` em relatório, em agrupamento por evento e em relatório salvo; grupo "Portal (cliente)" no `aberto_por`; `tipo` exposto no dashboard |
 | `Customers/CustomerCrudTest.php` | (atualizado) `409` (não `500`) ao excluir um customer que abriu pelo portal um chamado depois trocado de cliente |
+| `Auditoria/AuditLogCapturaTest.php` | Nada é gravado sem usuário autenticado (factories); CRUD via API grava `criado`/`atualizado`/`excluido` com autor, diff e rótulo snapshot; update sem mudança não grava; troca de senha vira `senha: (alterada)` sem o hash; `sync()` de papéis e permissões do grupo grava diff de relação; chamado grava só nomes de campos (coluna de sistema ignorada); feed grava só `comentario`, sem texto; `login`/`login_falhou` (com e sem conta existente); ação do portal com autor `customer`; `model:prune` apaga só o que passou de 6 meses |
+| `Auditoria/AuditLogConsultaTest.php` | `403` sem `auditoria.view`; `422` sem período e acima de 93 dias; filtros combinados (período em dias de Brasília, autor, ação, tipo de registro, busca); `/audit-logs/opcoes` |
 
 ### 3.10. Histórico de entregas — Tipo do chamado e portal do cliente (2026-11-09)
 
@@ -2082,4 +2143,27 @@ classificação para salvar um chamado do portal (não dá para só encaminhar a
 o tipo vindo da URL de clonagem não é validado no frontend; nenhum teste cobre a execução
 (`/executar`) de relatório salvo com `filtros.tipo`.
 
----
+### 3.11. Histórico de entregas — Log de ações na Administração (2026-11-12)
+
+Pedido: seção de logs de ação de usuários em "Administração", que por padrão não carrega nada —
+só consulta com filtros/busca. Decisões com o produto: registrar **todas as ações** (staff e
+clientes do portal); no chamado, o **modo mais econômico** (sem duplicar o feed); registrar
+download de anexo e exportação, mas não leituras comuns; **apagar após 6 meses**; **importar o
+histórico de `token_audit_logs`**.
+
+- Backend: tabela `audit_logs` (§3.1) substituindo `token_audit_logs`, trait `Auditavel`, serviço
+  `App\Support\Auditoria`, endpoints `/audit-logs` e `/audit-logs/opcoes` (§3.4.11), permission
+  `auditoria.view`, `model:prune` agendado e container `scheduler` no `docker-compose.vps.yml`
+  (o `deploy-ec2.yml` passa a subir `app queue scheduler`).
+- Frontend (`gespriority_claude_front`): item **Auditoria > Logs de ações** no menu da
+  Administração (`AuditLogsView`), filtros de período, autor (usuários da aplicação e de clientes),
+  ações, tipo/ID do registro, busca textual e IP; resultado com linha expansível (de → para) e
+  "Carregar mais".
+
+**Deploy**: subir o backend antes do frontend. As migrations rodam no `migrate --force`; a tabela
+antiga é copiada e removida na mesma migration (Postgres faz DDL transacional).
+
+**Pendências conhecidas (não bloqueantes)**: chaves estrangeiras aparecem como ids no diff (ex.:
+`grupo_solucao_id: 2 → 5`), sem resolução de nome; a busca textual não usa índice (o período
+obrigatório limita a varredura); a listagem de autores usa `/lookups/*`, que não traz usuários
+desativados — a busca textual pelo nome ainda os encontra.
