@@ -25,7 +25,7 @@ final class TituloRelatorio
     public const AGRUPAMENTOS = [
         'analista' => 'analista',
         'grupo_analista' => 'grupo do analista',
-        'grupo_chamado' => 'grupo do chamado',
+        'grupo_chamado' => 'grupo de solução',
         'categoria' => 'categoria',
         'subcategoria' => 'subcategoria',
         'item' => 'item',
@@ -83,7 +83,7 @@ final class TituloRelatorio
         };
 
         $nome('grupo_analista_id', 'grupo do analista', RotulosRelatorio::grupos(...));
-        $nome('grupo_solucao_id', 'grupo do chamado', RotulosRelatorio::grupos(...));
+        $nome('grupo_solucao_id', 'grupo de solução', RotulosRelatorio::grupos(...));
         $nome('client_id', 'cliente', RotulosRelatorio::clientes(...));
         // `customer_id` é o usuário do portal, não a empresa (spec 6A.8).
         $nome('customer_id', 'usuário do cliente', RotulosRelatorio::customers(...));

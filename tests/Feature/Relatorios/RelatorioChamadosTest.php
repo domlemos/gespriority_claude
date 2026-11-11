@@ -206,7 +206,7 @@ class RelatorioChamadosTest extends TestCase
             $this->assertSame(['Linha: Ana'], $x[1]);
             $this->assertStringStartsWith('Gerado em ', $x[2][0]);
             $this->assertSame([''], $x[3]);
-            $this->assertSame(['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo do chamado'], $x[4]);
+            $this->assertSame(['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo de Solução'], $x[4]);
             $this->assertSame($incidente->id, $x[5][0]);
             $this->assertSame('Impressora', $x[5][1]);
             $this->assertSame('14/10/2026 23:30', $x[5][3]);
@@ -227,7 +227,7 @@ class RelatorioChamadosTest extends TestCase
 
         Excel::assertDownloaded('relatorio-chamados.xlsx', function (RelatorioChamadosExport $e) {
             $x = $e->array();
-            $this->assertSame(['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo do chamado', 'Destino'], $x[4]);
+            $this->assertSame(['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo de Solução', 'Destino'], $x[4]);
             $this->assertSame('N3', $x[5][6]);
 
             return true;

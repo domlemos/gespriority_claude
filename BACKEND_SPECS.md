@@ -1692,7 +1692,7 @@ incidente = `Incidente::scopeVisiveisPara` (grupo atual).
 `TituloRelatorio::montar()` e devolvido no JSON e na primeira linha da planilha. Sujeitos: "Chamados abertos
 (criados)", "Chamados concluídos (resolvidos ou fechados)", "Chamados resolvidos|fechados|cancelados",
 "Encaminhamentos". Período: `de dd/mm/aaaa a dd/mm/aaaa` ou `em todo o período`. Filtros por extenso (ids
-resolvidos para nomes), separados por `; `, na ordem: grupo do analista, grupo do chamado, cliente, usuário do
+resolvidos para nomes), separados por `; `, na ordem: grupo do analista, grupo de solução, cliente, usuário do
 cliente (`customer_id`), categoria, subcategoria, item, tipo, responsável, status (rótulos "Em andamento" etc.).
 Exemplo: `Chamados concluídos (resolvidos ou fechados) de 01/10/2026 a 31/10/2026 por analista — grupo do analista: N2`.
 
@@ -1722,7 +1722,7 @@ autores são carregados em uma query cada, só para a página.
 
 `formato=xlsx` baixa `relatorio-chamados.xlsx` (`RelatorioChamadosExport`, todos os itens, sem paginar): linha 1 título;
 linha 2 `Linha: {rótulo}` (+ ` · {rótulo da coluna}`); linha 3 `Gerado em … (horário de Brasília) por {nome}`; linha 4
-vazia; cabeçalho `Nº, Título, Status, Data, Analista, Grupo do chamado` (+ `Destino` em `encaminhamentos`); datas em
+vazia; cabeçalho `Nº, Título, Status, Data, Analista, Grupo de Solução` (+ `Destino` em `encaminhamentos`); datas em
 Brasília `dd/mm/aaaa hh:mm`.
 
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)

@@ -47,7 +47,7 @@ class RelatorioChamadosExport extends DefaultValueBinder implements FromArray, W
     public function array(): array
     {
         $fuso = config('app.timezone_exibicao');
-        $cabecalho = ['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo do chamado'];
+        $cabecalho = ['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo de Solução'];
 
         $linhas = [
             [$this->titulo],
