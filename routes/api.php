@@ -44,12 +44,15 @@ Route::prefix('customer')->group(function () {
         ->middleware('throttle:password-recovery');
 });
 
-// Portal do cliente (guard "customer") — abrir incidente em nome próprio e
-// listar os próprios chamados. Controller separado do staff de propósito
+// Portal do cliente (guard "customer") — abrir incidente em nome próprio,
+// listar/ver os próprios chamados e comentar neles. Controller separado do staff de propósito
 // (ver Portal\IncidenteController); staff nunca acessa estas rotas.
 Route::prefix('customer')->middleware('auth:customer')->group(function () {
     Route::get('/incidentes', [PortalIncidenteController::class, 'index']);
     Route::post('/incidentes', [PortalIncidenteController::class, 'store'])
+        ->middleware('throttle:portal-abertura');
+    Route::get('/incidentes/{incidente}', [PortalIncidenteController::class, 'show']);
+    Route::post('/incidentes/{incidente}/comentarios', [PortalIncidenteController::class, 'comentar'])
         ->middleware('throttle:portal-abertura');
 });
 

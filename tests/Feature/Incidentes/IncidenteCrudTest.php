@@ -643,7 +643,7 @@ class IncidenteCrudTest extends TestCase
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
-            ['status' => 'fechado'],
+            ['status' => 'fechado', 'mensagem_encerramento' => 'Resolvido.'],
             $this->authHeader($token)
         )->assertOk();
 
@@ -719,7 +719,7 @@ class IncidenteCrudTest extends TestCase
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
-            ['status' => 'fechado'],
+            ['status' => 'fechado', 'mensagem_encerramento' => 'Resolvido.'],
             $this->authHeader($token)
         )->assertOk();
 
@@ -738,7 +738,7 @@ class IncidenteCrudTest extends TestCase
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
-            ['status' => 'fechado'],
+            ['status' => 'fechado', 'mensagem_encerramento' => 'Resolvido.'],
             $this->authHeader($token)
         )->assertOk();
 
@@ -1066,7 +1066,7 @@ class IncidenteCrudTest extends TestCase
 
         $this->putJson(
             "/api/incidentes/{$incidente->id}",
-            ['status' => 'fechado'],
+            ['status' => 'fechado', 'mensagem_encerramento' => 'Resolvido.'],
             $this->authHeader($token)
         )->assertOk();
 

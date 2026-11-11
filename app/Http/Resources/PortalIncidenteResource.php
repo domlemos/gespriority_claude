@@ -23,6 +23,9 @@ class PortalIncidenteResource extends JsonResource
             'status' => $this->status,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            // Só no detalhe (GET /customer/incidentes/{id}) — já filtrado pelo
+            // controller, nunca o feed inteiro do staff.
+            'descricoes' => PortalDescricaoResource::collection($this->whenLoaded('descricoesPortal')),
         ];
     }
 }
