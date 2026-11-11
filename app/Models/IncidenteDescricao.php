@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use Database\Factories\IncidenteDescricaoFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,7 +18,7 @@ use LogicException;
 class IncidenteDescricao extends Model
 {
     /** @use HasFactory<IncidenteDescricaoFactory> */
-    use HasFactory, SoftDeletes;
+    use Auditavel, HasFactory, SoftDeletes;
 
     protected $table = 'incidente_descricoes';
 
@@ -58,6 +59,27 @@ class IncidenteDescricao extends Model
     public const TIPO_ENCERRAMENTO = 'encerramento';
 
     public const TIPOS = [self::TIPO_COMENTARIO, self::TIPO_ESCALONAMENTO, self::TIPO_ALTERACAO, self::TIPO_ENCERRAMENTO];
+
+    /**
+     * Log de ações (Auditavel): só comentários escritos por alguém — as
+     * entradas de sistema (escalonamento/alteração/encerramento) são efeito
+     * colateral de uma ação no chamado, já registrada nele. Sem o texto
+     * (fica no feed).
+     */
+    public function deveAuditar(): bool
+    {
+        return $this->tipo === self::TIPO_COMENTARIO;
+    }
+
+    public function auditoriaResumida(): bool
+    {
+        return true;
+    }
+
+    public function rotuloAuditoria(): string
+    {
+        return "Chamado #{$this->incidente_id}";
+    }
 
     public function incidente(): BelongsTo
     {

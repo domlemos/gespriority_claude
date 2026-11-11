@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use Database\Factories\SubcategoriaFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Subcategoria extends Model
 {
     /** @use HasFactory<SubcategoriaFactory> */
-    use HasFactory;
+    use Auditavel, HasFactory;
 
     protected function casts(): array
     {

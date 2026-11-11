@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditavel;
 use Database\Factories\AnexoFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Anexo extends Model
 {
     /** @use HasFactory<AnexoFactory> */
-    use HasFactory;
+    use Auditavel, HasFactory;
+
+    public function rotuloAuditoria(): string
+    {
+        return "{$this->nome_original} (chamado #{$this->incidente_id})";
+    }
 
     public function incidente(): BelongsTo
     {

@@ -10,6 +10,7 @@ use App\Relatorios\AgregadorRelatorio;
 use App\Relatorios\ConsultaRelatorio;
 use App\Relatorios\ListaChamados;
 use App\Relatorios\TituloRelatorio;
+use App\Support\Auditoria;
 use App\Support\PeriodoRelatorio;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -74,6 +75,13 @@ class RelatorioConsultaController extends Controller
         if (($validado['formato'] ?? 'json') === 'xlsx') {
             $descricao = "Linha: {$linha['rotulo']}".($colunaInfo ? " · {$colunaInfo['rotulo']}" : '');
 
+            Auditoria::registrar(
+                'exportado',
+                alteracoes: ['parametros' => $request->except('formato')],
+                entidadeType: 'relatorio',
+                entidadeLabel: "{$titulo} — {$descricao}",
+            );
+
             return Excel::download(
                 new RelatorioChamadosExport($titulo, $descricao, ListaChamados::montar($c, $u, $selecionadas), $c->contar === 'encaminhamentos', $u, now()),
                 'relatorio-chamados.xlsx'
@@ -114,6 +122,13 @@ class RelatorioConsultaController extends Controller
             ->comTitulo(TituloRelatorio::montar($c));
 
         if ($formato === 'xlsx') {
+            Auditoria::registrar(
+                'exportado',
+                alteracoes: ['parametros' => request()->except('formato')],
+                entidadeType: 'relatorio',
+                entidadeLabel: $resultado->titulo,
+            );
+
             return Excel::download(
                 new RelatorioTabelaExport($resultado->titulo, $resultado, $u, now()),
                 "relatorio-{$c->contar}-{$c->agruparPor}.xlsx"

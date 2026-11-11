@@ -131,8 +131,12 @@ git fetch origin main
 git checkout <sha do push>
 docker compose -f docker-compose.vps.yml build --pull app
 docker compose -f docker-compose.vps.yml run --rm app php artisan migrate --force
-docker compose -f docker-compose.vps.yml up -d app queue
+docker compose -f docker-compose.vps.yml up -d app queue scheduler
 ```
+
+O `scheduler` (`php artisan schedule:work`) roda as tarefas de
+`routes/console.php` — hoje, a limpeza diária do log de ações com mais de
+6 meses (ver `BACKEND_SPECS.md` §3.4.11).
 
 O `--pull` no build é obrigatório: sem ele, o servidor reaproveita a
 imagem base `php:8.3-fpm-alpine` que já tem em cache e correções de

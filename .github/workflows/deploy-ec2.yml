@@ -64,7 +64,7 @@ jobs:
               "git checkout $GITHUB_SHA",
               "docker compose -f docker-compose.vps.yml build --pull app",
               "docker compose -f docker-compose.vps.yml run --rm app php artisan migrate --force",
-              "docker compose -f docker-compose.vps.yml up -d app queue"
+              "docker compose -f docker-compose.vps.yml up -d app queue scheduler"
             ]
           }
           EOF

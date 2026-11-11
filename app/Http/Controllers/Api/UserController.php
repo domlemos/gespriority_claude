@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Notifications\ConviteUsuario;
+use App\Support\Auditoria;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -47,6 +48,7 @@ class UserController extends Controller
         ]);
 
         $user->roles()->sync($data['role_ids'] ?? []);
+        Auditoria::registrarRelacao($user, 'papeis', [], $user->roles()->pluck('name')->all());
 
         return (new UserResource($user->load('roles.permissions', 'grupoSolucao')))
             ->response()
@@ -75,7 +77,9 @@ class UserController extends Controller
         $user->save();
 
         if (array_key_exists('role_ids', $data)) {
+            $papeisAntes = $user->roles()->pluck('name')->all();
             $user->roles()->sync($data['role_ids']);
+            Auditoria::registrarRelacao($user, 'papeis', $papeisAntes, $user->roles()->pluck('name')->all());
         }
 
         return new UserResource($user->load('roles.permissions', 'grupoSolucao'));
@@ -86,6 +90,8 @@ class UserController extends Controller
         $token = Password::broker('users')->createToken($user);
 
         $user->notify(new ConviteUsuario($token));
+
+        Auditoria::registrar('convite_enviado', $user);
 
         return response()->json(['message' => 'Convite enviado.']);
     }
