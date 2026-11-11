@@ -10,6 +10,7 @@ use App\Models\RelatorioSalvo;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Maatwebsite\Excel\Facades\Excel;
 use Tests\TestCase;
 
 class RelatorioSalvoCrudTest extends TestCase
@@ -298,8 +299,13 @@ class RelatorioSalvoCrudTest extends TestCase
 
         $this->getJson("/api/relatorios-salvos/{$relatorio->id}", $this->authHeader($token))
             ->assertJsonPath('data.contar', 'fechados')
-            ->assertJsonPath('data.agrupar_por', 'fechado_por')
+            ->assertJsonPath('data.agrupar_por', 'analista')
             ->assertJsonPath('data.formato_antigo', false);
+
+        $grupo = RelatorioSalvo::factory()->create(['agrupar_por' => 'encaminhado_para_grupo', 'filtros' => []]);
+        $this->getJson("/api/relatorios-salvos/{$grupo->id}", $this->authHeader($token))
+            ->assertJsonPath('data.contar', 'encaminhamentos')
+            ->assertJsonPath('data.agrupar_por', 'para_grupo');
 
         $this->getJson("/api/relatorios-salvos/{$relatorio->id}/executar", $this->authHeader($token))
             ->assertOk()
@@ -332,5 +338,21 @@ class RelatorioSalvoCrudTest extends TestCase
         $this->getJson("/api/relatorios-salvos/{$semDatas->id}", $this->authHeader($token))
             ->assertJsonPath('data.contar', 'abertos')
             ->assertJsonPath('data.formato_antigo', false);
+    }
+
+    public function test_executar_new_shape_supports_formato_xlsx(): void
+    {
+        Excel::fake();
+        $relatorio = RelatorioSalvo::factory()->create([
+            'contar' => 'abertos',
+            'agrupar_por' => 'categoria',
+            'quebra' => 'nenhuma',
+            'filtros' => ['periodo' => 'este_mes'],
+        ]);
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $this->get("/api/relatorios-salvos/{$relatorio->id}/executar?formato=xlsx", $this->authHeader($token))->assertOk();
+
+        Excel::assertDownloaded('relatorio-abertos-categoria.xlsx');
     }
 }

@@ -19,7 +19,9 @@ class RelatorioSalvoResource extends JsonResource
         return [
             'id' => $this->id,
             'nome' => $this->nome,
-            'agrupar_por' => $this->agrupar_por,
+            // Legado com par exato sai já com o agrupamento novo (fechado_por -> analista):
+            // contar + agrupar_por antigo seria um par fora da matriz do construtor.
+            'agrupar_por' => $nova['agrupar_por'] ?? $this->agrupar_por,
             'contar' => $nova['contar'] ?? null,
             'quebra' => $nova['quebra'] ?? null,
             'filtros' => $this->filtros,
