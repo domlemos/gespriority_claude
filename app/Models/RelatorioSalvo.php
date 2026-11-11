@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['user_id', 'nome', 'filtros', 'agrupar_por'])]
+#[Fillable(['user_id', 'nome', 'filtros', 'agrupar_por', 'contar', 'quebra'])]
 class RelatorioSalvo extends Model
 {
     /** @use HasFactory<RelatorioSalvoFactory> */
@@ -23,6 +23,65 @@ class RelatorioSalvo extends Model
         'encaminhado_por', 'encaminhado_para_grupo', 'encaminhado_para_responsavel',
         'grupo_solucao', 'categoria', 'subcategoria', 'item',
     ];
+
+    /**
+     * Agrupamentos legados que já têm par exato no caminho novo, para o
+     * relatório antigo abrir com o mesmo significado, agora com totais, quebra
+     * e lista de chamados. `categoria`, `responsavel`, `status_sla`... ficam de
+     * fora: o legado os restringe a resolvido/fechado, o novo não, então
+     * os números mudariam.
+     */
+    public const EQUIVALENTES_LEGADO = [
+        'resolvido_por' => ['resolvidos', 'analista'],
+        'fechado_por' => ['fechados', 'analista'],
+        'concluido_por' => ['concluidos', 'analista'],
+        'encaminhado_por' => ['encaminhamentos', 'quem_encaminhou'],
+        'encaminhado_para_grupo' => ['encaminhamentos', 'para_grupo'],
+        'encaminhado_para_responsavel' => ['encaminhamentos', 'para_responsavel'],
+        'aberto_por' => ['abertos', 'aberto_por'],
+    ];
+
+    /**
+     * Consulta do caminho novo equivalente a este relatório, ou null quando
+     * ele só roda no legado. `aberto_por` com datas não é equivalente: o legado
+     * filtra por `concluido_em`, o novo por `created_at`. Período com uma
+     * ponta só também não: o caminho novo exige as duas, e descartar uma
+     * mudaria o recorte.
+     *
+     * @return array{contar: string, agrupar_por: string, quebra: string}|null
+     */
+    public function consultaEquivalente(): ?array
+    {
+        $par = self::EQUIVALENTES_LEGADO[$this->agrupar_por] ?? null;
+        if ($par === null) {
+            return null;
+        }
+
+        $filtros = $this->filtros ?? [];
+        $temInicio = isset($filtros['data_inicio']);
+        $temFim = isset($filtros['data_fim']);
+
+        if ($temInicio !== $temFim || ($this->agrupar_por === 'aberto_por' && $temInicio)) {
+            return null;
+        }
+
+        return ['contar' => $par[0], 'agrupar_por' => $par[1], 'quebra' => 'nenhuma'];
+    }
+
+    /**
+     * Consulta efetiva do caminho novo (armazenada ou equivalente do legado),
+     * ou null quando o relatório é legado.
+     *
+     * @return array{contar: string, agrupar_por: string, quebra: string}|null
+     */
+    public function consultaNova(): ?array
+    {
+        if ($this->contar !== null) {
+            return ['contar' => $this->contar, 'agrupar_por' => $this->agrupar_por, 'quebra' => $this->quebra ?? 'nenhuma'];
+        }
+
+        return $this->consultaEquivalente();
+    }
 
     protected function casts(): array
     {

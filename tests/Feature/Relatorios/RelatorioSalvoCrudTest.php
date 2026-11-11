@@ -237,4 +237,100 @@ class RelatorioSalvoCrudTest extends TestCase
             $this->authHeader($token)
         )->assertStatus(422)->assertJsonValidationErrors('filtros.tipo');
     }
+
+    public function test_saves_new_shape_with_period_shortcut(): void
+    {
+        [$token] = $this->staffToken(['relatorios.manage']);
+        $payload = [
+            'nome' => 'Abertos por categoria',
+            'contar' => 'abertos',
+            'agrupar_por' => 'categoria',
+            'quebra' => 'mes',
+            'filtros' => ['periodo' => 'mes_passado'],
+        ];
+
+        $this->postJson('/api/relatorios-salvos', $payload, $this->authHeader($token))
+            ->assertCreated()
+            ->assertJsonPath('data.contar', 'abertos')
+            ->assertJsonPath('data.agrupar_por', 'categoria')
+            ->assertJsonPath('data.quebra', 'mes')
+            ->assertJsonPath('data.filtros.periodo', 'mes_passado')
+            ->assertJsonPath('data.formato_antigo', false);
+
+        $this->postJson('/api/relatorios-salvos', [...$payload, 'agrupar_por' => 'analista'], $this->authHeader($token))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('agrupar_por');
+
+        $this->postJson('/api/relatorios-salvos', [...$payload, 'filtros' => ['periodo' => 'nunca']], $this->authHeader($token))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('filtros.periodo');
+    }
+
+    public function test_saved_shortcut_is_relative_to_execution_date(): void
+    {
+        $relatorio = RelatorioSalvo::factory()->create([
+            'contar' => 'abertos',
+            'agrupar_por' => 'categoria',
+            'quebra' => 'nenhuma',
+            'filtros' => ['periodo' => 'mes_passado'],
+        ]);
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $this->travelTo('2026-11-05');
+        $this->getJson("/api/relatorios-salvos/{$relatorio->id}/executar", $this->authHeader($token))
+            ->assertOk()
+            ->assertJsonPath('periodo.inicio', '2026-10-01');
+        $titulo = $this->getJson("/api/relatorios-salvos/{$relatorio->id}/executar", $this->authHeader($token))->json('titulo');
+        $this->assertStringContainsString('de 01/10/2026 a 31/10/2026', $titulo);
+
+        $this->travelTo('2026-12-05');
+        $titulo = $this->getJson("/api/relatorios-salvos/{$relatorio->id}/executar", $this->authHeader($token))->json('titulo');
+        $this->assertStringContainsString('de 01/11/2026 a 30/11/2026', $titulo);
+    }
+
+    public function test_legacy_equivalent_runs_new_path_and_is_not_old_format(): void
+    {
+        $relatorio = RelatorioSalvo::factory()->create([
+            'agrupar_por' => 'fechado_por',
+            'filtros' => [],
+        ]);
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $this->getJson("/api/relatorios-salvos/{$relatorio->id}", $this->authHeader($token))
+            ->assertJsonPath('data.contar', 'fechados')
+            ->assertJsonPath('data.agrupar_por', 'fechado_por')
+            ->assertJsonPath('data.formato_antigo', false);
+
+        $this->getJson("/api/relatorios-salvos/{$relatorio->id}/executar", $this->authHeader($token))
+            ->assertOk()
+            ->assertJsonPath('contar', 'fechados')
+            ->assertJsonPath('agrupar_por', 'analista')
+            ->assertJsonStructure(['titulo', 'colunas', 'linhas', 'totais', 'chamados_distintos']);
+    }
+
+    public function test_legacy_without_equivalent_stays_legacy(): void
+    {
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $categoria = RelatorioSalvo::factory()->create(['agrupar_por' => 'categoria', 'filtros' => []]);
+        $this->getJson("/api/relatorios-salvos/{$categoria->id}", $this->authHeader($token))
+            ->assertJsonPath('data.contar', null)
+            ->assertJsonPath('data.formato_antigo', true);
+        $this->getJson("/api/relatorios-salvos/{$categoria->id}/executar", $this->authHeader($token))
+            ->assertOk()
+            ->assertJsonStructure(['agrupado_por', 'data']);
+
+        $comDatas = RelatorioSalvo::factory()->create([
+            'agrupar_por' => 'aberto_por',
+            'filtros' => ['data_inicio' => '2026-10-01', 'data_fim' => '2026-10-31'],
+        ]);
+        $this->getJson("/api/relatorios-salvos/{$comDatas->id}", $this->authHeader($token))
+            ->assertJsonPath('data.contar', null)
+            ->assertJsonPath('data.formato_antigo', true);
+
+        $semDatas = RelatorioSalvo::factory()->create(['agrupar_por' => 'aberto_por', 'filtros' => []]);
+        $this->getJson("/api/relatorios-salvos/{$semDatas->id}", $this->authHeader($token))
+            ->assertJsonPath('data.contar', 'abertos')
+            ->assertJsonPath('data.formato_antigo', false);
+    }
 }
