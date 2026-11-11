@@ -1,6 +1,6 @@
 # Relatórios — Fase 2: "o que contar", tabela com total, quebra por período e lista de chamados
 
-**Status:** design para aprovação · **Data:** 2026-11-09 · **Repos:** `gespriority_claude` (backend) e `gespriority_claude_front` (frontend)
+**Status:** aprovado em 2026-11-11 · **Data:** 2026-11-09 · **Repos:** `gespriority_claude` (backend) e `gespriority_claude_front` (frontend)
 
 Antecedente: a Fase 1 (plano `docs/superpowers/plans/2026-11-09-relatorios-precisao-fase-1.md`, já na `main`) corrigiu a precisão dos números: período em dias de Brasília, `concluido_por` com contagem por chamado, cancelados fora dos indicadores de desempenho, snapshot de grupo em `incidente_eventos`, filtro `grupo_analista_id` com analistas zerados e cabeçalho da planilha por agrupamento.
 
