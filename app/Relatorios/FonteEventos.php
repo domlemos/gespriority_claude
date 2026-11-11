@@ -2,7 +2,6 @@
 
 namespace App\Relatorios;
 
-use App\Models\GrupoSolucao;
 use App\Models\Incidente;
 use App\Models\IncidenteEvento;
 use App\Models\User;
@@ -75,7 +74,7 @@ final class FonteEventos implements FonteRelatorio
 
         return IncidenteEvento::query()
             ->visiveisParaRelatorio($u)
-            ->whereIn('tipo', self::TIPOS[$c->contar])
+            ->whereIn('tipo', $this->tiposDe($c))
             ->when($c->temPeriodo(), fn (Builder $q) => $q
                 ->where('created_at', '>=', PeriodoRelatorio::inicioUtc($c->inicio))
                 ->where('created_at', '<', PeriodoRelatorio::fimExclusivoUtc($c->fim)))
@@ -86,6 +85,20 @@ final class FonteEventos implements FonteRelatorio
                 Incidente::query()->filtrosRelatorio($filtros)->select('id')
             ))
             ->select('id');
+    }
+
+    /**
+     * "Para grupo" e "para responsável" só fazem sentido para o tipo de
+     * encaminhamento que tem aquele destino; misturar os dois criaria uma
+     * linha vazia inflando total e percentuais.
+     */
+    private function tiposDe(ConsultaRelatorio $c): array
+    {
+        return match ($c->agruparPor) {
+            'para_grupo' => [IncidenteEvento::TIPO_ENCAMINHADO_GRUPO],
+            'para_responsavel' => [IncidenteEvento::TIPO_ENCAMINHADO_RESPONSAVEL],
+            default => self::TIPOS[$c->contar],
+        };
     }
 
     private function selecionarChave(QueryBuilder $query, string $agruparPor): void
@@ -100,8 +113,7 @@ final class FonteEventos implements FonteRelatorio
             'analista', 'quem_encaminhou' => $query->addSelect('incidente_eventos.user_id as chave'),
             'grupo_analista' => $query->addSelect('incidente_eventos.autor_grupo_solucao_id as chave'),
             'grupo_chamado' => $query->addSelect('incidente_eventos.grupo_solucao_id as chave'),
-            'para_grupo' => $query->selectRaw('case when incidente_eventos.alvo_type = ? then incidente_eventos.alvo_id end as chave', [GrupoSolucao::class]),
-            'para_responsavel' => $query->selectRaw('case when incidente_eventos.alvo_type = ? then incidente_eventos.alvo_id end as chave', [User::class]),
+            'para_grupo', 'para_responsavel' => $query->addSelect('incidente_eventos.alvo_id as chave'),
             'categoria' => $query
                 ->leftJoin('itens', 'itens.id', '=', 'incidentes.item_id')
                 ->leftJoin('subcategorias', 'subcategorias.id', '=', 'itens.subcategoria_id')

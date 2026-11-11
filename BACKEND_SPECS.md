@@ -1605,8 +1605,8 @@ para `concluidos`/`resolvidos`/`fechados`/`encaminhamentos`.
   classificação, `responsavel_id`, cliente) usam o estado atual do chamado, via
   `Incidente::scopeFiltrosRelatorio` (sem os dois filtros de grupo).
 - **Chaves:** `analista`/`quem_encaminhou` = `user_id`; `grupo_analista` = `autor_grupo_solucao_id`;
-  `grupo_chamado` = `grupo_solucao_id` (snapshot); `para_grupo`/`para_responsavel` = `alvo_id` quando
-  `alvo_type` é `GrupoSolucao`/`User` (senão chave vazia); `categoria`/`subcategoria`/`item`/`cliente`/
+  `grupo_chamado` = `grupo_solucao_id` (snapshot); `para_grupo`/`para_responsavel` = `alvo_id`, contando só
+  os eventos `encaminhado_grupo`/`encaminhado_responsavel` respectivamente (`quem_encaminhou` conta os dois); `categoria`/`subcategoria`/`item`/`cliente`/
   `tipo` vêm do chamado atual; `status_sla` aplica `Incidente::statusSlaResolucao()` a
   `prazo_resolucao`/`concluido_em` do chamado, lidos no mesmo join (sem hidratar models).
 - **Visibilidade (spec 5.3):** `IncidenteEvento::scopeVisiveisParaRelatorio($user)` — evento visível se

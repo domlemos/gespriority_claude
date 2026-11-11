@@ -123,7 +123,12 @@ class RelatorioConsultaEventosTest extends TestCase
         $this->assertSame(['Carla' => 3], $this->porRotulo($response->json('linhas')));
 
         $paraGrupo = $this->getJson('/api/relatorios/incidentes?contar=encaminhamentos&agrupar_por=para_grupo', $this->adminHeader());
-        $this->assertSame([$grupo->nome => 2, '(sem grupo)' => 1], $this->porRotulo($paraGrupo->json('linhas')));
+        $this->assertSame([$grupo->nome => 2], $this->porRotulo($paraGrupo->json('linhas')));
+        $paraGrupo->assertJsonPath('totais.total', 2);
+
+        $paraResp = $this->getJson('/api/relatorios/incidentes?contar=encaminhamentos&agrupar_por=para_responsavel', $this->adminHeader());
+        $this->assertSame(['Carla' => 1], $this->porRotulo($paraResp->json('linhas')));
+        $paraResp->assertJsonPath('totais.total', 1);
     }
 
     public function test_weekly_breakdown_counts_ticket_in_each_week_it_was_concluded(): void
