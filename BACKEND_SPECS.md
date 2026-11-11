@@ -667,7 +667,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `App\Models\IncidenteDescricao` | `$table = 'incidente_descricoes'` (pluralização automática do Eloquent daria `incidente_descricaos`); `SoftDeletes` (`deleted_at` — excluir = soft delete, permanece no feed, ver §3.1); `resolveRouteBinding()` sobrescrito com `withTrashed()` (senão um comentário já excluído resolveria como `404` na rota); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `const TIPO_COMENTARIO`, `const TIPO_ESCALONAMENTO`, `const TIPO_ALTERACAO`, `const TIPOS` |
 | `App\Models\Anexo` | sem `$table` explícito (`anexo`→`anexos` acerta por coincidência); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `caminho` fora do `#[Fillable(...)]` de propósito (setado por atribuição direta no controller, nunca vem do request — ver §3.4.7.2) |
 | `App\Models\RelatorioSalvo` | `$table = 'relatorios_salvos'` (pluralização automática do Eloquent daria `relatorio_salvos`, só o último termo); `user(): BelongsTo` → `User` (`->withTrashed()`); `filtros` cast `array`; `const AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`aberto_por`\|`resolvido_por`\|`fechado_por`\|`concluido_por`\|`encaminhado_por`\|`encaminhado_para_grupo`\|`encaminhado_para_responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
-| `App\Models\IncidenteEvento` | `$table = 'incidente_eventos'` (explícito por consistência com o resto do projeto, mesmo pluralizando certo por coincidência); `const UPDATED_AT = null` (linha nunca atualizada); `const TIPO_RESOLVIDO`/`TIPO_FECHADO`/`TIPO_ENCAMINHADO_GRUPO`/`TIPO_ENCAMINHADO_RESPONSAVEL`, `const TIPOS`; `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `booted()` com hook `creating` que grava o snapshot `grupo_solucao_id` (grupo do chamado no momento do evento) e `autor_grupo_solucao_id` (grupo do autor, `withTrashed()`) quando não informados — o evento é insert-only, então o snapshot não muda; `alvo(): ?Model` — resolve `alvo_type`/`alvo_id` manualmente (não `morphTo()`, pra não depender do comportamento de `withTrashed()` numa relação polimórfica onde só um dos tipos possíveis, `User`, é soft delete); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteEvento`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando o evento aconteceu), não `Incidente.concluido_em`; o filtro `grupo_solucao_id` usa a coluna snapshot `grupo_solucao_id` do evento e `grupo_analista_id` usa `autor_grupo_solucao_id`; `scopeVisiveisPara()` continua usando o grupo **atual** do incidente |
+| `App\Models\IncidenteEvento` | `$table = 'incidente_eventos'` (explícito por consistência com o resto do projeto, mesmo pluralizando certo por coincidência); `const UPDATED_AT = null` (linha nunca atualizada); `const TIPO_RESOLVIDO`/`TIPO_FECHADO`/`TIPO_ENCAMINHADO_GRUPO`/`TIPO_ENCAMINHADO_RESPONSAVEL`, `const TIPOS`; `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `booted()` com hook `creating` que grava o snapshot `grupo_solucao_id` (grupo do chamado no momento do evento) e `autor_grupo_solucao_id` (grupo do autor, `withTrashed()`) quando não informados — o evento é insert-only, então o snapshot não muda; `alvo(): ?Model` — resolve `alvo_type`/`alvo_id` manualmente (não `morphTo()`, pra não depender do comportamento de `withTrashed()` numa relação polimórfica onde só um dos tipos possíveis, `User`, é soft delete); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteEvento`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando o evento aconteceu), não `Incidente.concluido_em`; o filtro `grupo_solucao_id` usa a coluna snapshot `grupo_solucao_id` do evento e `grupo_analista_id` usa `autor_grupo_solucao_id`; `scopeVisiveisPara()` continua usando o grupo **atual** do incidente (caminho legado); `scopeVisiveisParaRelatorio(User)` é a regra do caminho novo (chamado visível hoje OU snapshot `grupo_solucao_id`/`autor_grupo_solucao_id` nos grupos visíveis, admin sem restrição — ver §3.4.9) |
 
 ### 3.3. Configuração dos guards (`config/auth.php`)
 
@@ -1592,8 +1592,27 @@ validação legada intactas (spec 6.5). O código fica em `app/Relatorios/`:
 | `ResultadoRelatorio` | `colunas()`, `linhas()`, `totais()`, `chamadosDistintos()`, `comTitulo()`, `toArray()` |
 | `RotulosRelatorio` | id → nome (usuários `withTrashed`, grupos, categoria/subcategoria/item, clientes), rótulos vazios, `CHAVE_VAZIA = '__vazio__'`, `CHAVE_PORTAL = 'portal'` |
 
-`ConsultaRelatorio::fonte()` lança `LogicException` para os `contar` baseados em evento até a fonte
-de eventos existir (a validação já os aceita).
+`ConsultaRelatorio::fonte()` devolve `FonteIncidentes` para `abertos`/`cancelados` e `FonteEventos`
+para `concluidos`/`resolvidos`/`fechados`/`encaminhamentos`.
+
+**`FonteEventos`** (`concluidos` = `resolvido`+`fechado`; `resolvidos`; `fechados`; `encaminhamentos` =
+`encaminhado_grupo`+`encaminhado_responsavel`; `contaEventos()` só é `true` em `encaminhamentos`):
+- Data = `incidente_eventos.created_at` (dias de Brasília, mesmo `PeriodoRelatorio`). Filtros e
+  visibilidade rodam numa subconsulta de ids de evento; depois uma consulta enxuta (`id`,
+  `incidente_id`, `user_id`, data, chave) com joins só quando a chave pede o chamado.
+- **Filtros por snapshot:** `grupo_solucao_id` = `incidente_eventos.grupo_solucao_id` e
+  `grupo_analista_id` = `incidente_eventos.autor_grupo_solucao_id`; os demais (`status`, `tipo`,
+  classificação, `responsavel_id`, cliente) usam o estado atual do chamado, via
+  `Incidente::scopeFiltrosRelatorio` (sem os dois filtros de grupo).
+- **Chaves:** `analista`/`quem_encaminhou` = `user_id`; `grupo_analista` = `autor_grupo_solucao_id`;
+  `grupo_chamado` = `grupo_solucao_id` (snapshot); `para_grupo`/`para_responsavel` = `alvo_id` quando
+  `alvo_type` é `GrupoSolucao`/`User` (senão chave vazia); `categoria`/`subcategoria`/`item`/`cliente`/
+  `tipo` vêm do chamado atual; `status_sla` aplica `Incidente::statusSlaResolucao()` a
+  `prazo_resolucao`/`concluido_em` do chamado, lidos no mesmo join (sem hidratar models).
+- **Visibilidade (spec 5.3):** `IncidenteEvento::scopeVisiveisParaRelatorio($user)` — evento visível se
+  o chamado é visível hoje **ou** `grupo_solucao_id` **ou** `autor_grupo_solucao_id` do evento está nos
+  grupos visíveis; admin vê tudo. Assim o time continua vendo o que concluiu em chamado que foi para
+  outro grupo. `scopeVisiveisPara` (legado) não muda.
 
 **Parâmetros:**
 

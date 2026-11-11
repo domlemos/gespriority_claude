@@ -129,4 +129,26 @@ class IncidenteEvento extends Model
     {
         return $query->whereHas('incidente', fn (Builder $qi) => $qi->visiveisPara($user));
     }
+
+    /**
+     * Visibilidade do caminho novo de relatórios (spec 5.3): o evento é
+     * visível se o chamado é visível hoje OU se o grupo do chamado / do autor
+     * NO MOMENTO do evento (snapshots) está entre os grupos do usuário. Sem
+     * isso, o time que concluiu um chamado perderia o histórico assim que
+     * ele fosse encaminhado a outro grupo. Admin (`null`) vê tudo.
+     * `scopeVisiveisPara` fica como está para o caminho legado.
+     */
+    public function scopeVisiveisParaRelatorio(Builder $query, User $user): Builder
+    {
+        $ids = $user->visibleGrupoSolucaoIds();
+
+        if ($ids === null) {
+            return $query;
+        }
+
+        return $query->where(fn (Builder $q) => $q
+            ->whereHas('incidente', fn (Builder $qi) => $qi->visiveisPara($user))
+            ->orWhereIn('grupo_solucao_id', $ids)
+            ->orWhereIn('autor_grupo_solucao_id', $ids));
+    }
 }

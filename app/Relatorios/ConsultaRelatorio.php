@@ -10,7 +10,6 @@ use Closure;
 use Illuminate\Contracts\Validation\DataAwareRule;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
-use LogicException;
 
 /**
  * Pedido do caminho novo de relatórios (`contar`), já validado e com o atalho
@@ -136,7 +135,7 @@ final readonly class ConsultaRelatorio
     {
         return match ($this->contar) {
             'abertos', 'cancelados' => new FonteIncidentes,
-            default => throw new LogicException("Fonte de eventos para contar={$this->contar} ainda não implementada."),
+            default => new FonteEventos($this->contar === 'encaminhamentos'),
         };
     }
 
