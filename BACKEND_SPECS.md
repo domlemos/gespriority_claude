@@ -1575,6 +1575,89 @@ resto do sistema pós-soft-delete de `User`, ver §3.4.3) — `RelatorioSalvo.us
 `restrictOnDelete()` **sem** precisar de guard extra em `UserController::destroy()`, porque `User`
 nunca é apagado de verdade.
 
+#### Caminho novo (`contar`) — Fase 2
+
+`GET /relatorios/incidentes` **com** o parâmetro `contar` segue outro caminho:
+`RelatorioController::index()` delega para `App\Http\Controllers\Api\RelatorioConsultaController`
+(`validado()` → `responder()`). **Sem `contar`, nada muda** — resposta `{agrupado_por, data}` e
+validação legada intactas (spec 6.5). O código fica em `app/Relatorios/`:
+
+| Classe | Papel |
+|---|---|
+| `ConsultaRelatorio` (readonly) | pedido validado: `contar`, `agruparPor`, `quebra`, `inicio`/`fim` (Y-m-d, atalho já resolvido), `atalho`, `filtros`. `regras()` (chaves sem prefixo, reaproveitadas pelo relatório salvo), `deDados($validado, ?$agora)`, `fonte()` |
+| `FonteRelatorio` (interface) | `linhas($c, $user)` → `Collection<LinhaBase>`, `rotulos($c, $chaves)`, `contaEventos()` |
+| `FonteIncidentes` | `abertos`/`cancelados` sobre `incidentes`. Seleciona só `id`, a data e a chave (joins `left` em `itens`/`subcategorias`/`customers`), nunca hidrata o model. Filtros + `visiveisPara` rodam numa subconsulta de ids (`whereIn('incidentes.id', ...)`), porque os scopes usam colunas sem prefixo que ficariam ambíguas ao lado dos joins |
+| `LinhaBase` (readonly) | `chave`, `incidenteId`, `eventoId`, `autorId`, `data` (UTC) |
+| `AgregadorRelatorio::agregar($c, $linhas, $fonte, ?$zerados)` | linha × coluna de período, totais, %, ordenação |
+| `ResultadoRelatorio` | `colunas()`, `linhas()`, `totais()`, `chamadosDistintos()`, `comTitulo()`, `toArray()` |
+| `RotulosRelatorio` | id → nome (usuários `withTrashed`, grupos, categoria/subcategoria/item, clientes), rótulos vazios, `CHAVE_VAZIA = '__vazio__'`, `CHAVE_PORTAL = 'portal'` |
+
+`ConsultaRelatorio::fonte()` lança `LogicException` para os `contar` baseados em evento até a fonte
+de eventos existir (a validação já os aceita).
+
+**Parâmetros:**
+
+| Param | Validação | Nota |
+|---|---|---|
+| `contar` | **obrigatório**, `ConsultaRelatorio::CONTAR` | ver tabela abaixo |
+| `agrupar_por` | **obrigatório**, ∈ `AGRUPAMENTOS_POR_CONTAR[contar]` | fora da lista → 422 em `agrupar_por` |
+| `quebra` | `nenhuma` (padrão)\|`dia`\|`semana`\|`mes` | ≠ `nenhuma` exige período → 422 "Informe um período para quebrar por {dia\|semana\|mês}."; acima de `PeriodoRelatorio::LIMITE_COLUNAS` (dia 62, semana 53, mês 24) → 422 "Período longo demais para quebra por {…}: máximo de {N} colunas." |
+| `periodo` | `este_mes`\|`mes_passado`\|`ultimos_7_dias`, `prohibits:data_inicio,data_fim` | resolvido em Brasília no momento da execução (`PeriodoRelatorio::resolverAtalho`) |
+| `data_inicio`/`data_fim` | `date_format:Y-m-d`, uma exige a outra, `data_fim` `after_or_equal:data_inicio` | dias de Brasília inclusivos; sem período nenhum = "todo o período" |
+| `formato` | `json` | `xlsx` no caminho novo vem depois |
+| filtros | `status`, `tipo`, `categoria_id`, `subcategoria_id`, `item_id`, `grupo_solucao_id`, `grupo_analista_id`, `responsavel_id`, `client_id`, `customer_id` — mesmas regras do legado | nas fontes de incidente: estado atual do chamado (`Incidente::scopeFiltrosRelatorio`, sem as datas legadas); `grupo_analista_id` = grupo atual do responsável, exceto em `aberto_por` (grupo do criador) |
+
+**`contar` → base, data, agrupamentos:**
+
+| `contar` | Base | Data do período | Célula conta | `agrupar_por` |
+|---|---|---|---|---|
+| `abertos` | `incidentes`, qualquer status (cancelados inclusos) | `created_at` | chamados | `categoria`, `subcategoria`, `item`, `grupo_chamado`, `responsavel`, `aberto_por`, `cliente`, `tipo` |
+| `cancelados` | `incidentes` com `status = cancelado` | `concluido_em` | chamados | iguais a `abertos` |
+| `concluidos` | eventos `resolvido`+`fechado` | data do evento | chamados distintos | `analista`, `grupo_analista`, `grupo_chamado`, `categoria`, `subcategoria`, `item`, `cliente`, `tipo`, `status_sla` |
+| `resolvidos` | eventos `resolvido` | data do evento | chamados distintos | iguais a `concluidos` |
+| `fechados` | eventos `fechado` | data do evento | chamados distintos | iguais a `concluidos` |
+| `encaminhamentos` | eventos `encaminhado_grupo`+`encaminhado_responsavel` | data do evento | eventos | `quem_encaminhou`, `para_grupo`, `para_responsavel` |
+
+`cliente` = empresa (`customers.client_id`). `aberto_por` mantém a linha `{chave: 'portal', rotulo:
+'Portal (cliente)'}` da Fase 1 (`criado_por_id` nulo e `criado_por_customer_id` preenchido); com
+`grupo_analista_id` ela some, porque o filtro é pelo grupo do criador. Visibilidade nas fontes de
+incidente = `Incidente::scopeVisiveisPara` (grupo atual).
+
+**Resposta (json):**
+
+```json
+{
+  "titulo": "",
+  "contar": "abertos", "agrupar_por": "categoria", "quebra": "mes",
+  "periodo": {"inicio": "2026-10-01", "fim": "2026-11-30"},
+  "colunas": [{"chave": "2026-10-01", "rotulo": "Out/2026"}, {"chave": "2026-11-01", "rotulo": "Nov/2026"}],
+  "linhas": [{"chave": 3, "rotulo": "Rede", "celulas": {"2026-10-01": 2, "2026-11-01": 1}, "total": 3, "percentual": 75.0}],
+  "totais": {"celulas": {"2026-10-01": 3, "2026-11-01": 1}, "total": 4},
+  "chamados_distintos": 4
+}
+```
+
+- `periodo` é `null` sem período. Sem quebra, `colunas = [{chave: "total", rotulo: "Total"}]` e cada
+  `celulas = {total: n}`. Colunas em ordem cronológica; a chave é o Y-m-d do início do balde em
+  Brasília (semana começa na segunda, então a 1ª coluna pode ser anterior a `data_inicio`).
+- A coluna de cada linha-base é `PeriodoRelatorio::colunaDe(data, quebra)` — dia de Brasília, nunca
+  a data UTC (um chamado de 01/11 02:30 UTC cai em outubro).
+- **Totais:** célula = chamados distintos da linha naquele período (eventos em `encaminhamentos`);
+  total da linha = soma das células; total da coluna = soma das linhas; total geral = soma de tudo;
+  `percentual` = total da linha ÷ total geral × 100, uma casa (0.0 com total geral 0), serializado
+  sempre como número decimal (`JSON_PRESERVE_ZERO_FRACTION`). `chamados_distintos` =
+  chamados distintos de todas as linhas-base; a UI mostra o rodapé só quando difere do total geral.
+- **Ordenação:** total desc, depois rótulo sem diferenciar maiúsculas/acentos (`Collator('pt_BR')`,
+  força primária; `strcasecmp` se `intl` faltar).
+- Chave nula vira `"__vazio__"`, com rótulo por agrupamento: `categoria`/`subcategoria`/`item`
+  "(sem classificação)", grupos "(sem grupo)", `responsavel`/`para_responsavel` "(sem responsável)",
+  `analista`/`quem_encaminhou` "(usuário desconhecido)", `aberto_por` "(desconhecido)", `cliente`
+  "(sem cliente)". `tipo` usa `Incidente::TIPO_ROTULOS`; `status_sla`, os rótulos da Fase 1.
+- **Zero-fill:** com `grupo_analista_id` e `agrupar_por` ∈ {`analista`, `responsavel`,
+  `quem_encaminhou`}, usuários ativos com `users.grupo_solucao_id` = X sem linha entram com todas as
+  células 0 (`RelatorioConsultaController::zerados()` → parâmetro `$zerados` do agregador).
+- `titulo` vem vazio por enquanto (a frase de título é montada numa etapa seguinte).
+
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 
 Guard `customer` (`auth:customer`); token de staff recebe `401`. Controller separado do

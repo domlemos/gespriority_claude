@@ -22,6 +22,11 @@ class RelatorioController extends Controller
 {
     public function index(Request $request)
     {
+        // Fase 2: `contar` liga o caminho novo; sem ele, a resposta legada não muda.
+        if ($request->has('contar')) {
+            return app(RelatorioConsultaController::class)->index($request);
+        }
+
         [$filtros, $agruparPor, $formato] = $this->validado($request);
 
         return $this->responder($filtros, $agruparPor, $formato, $request->user());
