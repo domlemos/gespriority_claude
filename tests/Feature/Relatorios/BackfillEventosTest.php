@@ -213,6 +213,35 @@ class BackfillEventosTest extends TestCase
         $this->assertSame('2026-10-04 12:00:00', $cancelado2->created_at->format('Y-m-d H:i:s'));
     }
 
+    public function test_cancelado_sem_log_e_sem_concluido_nem_updated_at_usa_created_at(): void
+    {
+        $id = $this->incidente(['status' => 'cancelado', 'concluido_em' => null, 'updated_at' => null]);
+
+        $this->rodarBackfill();
+
+        $cancelado = $this->eventos($id, 'cancelado')->sole();
+        $this->assertSame('2026-10-01 12:00:00', $cancelado->created_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_log_de_status_sem_created_at_e_ignorado(): void
+    {
+        $agente = User::factory()->create();
+        $id = $this->incidente(['status' => 'em_andamento']);
+        DB::table('incidente_descricoes')->insert([
+            'incidente_id' => $id,
+            'user_id' => $agente->id,
+            'tipo' => 'alteracao',
+            'descricao' => "Campo 'Status' alterado de 'cancelado' para 'em_andamento' às 10:00 do dia 01/10/2026.",
+            'created_at' => null,
+            'updated_at' => null,
+        ]);
+
+        $this->rodarBackfill();
+
+        $this->assertCount(0, $this->eventos($id, 'reaberto'));
+        $this->assertCount(1, $this->eventos($id, 'aberto'));
+    }
+
     public function test_marca_eventos_anteriores_a_fase_1_como_retroativos(): void
     {
         $agente = User::factory()->create();
@@ -220,8 +249,8 @@ class BackfillEventosTest extends TestCase
         $antes = [];
         $depois = [];
         foreach (['resolvido', 'fechado', 'encaminhado_grupo', 'encaminhado_responsavel'] as $tipo) {
-            $antes[] = $this->evento($id, $tipo, ['user_id' => $agente->id, 'created_at' => '2026-11-11 14:48:22']);
-            $depois[] = $this->evento($id, $tipo, ['user_id' => $agente->id, 'created_at' => '2026-11-11 14:48:24']);
+            $antes[] = $this->evento($id, $tipo, ['user_id' => $agente->id, 'created_at' => '2026-11-11 14:49:33']);
+            $depois[] = $this->evento($id, $tipo, ['user_id' => $agente->id, 'created_at' => '2026-11-11 14:49:35']);
         }
 
         $this->rodarBackfill();

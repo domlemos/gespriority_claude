@@ -11,15 +11,18 @@ use Illuminate\Support\Facades\DB;
  * backfill), em chunks de 500. Idempotente: pode rodar de novo sem duplicar.
  *
  * Instante do deploy da Fase 1 (snapshot de grupos, commit 619dad0):
- * 2026-11-11T14:48:23Z — `createdAt` do primeiro run do workflow
+ * 2026-11-11T14:49:34Z — FIM do job "deploy" do primeiro run do workflow
  * "Deploy (EC2 / infra2)" na main cujo head (ed093baa) contém 619dad0
- * (run 43042025933, success). Eventos anteriores tiveram o grupo do autor
- * preenchido pelo backfill da Fase 1 com o grupo ATUAL da pessoa, por isso
- * são aproximados.
+ * (run 43042025933, success; run criado às 14:48:23Z). Usa o fim, não o
+ * início: eventos gravados durante o deploy ainda vieram do código antigo,
+ * e marcar a mais como aproximado é aceitável; marcar como exato o que é
+ * aproximado não. Eventos anteriores tiveram o grupo do autor preenchido
+ * pelo backfill da Fase 1 com o grupo ATUAL da pessoa, por isso são
+ * aproximados.
  */
 return new class extends Migration
 {
-    private const DEPLOY_FASE_1 = '2026-11-11 14:48:23';
+    private const DEPLOY_FASE_1 = '2026-11-11 14:49:34';
 
     private const TIPOS_JA_EXISTENTES = ['resolvido', 'fechado', 'encaminhado_grupo', 'encaminhado_responsavel'];
 
@@ -92,7 +95,8 @@ return new class extends Migration
             ->where('descricao', 'like', "Campo 'Status' alterado de %")
             ->chunkById(500, function ($logs) {
                 foreach ($logs as $log) {
-                    if (! preg_match(self::PADRAO_LOG_STATUS, $log->descricao, $m)) {
+                    // Sem data não há como situar o evento (nem o grupo da época).
+                    if ($log->created_at === null || ! preg_match(self::PADRAO_LOG_STATUS, $log->descricao, $m)) {
                         continue;
                     }
                     [, $de, $para] = $m;
@@ -132,7 +136,10 @@ return new class extends Migration
             });
     }
 
-    /** Incidente cancelado sem nenhum evento `cancelado` (nem do log): autor desconhecido. */
+    /**
+     * Incidente cancelado sem nenhum evento `cancelado` (nem do log): autor
+     * desconhecido. Data: concluido_em, senão updated_at, senão created_at.
+     */
     private function criarCanceladosSemLog(): void
     {
         DB::table('incidentes')->where('status', 'cancelado')->chunkById(500, function ($incidentes) {
@@ -148,7 +155,7 @@ return new class extends Migration
                     'autor_customer_id' => null,
                     'autor_grupo_solucao_id' => null,
                     'grupo_solucao_id' => $incidente->grupo_solucao_id,
-                    'created_at' => $incidente->concluido_em ?? $incidente->updated_at,
+                    'created_at' => $incidente->concluido_em ?? $incidente->updated_at ?? $incidente->created_at,
                 ]);
             }
         });
