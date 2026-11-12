@@ -1609,7 +1609,7 @@ validação legada intactas (spec 6.5). O código fica em `app/Relatorios/`:
 
 | Classe | Papel |
 |---|---|
-| `ConsultaRelatorio` (readonly) | pedido validado: `contar`, `agruparPor`, `quebra`, `inicio`/`fim` (Y-m-d, atalho já resolvido), `atalho`, `filtros`. `regras()` (chaves sem prefixo, reaproveitadas pelo relatório salvo), `deDados($validado, ?$agora)`, `fonte()` |
+| `ConsultaRelatorio` (readonly) | pedido validado: `contar`, `agruparPor`, `quebra`, `inicio`/`fim` (Y-m-d, atalho já resolvido), `atalho`, `filtros`. `regras()` (chaves sem prefixo, reaproveitadas pelo relatório salvo), `regraQuebra()` (regra cruzada quebra × período, pública para `ConsultaIndicadores`), `deDados($validado, ?$agora)`, `fonte()` |
 | `FonteRelatorio` (interface) | `linhas($c, $user)` → `Collection<LinhaBase>`, `rotulos($c, $chaves)`, `contaEventos()` |
 | `FonteIncidentes` | `abertos`/`cancelados` sobre `incidentes`. Seleciona só `id`, a data e a chave (joins `left` em `itens`/`subcategorias`/`customers`), nunca hidrata o model. Filtros + `visiveisPara` rodam numa subconsulta de ids (`whereIn('incidentes.id', ...)`), porque os scopes usam colunas sem prefixo que ficariam ambíguas ao lado dos joins |
 | `LinhaBase` (readonly) | `chave`, `incidenteId`, `eventoId`, `autorId`, `data` (UTC) |
@@ -1740,6 +1740,83 @@ autores são carregados em uma query cada, só para a página.
 linha 2 `Linha: {rótulo}` (+ ` · {rótulo da coluna}`); linha 3 `Gerado em … (horário de Brasília) por {nome}`; linha 4
 vazia; cabeçalho `Nº, Título, Status, Data, Analista, Grupo de Solução` (+ `Destino` em `encaminhamentos`); datas em
 Brasília `dd/mm/aaaa hh:mm`.
+
+#### Indicadores por grupo
+
+`GET /relatorios/indicadores` (`auth:web` + `can:relatorios.view`, `App\Http\Controllers\Api\IndicadoresController`):
+abertos, resolvidos, fechados e cancelados por grupo de solução, ou por integrante de um grupo. O número de cada evento
+vai sempre para o **grupo do autor no momento** (`incidente_eventos.autor_grupo_solucao_id`), nunca para o grupo atual do
+chamado nem para o grupo atual da pessoa. `index()` valida → `ConsultaIndicadores::deDados()` → `validarVisibilidade()` →
+`responder($c, $formato, $user)` (público, para o relatório salvo). Código em `app/Relatorios/Indicadores/`:
+
+| Classe | Papel |
+|---|---|
+| `ConsultaIndicadores` (readonly) | `grupos` (ids int na ordem pedida; vazio = todos), `porIntegrante`, `quebra`, `inicio`/`fim` (Y-m-d, atalho resolvido), `atalho`. `regras()`, `deDados($validado, ?$agora)`, `validarVisibilidade($user)` |
+| `FonteIndicadores::linhas($c, $user)` | uma única consulta em `incidente_eventos` (`whereIn('tipo')`, sem hidratar models) → `Collection<LinhaIndicador>`. `TIPOS` (indicador → tipo), `CHAVE_PORTAL = 'portal'`, `CHAVE_SEM_AUTOR = '__sem_autor__'` |
+| `LinhaIndicador` (readonly) | `indicador`, `chave` (id do grupo, id do usuário, `portal` ou `__sem_autor__`), `retroativo`, `base` (`LinhaBase`) |
+| `AgregadorIndicadores::agregar($c, $linhas, $user)` | corpo JSON (abaixo) |
+| `TextosIndicadores` | `titulo($c)`, `LEGENDA`, `aviso($indicadores, $ultimo)`, `ROTULOS` |
+
+**Parâmetros.** `periodo` **ou** `data_inicio`+`data_fim` (obrigatório: sem nenhum → 422 em `periodo` "Informe um
+período."), `quebra`, com as mesmas regras e mensagens do caminho `contar` (as de período vêm de
+`ConsultaRelatorio::regras()`, a cruzada de quebra de `ConsultaRelatorio::regraQuebra()`); `grupos` (array de ids
+existentes, distintos); `por_integrante` (boolean; exige exatamente um grupo → 422 em `por_integrante` "Selecione um único
+grupo para detalhar por integrante."); `formato` (só `json` por enquanto). Para não admin, grupo pedido fora de
+`visibleGrupoSolucaoIds()` → 422 em `grupos.N` "Grupo fora dos seus grupos visíveis.".
+
+**Indicadores** (ordem fixa): `abertos` = evento `aberto`, `resolvidos` = `resolvido`, `fechados` = `fechado`,
+`cancelados` = `cancelado`. Data = `created_at` do evento em dias de Brasília (`PeriodoRelatorio::inicioUtc`/
+`fimExclusivoUtc`; um evento de 31/10 23:30 BRT cai em outubro).
+
+**Classificação de cada evento** (os três ramos da consulta são disjuntos):
+- **portal** — `aberto` com `autor_customer_id`. Só tem valor em Abertos. Com `grupos` (ou `por_integrante`), conta só se o
+  `grupo_solucao_id` do evento (grupo do chamado no momento) ∈ grupos; sem `grupos`, todos.
+- **agente** — `user_id` e `autor_grupo_solucao_id` preenchidos. Chave = `autor_grupo_solucao_id` (ou `user_id` por
+  integrante). Com `grupos`, só autor_grupo ∈ grupos; sem `grupos`, para não admin, autor_grupo ∈ visíveis.
+- **sem autor** — `user_id` e `autor_customer_id` nulos, ou `user_id` preenchido com `autor_grupo_solucao_id` nulo (grupo
+  excluído). Só sem `grupos` (e, portanto, fora do detalhamento por integrante).
+- Visibilidade de portal e sem autor (não admin): o chamado precisa ser visível hoje (`Incidente::visiveisPara`). Admin
+  vê tudo.
+
+**Linhas.** Com `grupos`: exatamente esses grupos, mesmo zerados. Sem `grupos`: grupos visíveis com `ativo = true` +
+qualquer grupo com evento contado. Por integrante: usuários (`withTrashed`) com evento contado no grupo — inclusive quem
+já saiu dele — + usuários não excluídos com `users.grupo_solucao_id` = o grupo, zerados; rótulo = nome (`"Nome
+(excluído)"` para soft-deleted). Ordenação: soma dos quatro totais desc, depois rótulo (`AgregadorRelatorio::ordenar`,
+agora público). Depois vêm `portal` ("Cliente (portal)", sempre presente) e `__sem_autor__` ("Sem autor registrado", só
+quando não zerada). `tipo` da linha: `grupo`|`usuario`|`portal`|`sem_autor`. Chaves sempre string.
+
+**Contagem.** Célula = chamados distintos (`incidente_id`) por linha × indicador × coluna; total da linha = soma das
+células; `totais[indicador]` = soma das linhas; `distintos[indicador]` = chamados distintos do indicador no resultado
+(chamado resolvido por N1 e por N2 no período: Resolvidos N1 = 1, N2 = 1, total 2, distintos 1). As colunas são
+independentes: resolvido e fechado no período conta nas duas.
+
+**Resposta:**
+
+```json
+{
+  "titulo": "Indicadores por grupo de solução — de 01/10/2026 a 31/10/2026 — grupos: N1, N2",
+  "periodo": {"inicio": "2026-10-01", "fim": "2026-10-31"}, "quebra": "nenhuma",
+  "grupos": [1, 2], "por_integrante": false,
+  "indicadores": [{"chave": "abertos", "rotulo": "Abertos"}, {"chave": "resolvidos", "rotulo": "Resolvidos"},
+                  {"chave": "fechados", "rotulo": "Fechados"}, {"chave": "cancelados", "rotulo": "Cancelados"}],
+  "colunas": [{"chave": "total", "rotulo": "Total"}],
+  "linhas": [{"chave": "1", "rotulo": "N1", "tipo": "grupo",
+              "valores": {"abertos": {"celulas": {"total": 2}, "total": 2}, "resolvidos": {...}, "fechados": {...}, "cancelados": {...}}}],
+  "totais": {"abertos": {"celulas": {"total": 2}, "total": 2}, ...},
+  "distintos": {"abertos": 2, "resolvidos": 1, "fechados": 1, "cancelados": 0},
+  "legenda": ["...5 textos..."], "aviso": null
+}
+```
+
+Colunas de `PeriodoRelatorio::colunas()` (sem quebra, `[{chave: "total", rotulo: "Total"}]`, como no caminho `contar`);
+cada evento cai na sua por `PeriodoRelatorio::colunaDe()`.
+
+**Título:** `Indicadores por grupo de solução — de dd/mm/aaaa a dd/mm/aaaa[, por {dia|semana|mês}][ — grupos: N1, N2][ —
+por integrante]` (grupos na ordem pedida). **Legenda:** os cinco textos fixos de `TextosIndicadores::LEGENDA` (um por
+indicador + "As colunas são independentes…"). **Aviso:** se algum evento contado tem `retroativo = true` (backfill),
+`"Dados aproximados em {colunas}: registros até dd/mm/aaaa foram reconstruídos e usam o grupo atual da pessoa, não o da
+época."` — colunas na ordem fixa, unidas por vírgula e "e" ("Abertos, Fechados e Cancelados"); data = `created_at`
+(Brasília) do retroativo contado mais recente. Sem retroativos, `null`.
 
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 

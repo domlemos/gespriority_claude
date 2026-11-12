@@ -78,7 +78,7 @@ final readonly class ConsultaRelatorio
         return [
             'contar' => ['required', 'string', Rule::in(self::CONTAR)],
             'agrupar_por' => ['required', 'string', self::regraCruzada(self::validarAgrupamento(...))],
-            'quebra' => ['sometimes', 'string', Rule::in(PeriodoRelatorio::QUEBRAS), self::regraCruzada(self::validarQuebra(...))],
+            'quebra' => ['sometimes', 'string', Rule::in(PeriodoRelatorio::QUEBRAS), self::regraQuebra()],
             'periodo' => ['sometimes', 'string', Rule::in(PeriodoRelatorio::ATALHOS), 'prohibits:data_inicio,data_fim'],
             // Período "de X a Y" só faz sentido com as duas pontas.
             'data_inicio' => ['required_with:data_fim', 'date_format:Y-m-d'],
@@ -137,6 +137,16 @@ final readonly class ConsultaRelatorio
             'abertos', 'cancelados' => new FonteIncidentes,
             default => new FonteEventos($this->contar === 'encaminhamentos'),
         };
+    }
+
+    /**
+     * Regra cruzada quebra × período (exige período e respeita
+     * `PeriodoRelatorio::LIMITE_COLUNAS`). Pública para outras consultas de
+     * relatório (`ConsultaIndicadores`) aplicarem exatamente a mesma regra.
+     */
+    public static function regraQuebra(): ValidationRule
+    {
+        return self::regraCruzada(self::validarQuebra(...));
     }
 
     private static function validarAgrupamento(string $valor, array $dados, Closure $falhar): void
