@@ -231,6 +231,9 @@ Route::middleware(['auth:web', 'can:relatorios.view'])
     ->get('/relatorios/fluxos', [FluxosController::class, 'index']);
 
 Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios/fluxos/chamados', [FluxosController::class, 'chamados']);
+
+Route::middleware(['auth:web', 'can:relatorios.view'])
     ->apiResource('relatorios-salvos', RelatorioSalvoController::class)
     ->parameters(['relatorios-salvos' => 'relatorioSalvo'])
     ->only(['index', 'show']);

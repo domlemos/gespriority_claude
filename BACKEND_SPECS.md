@@ -1865,7 +1865,7 @@ Código em `app/Relatorios/Fluxos/`:
 
 **Parâmetros.** Os de `ConsultaIndicadores::regras()` sem `quebra` e `por_integrante` (a consulta usa `quebra = 'nenhuma'`,
 `porIntegrante = false`): `periodo` **ou** `data_inicio`+`data_fim` (obrigatório, 422 em `periodo` "Informe um período."),
-`grupos` (array de ids), `formato` (por ora só `json`). Grupo pedido fora dos visíveis → 422 em `grupos.N` "Grupo fora dos
+`grupos` (array de ids), `formato` (`json` ou `xlsx`). Grupo pedido fora dos visíveis → 422 em `grupos.N` "Grupo fora dos
 seus grupos visíveis.". Data = `incidente_eventos.created_at` em dias de Brasília.
 
 **Passagem** = evento do período que leva um chamado de uma origem X a um grupo Y, com X ≠ Y (X = Y é descartada):
@@ -1920,6 +1920,29 @@ visíveis com algum número > 0 ou alguma passagem.
 `retroativo = true`, `"Dados aproximados: registros até dd/mm/aaaa foram reconstruídos; nesses casos a origem de um
 encaminhamento pode aparecer como desconhecida e o grupo de quem abriu é o grupo atual da pessoa."` (data = `created_at` do
 mais recente, em Brasília); senão `null`. Ignora `grupos` e a visibilidade, como nos Indicadores.
+
+**Lista de chamados** — `GET /relatorios/fluxos/chamados` (mesmo middleware): os parâmetros da consulta + **um** dos modos,
+mais `page`, `per_page` (máx. 200, padrão 50) e `formato` (`json`\|`xlsx`). Valida a visibilidade primeiro (mesmo 422 em `grupos.N`).
+- Modo nó: `no` (chave) + `metrica` (`abertos`, `recebidos`, `encaminhados`, `resolvidos`). Modo seta: `origem` + `destino`.
+  Os dois modos juntos, ou nenhum (ou um modo incompleto), dão 422 em `no`: "Informe um nó e uma métrica, ou uma origem e um
+  destino.". Nó que não está no mapa: 422 em `no` "Nó inexistente neste mapa.". Métrica `null` para o nó (`cliente.recebidos`,
+  qualquer métrica de especial ou de vizinho sob o filtro `grupos`) dá 422 em `metrica` "Este número não existe para este nó."; a seta que toca
+  um vizinho continua listável.
+- Unidade: `abertos` e `resolvidos` um item por chamado (evento mais recente); `recebidos`, `encaminhados` e seta um item por
+  passagem (`ListaChamados::montar(..., comDestino: true)`), de modo que `meta.total` = número clicado. Vêm das mesmas
+  linhas do agregador (`FonteFluxos`).
+- Resposta: `{titulo, filtro: {rotulo}, data, meta}` — `rotulo` = `"N1 · Recebidos"` ou `"Cliente → N1"`; `data` e `meta` no formato
+  de `GET /relatorios/indicadores/chamados`. Não vaza grupo invisível: o `destino` de uma passagem sai do rótulo do nó
+  (`Outros grupos`) e `grupo_chamado` vira `null` se o grupo atual do chamado não é visível ao usuário; `acessivel` segue
+  `ListaChamados::montar` (regra de `visiveisPara` de hoje).
+- `xlsx`: `RelatorioChamadosExport` (`mapa-de-fluxos-chamados.xlsx`), com coluna `Destino` nas passagens.
+
+**Planilha** — `formato=xlsx` em `GET /relatorios/fluxos` (`responder()`, `App\Exports\FluxosExport`, arquivo
+`mapa-de-fluxos.xlsx`), na ordem: título; `Gerado em dd/mm/aaaa hh:mm (horário de Brasília) por {nome}`; linha em branco;
+`Nós` + cabeçalho `Grupo | Abertos pelo grupo | Recebidos | Encaminhados | Resolvidos` + uma linha por nó (célula vazia onde a
+métrica é `null`, inclusive vizinhos); linha em branco; `Fluxos` + `Origem | Destino | Quantidade` (rótulos dos nós); linha em
+branco; `Legenda` + 5 textos; o aviso, se houver. Todo texto é gravado como string (sem fórmulas). As duas exportações
+(planilha e lista) registram auditoria `exportado` (`entidade_type = relatorio`, `parametros` da consulta executada).
 
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 
