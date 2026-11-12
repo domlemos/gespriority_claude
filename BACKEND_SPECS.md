@@ -2071,6 +2071,8 @@ Não idempotente por design (mesmo raciocínio dos customers aleatórios — só
 > - **Datas**: `created_at` retroativo de 1 a 25 dias (`now()->subDays(N)`, não datas fixas — o seeder
 >   continua fazendo sentido não importa quando rodar), pra `data_inicio`/`data_fim` terem o que
 >   filtrar.
+> - **Eventos**: `encaminhado_*` para grupo/responsável; `resolvido` (+ `fechado`) nos concluídos; o
+>   cancelado ganha o evento `cancelado` (autor = responsável, senão admin; `created_at` = `concluido_em`).
 > - **Segundo `Client`** ("TechCorp Soluções", `financeiro@techcorp.example.com`) criado só aqui
 >   (não em `DatabaseSeeder`) — com um único cliente, o filtro `client_id` nunca mudava o resultado.
 > - **Sem feed** (`IncidenteDescricao`) de propósito — o feed completo já é demonstrado no
@@ -2134,7 +2136,8 @@ massa):
 - **Status ponderados** (aberto 20, em andamento 20, pendente 10, resolvido 20, fechado 25,
   cancelado 5) e `created_at` espalhado pelos últimos 60 dias. Coerência com o status: fora de
   `aberto` → `respondido_em`; concluídos → `concluido_em` (nunca no futuro); `resolvido`/`fechado`
-  → `IncidenteEvento` `resolvido` (+ `fechado`); grupo/responsável → eventos `encaminhado_*`.
+  → `IncidenteEvento` `resolvido` (+ `fechado`); `cancelado` → `IncidenteEvento` `cancelado` (autor = responsável,
+  senão criador; `created_at` = `concluido_em`); grupo/responsável → eventos `encaminhado_*`.
 - Toda entrada tem a **descrição de abertura** no feed (autor staff ou cliente).
 
 Coberto por `tests/Feature/Seeders/ChamadosDemoSeederTest.php` (ver §3.9).
@@ -2190,7 +2193,7 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Incidentes/IncidenteDescricaoAutorTest.php` | Guarda "exatamente um autor" de `IncidenteDescricao` (`LogicException` sem autor ou com `user_id`+`customer_id`; só `customer_id` salva) |
 | `Portal/PortalIncidenteTest.php` | Cliente abre incidente em nome próprio com tudo fixado no servidor; campos forjados no payload (`customer_id`, `item_id`, `prioridade`, `status`, `tipo`, `origem`, grupo/responsável) ignorados; descrição de abertura com autor cliente; resposta só com `id`/`titulo`/`status`/datas; validação; "meus chamados" só traz os do cliente (nem de colega da mesma empresa); token de staff `401` nas rotas do portal e token de cliente `401` nas do staff |
 | `Portal/PortalTriagemTest.php` | Primeira classificação pelo staff 3h depois da abertura → prioridade do item e prazos contados de `created_at` (SLA de resposta já `estourado`); chamado não triado visível a todo staff com `prioridade: null`/`sem_sla`; `?sem_classificacao=1` (inclusive com `sort_by=prioridade`) |
-| `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; `--quantidade`; recusa em produção sem confirmação |
+| `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; todo chamado `cancelado` (do seed padrão e da massa de demo) tem evento `cancelado`; `--quantidade`; recusa em produção sem confirmação |
 | `Relatorios/*` e `Dashboard/*` | (atualizados) filtro `tipo` em relatório, em agrupamento por evento e em relatório salvo; grupo "Portal (cliente)" no `aberto_por`; `tipo` exposto no dashboard |
 | `Customers/CustomerCrudTest.php` | (atualizado) `409` (não `500`) ao excluir um customer que abriu pelo portal um chamado depois trocado de cliente |
 | `Auditoria/AuditLogCapturaTest.php` | Nada é gravado sem usuário autenticado (factories); CRUD via API grava `criado`/`atualizado`/`excluido` com autor, diff e rótulo snapshot; update sem mudança não grava; troca de senha vira `senha: (alterada)` sem o hash; `sync()` de papéis e permissões do grupo grava diff de relação; chamado grava só nomes de campos (coluna de sistema ignorada); feed grava só `comentario`, sem texto; `login`/`login_falhou` (com e sem conta existente); ação do portal com autor `customer`; `model:prune` apaga só o que passou de 6 meses |

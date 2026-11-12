@@ -5,6 +5,7 @@ namespace Tests\Feature\Seeders;
 use App\Models\Client;
 use App\Models\Incidente;
 use App\Models\IncidenteDescricao;
+use App\Models\IncidenteEvento;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -55,6 +56,30 @@ class ChamadosDemoSeederTest extends TestCase
         // Todo chamado tem a descrição de abertura no feed.
         $this->assertSame(100, IncidenteDescricao::query()->whereIn('incidente_id', $novos->pluck('id'))
             ->distinct()->count('incidente_id'));
+    }
+
+    /** Todo chamado cancelado tem o evento `cancelado` (o relatório de indicadores conta por ele). */
+    private function assertCanceladosComEvento(): void
+    {
+        $semEvento = Incidente::query()
+            ->where('status', 'cancelado')
+            ->whereNotIn('id', IncidenteEvento::query()->where('tipo', IncidenteEvento::TIPO_CANCELADO)->select('incidente_id'))
+            ->pluck('id');
+
+        $this->assertSame([], $semEvento->all());
+    }
+
+    public function test_default_seed_cancelled_tickets_have_cancelado_event(): void
+    {
+        $this->assertGreaterThan(0, Incidente::query()->where('status', 'cancelado')->count());
+        $this->assertCanceladosComEvento();
+    }
+
+    public function test_demo_cancelled_tickets_have_cancelado_event(): void
+    {
+        $this->artisan('chamados:popular')->assertSuccessful();
+
+        $this->assertCanceladosComEvento();
     }
 
     public function test_quantidade_option(): void
