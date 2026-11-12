@@ -1755,13 +1755,14 @@ relatório salvo), que começa por `validarVisibilidade($user)` — nenhum chama
 | `FonteIndicadores::linhas($c, $user)` | uma única consulta em `incidente_eventos` (`whereIn('tipo')`, sem hidratar models) → `Collection<LinhaIndicador>`. `TIPOS` (indicador → tipo), `CHAVE_PORTAL = 'portal'`, `CHAVE_SEM_AUTOR = '__sem_autor__'` |
 | `LinhaIndicador` (readonly) | `indicador`, `chave` (id do grupo, id do usuário, `portal` ou `__sem_autor__`), `retroativo`, `base` (`LinhaBase`) |
 | `AgregadorIndicadores::agregar($c, $linhas, $user)` | corpo JSON (abaixo) |
+| `App\Exports\IndicadoresExport` | planilha (abaixo); mesmo `bindValue` de `RelatorioTabelaExport` (texto sempre string, sem fórmulas) |
 | `TextosIndicadores` | `titulo($c)`, `LEGENDA`, `aviso($indicadores, $ultimo)`, `ROTULOS` |
 
 **Parâmetros.** `periodo` **ou** `data_inicio`+`data_fim` (obrigatório: sem nenhum → 422 em `periodo` "Informe um
 período."), `quebra`, com as mesmas regras e mensagens do caminho `contar` (as de período vêm de
 `ConsultaRelatorio::regras()`, a cruzada de quebra de `ConsultaRelatorio::regraQuebra()`); `grupos` (array de ids
 existentes, distintos); `por_integrante` (boolean; exige exatamente um grupo → 422 em `por_integrante` "Selecione um único
-grupo para detalhar por integrante."); `formato` (só `json` por enquanto). Para não admin, grupo pedido fora de
+grupo para detalhar por integrante."); `formato` (`json|xlsx`). Para não admin, grupo pedido fora de
 `visibleGrupoSolucaoIds()` → 422 em `grupos.N` "Grupo fora dos seus grupos visíveis.".
 
 **Indicadores** (ordem fixa): `abertos` = evento `aberto`, `resolvidos` = `resolvido`, `fechados` = `fechado`,
@@ -1817,6 +1818,24 @@ indicador + "As colunas são independentes…"). **Aviso:** se algum evento cont
 `"Dados aproximados em {colunas}: registros até dd/mm/aaaa foram reconstruídos e usam o grupo atual da pessoa, não o da
 época."` — colunas na ordem fixa, unidas por vírgula e "e" ("Abertos, Fechados e Cancelados"); data = `created_at`
 (Brasília) do retroativo contado mais recente. Sem retroativos, `null`.
+
+**Planilha** (`formato=xlsx`, tratada dentro de `responder()`, então vale também para relatórios salvos): título; `Gerado em
+dd/mm/aaaa hh:mm (horário de Brasília) por {nome}`; linha em branco; cabeçalho `Grupo` (ou `Integrante`) + para cada
+indicador uma coluna por período (só com quebra) e `{Indicador} — Total`; as linhas (inclusive portal / sem autor); `Total`;
+`Chamados distintos` (valores de `distintos` sob as colunas de total, vazio nas de período); linha em branco; `Legenda` + os
+5 textos; o aviso, se houver. Registra `Auditoria::registrar('exportado', ...)` com o título do relatório.
+
+**Lista de chamados por célula** — `GET /relatorios/indicadores/chamados` (mesmo middleware; `IndicadoresController::chamados`):
+os parâmetros da consulta + `chave` (obrigatório, chave da linha), `indicador` (obrigatório, um dos 4), `coluna` (opcional;
+inexistente no período → 422 em `coluna` "Coluna inexistente neste período."), `page`, `per_page` (máx. 200, padrão 50) e
+`formato` (`json|xlsx`). Valida a visibilidade como o relatório (grupo fora dos visíveis → 422). A lista parte das mesmas
+`LinhaIndicador` do número (`FonteIndicadores::linhas`), filtradas por chave × indicador × coluna, e traz **um item por
+chamado**, com o evento mais recente no escopo; assim `meta.total` == valor da célula. Sem `coluna` (linha inteira com
+quebra), um chamado que conta em duas colunas aparece uma vez, então `meta.total` pode ser menor que o total da linha.
+Resposta: `{titulo, linha: {chave, rotulo}, indicador: {chave, rotulo}, coluna: {chave, rotulo}|null, data, meta}` — `data`
+e `meta` no formato de `GET /relatorios/chamados` (`ListaChamados::montar($user, $linhas, $comDestino)`, que não depende
+mais de `ConsultaRelatorio`; `acessivel: false` quando o chamado, hoje, não é visível ao usuário, ex.: resolvido por um
+agente do N2 e agora no N3). O `xlsx` usa `RelatorioChamadosExport` e registra auditoria.
 
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 

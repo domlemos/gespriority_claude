@@ -83,7 +83,7 @@ class RelatorioConsultaController extends Controller
             );
 
             return Excel::download(
-                new RelatorioChamadosExport($titulo, $descricao, ListaChamados::montar($c, $u, $selecionadas), $c->contar === 'encaminhamentos', $u, now()),
+                new RelatorioChamadosExport($titulo, $descricao, ListaChamados::montar($u, $selecionadas, $c->contar === 'encaminhamentos'), $c->contar === 'encaminhamentos', $u, now()),
                 'relatorio-chamados.xlsx'
             );
         }
@@ -100,7 +100,7 @@ class RelatorioConsultaController extends Controller
             'titulo' => $titulo,
             'linha' => $linha,
             'coluna' => $colunaInfo,
-            'data' => ListaChamados::montar($c, $u, $pagina->getCollection()),
+            'data' => ListaChamados::montar($u, $pagina->getCollection(), $c->contar === 'encaminhamentos'),
             'meta' => [
                 'current_page' => $pagina->currentPage(),
                 'per_page' => $pagina->perPage(),

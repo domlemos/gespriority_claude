@@ -223,6 +223,9 @@ Route::middleware(['auth:web', 'can:relatorios.view'])
     ->get('/relatorios/indicadores', [IndicadoresController::class, 'index']);
 
 Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios/indicadores/chamados', [IndicadoresController::class, 'chamados']);
+
+Route::middleware(['auth:web', 'can:relatorios.view'])
     ->apiResource('relatorios-salvos', RelatorioSalvoController::class)
     ->parameters(['relatorios-salvos' => 'relatorioSalvo'])
     ->only(['index', 'show']);

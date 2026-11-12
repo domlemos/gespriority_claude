@@ -41,11 +41,12 @@ final class ListaChamados
      * Completa as linhas com dados do chamado em uma query por tabela.
      * `acessivel` usa a regra de hoje (`visiveisPara`): a linha pode aparecer
      * por snapshot do evento num chamado que o usuário já não consegue abrir.
+     * `comDestino`: inclui o grupo/responsável de destino (relatório de encaminhamentos).
      *
      * @param  Collection<int, LinhaBase>  $linhas
      * @return list<array<string, mixed>>
      */
-    public static function montar(ConsultaRelatorio $c, User $u, Collection $linhas): array
+    public static function montar(User $u, Collection $linhas, bool $comDestino): array
     {
         if ($linhas->isEmpty()) {
             return [];
@@ -55,7 +56,7 @@ final class ListaChamados
         $incidentes = Incidente::query()->with('grupoSolucao:id,nome')->whereIn('id', $ids)->get()->keyBy('id');
         $acessiveis = array_flip(Incidente::query()->visiveisPara($u)->whereIn('id', $ids)->pluck('id')->all());
         $autores = RotulosRelatorio::usuarios($linhas->pluck('autorId')->filter()->unique()->all());
-        $destinos = $c->contar === 'encaminhamentos' ? self::destinos($linhas) : [];
+        $destinos = $comDestino ? self::destinos($linhas) : [];
 
         return $linhas->map(function (LinhaBase $l) use ($incidentes, $acessiveis, $autores, $destinos) {
             $incidente = $incidentes[$l->incidenteId];
