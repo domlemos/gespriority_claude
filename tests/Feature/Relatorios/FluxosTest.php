@@ -29,7 +29,8 @@ class FluxosTest extends TestCase
     /** @return array{0: string, 1: User} */
     private function staffToken(?GrupoSolucao $grupoSolucao = null, bool $asAdmin = false): array
     {
-        $role = Role::factory()->create($asAdmin ? ['slug' => 'admin'] : []);
+        // Slug explícito também para o não admin: nunca depender do nome gerado.
+        $role = Role::factory()->create(['slug' => $asAdmin ? 'admin' : 'gestor-teste-'.Role::query()->count()]);
         $role->permissions()->attach(Permission::firstWhere('slug', 'relatorios.view') ?? Permission::factory()->create(['slug' => 'relatorios.view']));
 
         $user = User::factory()->create($grupoSolucao ? ['grupo_solucao_id' => $grupoSolucao->id] : []);
@@ -214,11 +215,11 @@ class FluxosTest extends TestCase
         $this->assertSame($this->m(0, 1, 0, 0), $this->metricas($r, $n2));
         $this->assertNull($this->no($r, 'sem_grupo'));
         $this->assertSame(
-            ['chave' => 'cliente', 'rotulo' => 'Cliente', 'tipo' => 'cliente'],
-            array_intersect_key($r->json('nos.0'), array_flip(['chave', 'rotulo', 'tipo'])),
+            ['chave' => 'cliente', 'rotulo' => 'Cliente', 'tipo' => 'cliente', 'vizinho' => false],
+            array_intersect_key($r->json('nos.0'), array_flip(['chave', 'rotulo', 'tipo', 'vizinho'])),
         );
-        $this->assertSame(['chave' => (string) $n1->id, 'rotulo' => 'N1', 'tipo' => 'grupo'],
-            array_intersect_key($this->no($r, $n1), array_flip(['chave', 'rotulo', 'tipo'])));
+        $this->assertSame(['chave' => (string) $n1->id, 'rotulo' => 'N1', 'tipo' => 'grupo', 'vizinho' => false],
+            array_intersect_key($this->no($r, $n1), array_flip(['chave', 'rotulo', 'tipo', 'vizinho'])));
         $this->assertSame(['inicio' => '2026-10-01', 'fim' => '2026-10-31'], $r->json('periodo'));
         $this->assertSame([], $r->json('grupos'));
     }
@@ -287,7 +288,7 @@ class FluxosTest extends TestCase
         $this->assertArestas([$this->k($n1, 'outros') => 2, $this->k('outros', $n1) => 1], $gestor);
         $this->assertSame(['cliente', (string) $n1->id, 'outros'], array_column($gestor->json('nos'), 'chave'));
         $this->assertSame(
-            ['chave' => 'outros', 'rotulo' => 'Outros grupos', 'tipo' => 'outros', ...$this->m(null, null, null, null)],
+            ['chave' => 'outros', 'rotulo' => 'Outros grupos', 'tipo' => 'outros', 'vizinho' => false, ...$this->m(null, null, null, null)],
             $this->no($gestor, 'outros'),
         );
         $this->assertSame($this->m(1, 1, 2, 0), $this->metricas($gestor, $n1));
@@ -317,7 +318,7 @@ class FluxosTest extends TestCase
         $this->assertSame($this->m(1, 0, 0, 0), $this->metricas($r, $n1));
         $this->assertSame($this->m(0, 1, 0, 0), $this->metricas($r, $n2));
         $this->assertSame(
-            ['chave' => 'sem_grupo', 'rotulo' => 'Sem grupo', 'tipo' => 'sem_grupo', ...$this->m(null, null, null, null)],
+            ['chave' => 'sem_grupo', 'rotulo' => 'Sem grupo', 'tipo' => 'sem_grupo', 'vizinho' => false, ...$this->m(null, null, null, null)],
             $this->no($r, 'sem_grupo'),
         );
     }
@@ -368,7 +369,7 @@ class FluxosTest extends TestCase
 
         $this->assertArestas([$this->k('cliente', $n2) => 1, $this->k('origem_desconhecida', $n2) => 1], $r);
         $this->assertSame(
-            ['chave' => 'origem_desconhecida', 'rotulo' => 'Origem desconhecida', 'tipo' => 'origem_desconhecida', ...$this->m(null, null, null, null)],
+            ['chave' => 'origem_desconhecida', 'rotulo' => 'Origem desconhecida', 'tipo' => 'origem_desconhecida', 'vizinho' => false, ...$this->m(null, null, null, null)],
             $this->no($r, 'origem_desconhecida'),
         );
         $this->assertSame($this->m(0, 2, 0, 0), $this->metricas($r, $n2));
@@ -464,7 +465,7 @@ class FluxosTest extends TestCase
         $b = $this->abreAgente($this->agente($n3), $n3);
         $this->encaminha($b, $n3, $n2, '2026-10-11 12:00:00');
 
-        // O vizinho mostra os seus próprios abertos e resolvidos.
+        // Números do vizinho não aparecem (seriam parciais).
         $c = $this->abreAgente($this->agente($n2), $n2);
         $this->resolve($c, $n2, $this->agente($n2), '2026-10-12 12:00:00');
 
@@ -477,8 +478,20 @@ class FluxosTest extends TestCase
         $this->assertSame(['cliente', (string) $n1->id, (string) $n2->id, (string) $n4->id], array_column($r->json('nos'), 'chave'));
         $this->assertSame($this->m(0, 0, 0, 0), $this->metricas($r, $n4));
         $this->assertSame($this->m(1, 0, 1, 0), $this->metricas($r, $n1));
-        $this->assertSame($this->m(1, 1, 0, 1), $this->metricas($r, $n2));
+        $this->assertSame(
+            ['chave' => (string) $n2->id, 'rotulo' => 'N2', 'tipo' => 'grupo', 'vizinho' => true, ...$this->m(null, null, null, null)],
+            $this->no($r, $n2),
+        );
+        $this->assertSame(
+            ['cliente' => false, (string) $n1->id => false, (string) $n2->id => true, (string) $n4->id => false],
+            array_column($r->json('nos'), 'vizinho', 'chave'),
+        );
         $this->assertSame([$n4->id, $n1->id], $r->json('grupos'));
+
+        // Sem filtro ninguém é vizinho, e o N2 tem os seus números.
+        $todos = $this->consultar(self::OUTUBRO)->assertOk();
+        $this->assertSame([false], array_values(array_unique(array_column($todos->json('nos'), 'vizinho'))));
+        $this->assertSame($this->m(1, 2, 0, 1), $this->metricas($todos, $n2));
 
         // Vizinho invisível para o gestor vira "outros".
         $gestor = $this->consultar(self::OUTUBRO."&grupos[]={$n1->id}", $this->gestorHeader($n1))->assertOk();

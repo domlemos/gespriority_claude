@@ -1890,8 +1890,9 @@ visível (Cliente sozinho não basta, para não revelar o volume de outros grupo
 visíveis; `cliente.abertos` só de chamados visíveis hoje (`Incidente::visiveisPara`).
 
 **Filtro `grupos`.** Entram as passagens com ao menos uma ponta nos grupos pedidos. Nós de grupo = os pedidos (sempre, mesmo
-zerados) + as outras pontas dessas passagens que são grupos visíveis; um vizinho mostra os seus próprios `abertos` e
-`resolvidos`, mas `recebidos`/`encaminhados` só das passagens que tocam a seleção. `cliente.abertos` conta só chamados cujo
+zerados) + as outras pontas dessas passagens que são grupos visíveis. Essas pontas fora da seleção são **vizinhos**
+(`vizinho: true`): aparecem só para ancorar as setas, com as quatro métricas `null` (seriam parciais). Todo nó, de grupo ou
+especial, traz o booleano `vizinho` (`false` fora desse caso, e sempre `false` sem filtro). `cliente.abertos` conta só chamados cujo
 primeiro grupo atribuído está nos pedidos (`FonteIndicadores::primeiroGrupoEm`, agora público). **Sem filtro:** grupos
 visíveis com algum número > 0 ou alguma passagem.
 
@@ -1905,9 +1906,10 @@ visíveis com algum número > 0 ou alguma passagem.
 {
   "titulo": "Mapa de fluxos — de 01/10/2026 a 31/10/2026 — grupos: N1",
   "periodo": {"inicio": "2026-10-01", "fim": "2026-10-31"}, "grupos": [1],
-  "nos": [{"chave": "cliente", "rotulo": "Cliente", "tipo": "cliente",
+  "nos": [{"chave": "cliente", "rotulo": "Cliente", "tipo": "cliente", "vizinho": false,
            "abertos": 15, "recebidos": null, "encaminhados": null, "resolvidos": null},
-          {"chave": "1", "rotulo": "N1", "tipo": "grupo", "abertos": 2, "recebidos": 15, "encaminhados": 3, "resolvidos": 9}],
+          {"chave": "1", "rotulo": "N1", "tipo": "grupo", "vizinho": false, "abertos": 2, "recebidos": 15, "encaminhados": 3, "resolvidos": 9},
+          {"chave": "2", "rotulo": "N2", "tipo": "grupo", "vizinho": true, "abertos": null, "recebidos": null, "encaminhados": null, "resolvidos": null}],
   "arestas": [{"origem": "cliente", "destino": "1", "quantidade": 15}, {"origem": "1", "destino": "2", "quantidade": 3}],
   "legenda": ["...5 textos..."], "aviso": null
 }

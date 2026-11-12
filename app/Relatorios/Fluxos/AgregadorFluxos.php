@@ -39,14 +39,19 @@ final class AgregadorFluxos
         )));
 
         $nomes = RotulosRelatorio::grupos(array_map('intval', $grupos));
+        $pedidos = array_map('strval', $c->grupos);
+        // Vizinho = ponta fora dos grupos pedidos: aparece só para ancorar as
+        // setas, sem números (que seriam parciais, só das passagens que tocam a seleção).
+        $vizinho = fn (string $id) => $pedidos !== [] && ! in_array($id, $pedidos, true);
         $nosDeGrupo = AgregadorRelatorio::ordenar(array_map(fn (string $id) => [
             'chave' => $id,
             'rotulo' => $nomes[(int) $id] ?? "#{$id}",
             'tipo' => 'grupo',
-            'abertos' => $abertos[$id] ?? 0,
-            'recebidos' => $recebidos[$id] ?? 0,
-            'encaminhados' => $encaminhados[$id] ?? 0,
-            'resolvidos' => $resolvidos[$id] ?? 0,
+            'vizinho' => $vizinho($id),
+            'abertos' => $vizinho($id) ? null : ($abertos[$id] ?? 0),
+            'recebidos' => $vizinho($id) ? null : ($recebidos[$id] ?? 0),
+            'encaminhados' => $vizinho($id) ? null : ($encaminhados[$id] ?? 0),
+            'resolvidos' => $vizinho($id) ? null : ($resolvidos[$id] ?? 0),
             // Só para ordenar por nome (`ordenar` usa `total` e `rotulo`).
             'total' => 0,
         ], $grupos));
@@ -55,6 +60,7 @@ final class AgregadorFluxos
             'chave' => $chave,
             'rotulo' => TextosFluxos::ROTULOS[$chave],
             'tipo' => $chave,
+            'vizinho' => false,
             'abertos' => $abertos,
             'recebidos' => null,
             'encaminhados' => null,
