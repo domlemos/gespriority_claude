@@ -691,7 +691,7 @@ class IncidenteCrudTest extends TestCase
         $this->putJson("/api/incidentes/{$incidente->id}", ['status' => 'em_andamento'], $this->authHeader($token));
         $this->putJson("/api/incidentes/{$incidente->id}", ['status' => 'resolvido'], $this->authHeader($token));
 
-        $this->assertSame(2, IncidenteEvento::where('incidente_id', $incidente->id)->count());
+        $this->assertSame(2, IncidenteEvento::where('incidente_id', $incidente->id)->where('tipo', 'resolvido')->count());
     }
 
     public function test_updating_to_a_non_resolvido_status_does_not_create_a_resolucao_record(): void
@@ -749,7 +749,7 @@ class IncidenteCrudTest extends TestCase
         ]);
     }
 
-    public function test_cancelado_does_not_create_any_evento(): void
+    public function test_cancelado_creates_only_a_cancelado_evento(): void
     {
         $incidente = Incidente::factory()->create(['status' => 'aberto']);
         [$token] = $this->staffToken(['tickets.manage']);
@@ -760,7 +760,7 @@ class IncidenteCrudTest extends TestCase
             $this->authHeader($token)
         )->assertOk();
 
-        $this->assertSame(0, IncidenteEvento::where('incidente_id', $incidente->id)->count());
+        $this->assertSame(['cancelado'], IncidenteEvento::where('incidente_id', $incidente->id)->pluck('tipo')->all());
     }
 
     public function test_updating_grupo_solucao_id_creates_an_encaminhado_grupo_evento(): void

@@ -658,12 +658,13 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > resolvido/fechado/encaminhamento, uma coluna direta em `Incidente` já resolve sem overhead de
 > tabela.
 >
-> `IncidenteController::registrarEventoDeConclusaoSeAplicavel()` cria a linha pra `resolvido`/
-> `fechado`; `logEscalonamentoSeMudou()` cria a linha pra `encaminhado_grupo`/`encaminhado_responsavel`
+> `IncidenteController::registrarEventoDeStatus()` cria a linha pra `resolvido`/`fechado`/`cancelado`
+> (tipo = status de destino) e pra `reaberto` (saída de um status concluído pra um não-concluído);
+> uma transição nunca gera dois eventos (`resolvido → fechado` gera só `fechado`), e status igual não
+> gera nenhum; autor = usuário autenticado; `logEscalonamentoSeMudou()` cria a linha pra `encaminhado_grupo`/`encaminhado_responsavel`
 > **junto com** a entrada de texto livre no feed (`IncidenteDescricao` tipo `escalonamento`) — as
 > duas convivem, servem propósitos diferentes (feed = leitura humana no histórico do chamado; esta
-> tabela = agregação em relatório, ver §3.4.9). `cancelado` fica de fora — não foi pedido indicador
-> "cancelado por" ainda, mas a estrutura já suporta se vier a ser preciso.
+> tabela = agregação em relatório, ver §3.4.9).
 
 ### 3.2. Models e relacionamentos
 
@@ -1185,8 +1186,8 @@ endpoint devolve o dado cru do registro, não uma view computada.
 > (`incidente_descricoes`) pra formato do texto e regras completas. É a mesma chamada, mesma
 > transação; não é uma ação/permission separada — continua exigindo só `tickets.manage`.
 >
-> **`update()` também grava em `IncidenteEvento`** — `registrarEventoDeConclusaoSeAplicavel()` sempre
-> que `status` transiciona pra `'resolvido'`/`'fechado'`; `logEscalonamentoSeMudou()` sempre que
+> **`update()` também grava em `IncidenteEvento`** — `registrarEventoDeStatus()` sempre
+> que `status` transiciona pra `'resolvido'`/`'fechado'`/`'cancelado'` ou sai de um status concluído (`reaberto`); `logEscalonamentoSeMudou()` sempre que
 > `grupo_solucao_id`/`responsavel_id` muda (junto com a entrada de feed, não em vez dela) — uma linha
 > nova por evento, nunca atualiza/apaga uma existente, nem na reabertura. Ver §3.1
 > (`incidente_eventos`) e §3.4.9 (`agrupar_por=resolvido_por`/`fechado_por`/`encaminhado_por`/

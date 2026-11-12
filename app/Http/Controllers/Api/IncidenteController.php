@@ -201,7 +201,7 @@ class IncidenteController extends Controller
             }
 
             $this->registrarTransicaoDeStatus($incidente, $statusAnterior, $incidente->status);
-            $this->registrarEventoDeConclusaoSeAplicavel($incidente, $request->user(), $statusAnterior, $incidente->status);
+            $this->registrarEventoDeStatus($incidente, $request->user(), $statusAnterior, $incidente->status);
 
             $this->logEscalonamentoSeMudou(
                 $incidente,
@@ -323,28 +323,42 @@ class IncidenteController extends Controller
     }
 
     /**
-     * Um registro por transição pra 'resolvido'/'fechado' — nunca
-     * sobrescrito nem limpo na reabertura (diferente de `concluido_em`, ver
-     * `registrarTransicaoDeStatus()` acima). Um chamado resolvido, reaberto
-     * e resolvido de novo (por agentes diferentes ou não) gera duas linhas
-     * aqui, cada uma com seu autor e data — é isso que permite aos
-     * relatórios `agrupar_por=resolvido_por`/`fechado_por` (ver
-     * RelatorioController) responder "quem resolveu"/"quem fechou"
-     * corretamente mesmo depois de reaberturas subsequentes, ao contrário
-     * de uma coluna única em `Incidente`, que só guardaria a mais recente.
-     * `cancelado` fica de fora — não foi pedido um indicador "cancelado
-     * por" ainda.
+     * Um registro por transição de status relevante — nunca sobrescrito nem
+     * limpo na reabertura (diferente de `concluido_em`, ver
+     * `registrarTransicaoDeStatus()` acima):
+     * - destino `resolvido`/`fechado`/`cancelado` → evento com `tipo` = destino;
+     * - saída de um status concluído pra um não-concluído → evento `reaberto`.
+     * Uma transição nunca gera dois eventos (`resolvido → fechado` gera só
+     * `fechado`; os dois ramos são mutuamente exclusivos porque os três
+     * destinos acima são todos concluídos). Um chamado resolvido, reaberto e
+     * resolvido de novo (por agentes diferentes ou não) gera uma linha por
+     * transição, cada uma com seu autor, data e grupo — é isso que permite
+     * aos relatórios responder "quem resolveu"/"quem fechou"/"quem cancelou"
+     * corretamente mesmo depois de reaberturas subsequentes, ao contrário de
+     * uma coluna única em `Incidente`, que só guardaria a mais recente.
      */
-    private function registrarEventoDeConclusaoSeAplicavel(Incidente $incidente, User $autor, string $anterior, string $novo): void
+    private function registrarEventoDeStatus(Incidente $incidente, User $autor, string $anterior, string $novo): void
     {
-        if ($anterior === $novo || ! in_array($novo, [IncidenteEvento::TIPO_RESOLVIDO, IncidenteEvento::TIPO_FECHADO], true)) {
+        if ($anterior === $novo) {
+            return;
+        }
+
+        $tipo = null;
+
+        if (in_array($novo, [IncidenteEvento::TIPO_RESOLVIDO, IncidenteEvento::TIPO_FECHADO, IncidenteEvento::TIPO_CANCELADO], true)) {
+            $tipo = $novo;
+        } elseif (in_array($anterior, Incidente::STATUS_CONCLUIDOS, true) && ! in_array($novo, Incidente::STATUS_CONCLUIDOS, true)) {
+            $tipo = IncidenteEvento::TIPO_REABERTO;
+        }
+
+        if ($tipo === null) {
             return;
         }
 
         IncidenteEvento::query()->create([
             'incidente_id' => $incidente->id,
             'user_id' => $autor->id,
-            'tipo' => $novo,
+            'tipo' => $tipo,
         ]);
     }
 
