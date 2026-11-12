@@ -211,7 +211,10 @@ class IncidenteController extends Controller
                 fn (GrupoSolucao $grupo) => "Encaminhado para o grupo '{$grupo->nome}' às ".$this->agoraLocal()->format('H:i').' do dia '.$this->agoraLocal()->format('d/m/Y').'.',
                 GrupoSolucao::class,
                 IncidenteEvento::TIPO_ENCAMINHADO_GRUPO,
+                ['origem_grupo_id' => $grupoAnteriorId],
             );
+
+            $this->registrarRemocaoDeGrupo($incidente, $request->user(), $grupoAnteriorId, $incidente->grupo_solucao_id);
 
             $this->logEscalonamentoSeMudou(
                 $incidente,
@@ -440,6 +443,8 @@ class IncidenteController extends Controller
      * `$anteriorId` e aponta pra um registro de verdade (não loga
      * desatribuição/limpeza, só escalonamento pra um grupo/responsável
      * concreto) — usado tanto pra grupo_solucao_id quanto responsavel_id.
+     * `$atributosEvento` entra só no evento (ex.: `origem_grupo_id`, que
+     * só o encaminhamento de grupo grava).
      */
     private function logEscalonamentoSeMudou(
         Incidente $incidente,
@@ -449,6 +454,7 @@ class IncidenteController extends Controller
         \Closure $mensagem,
         string $model,
         string $tipoEvento,
+        array $atributosEvento = [],
     ): void {
         if ($novoId === null || $novoId === $anteriorId) {
             return;
@@ -468,6 +474,27 @@ class IncidenteController extends Controller
             'tipo' => $tipoEvento,
             'alvo_type' => $model,
             'alvo_id' => $novoId,
+        ] + $atributosEvento);
+    }
+
+    /**
+     * Grupo limpo (A → nenhum): `logEscalonamentoSeMudou` não registra nada
+     * (não há destino), mas o mapa de fluxos precisa saber que o chamado saiu
+     * de A. Só o evento estruturado, sem entrada no feed.
+     */
+    private function registrarRemocaoDeGrupo(Incidente $incidente, User $autor, ?int $anteriorId, ?int $novoId): void
+    {
+        if ($anteriorId === null || $novoId !== null) {
+            return;
+        }
+
+        IncidenteEvento::query()->create([
+            'incidente_id' => $incidente->id,
+            'user_id' => $autor->id,
+            'tipo' => IncidenteEvento::TIPO_REMOVIDO_GRUPO,
+            'alvo_type' => null,
+            'alvo_id' => null,
+            'origem_grupo_id' => $anteriorId,
         ]);
     }
 
