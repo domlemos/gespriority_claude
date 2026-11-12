@@ -53,12 +53,16 @@ return new class extends Migration
      * ou cliente do portal; os dois nulos = desconhecido). Grupo do chamado =
      * o atual, só se ele nunca foi encaminhado (senão o inicial é
      * desconhecido: o store() nunca gerou evento de encaminhamento).
+     * Data: created_at, senão updated_at; sem nenhuma das duas o incidente
+     * fica sem `aberto` (incidente_eventos.created_at é NOT NULL).
      */
     private function criarAbertos(): void
     {
         DB::table('incidentes')->chunkById(500, function ($incidentes) {
             foreach ($incidentes as $incidente) {
-                if ($this->temEvento($incidente->id, 'aberto')) {
+                $quando = $incidente->created_at ?? $incidente->updated_at;
+
+                if ($quando === null || $this->temEvento($incidente->id, 'aberto')) {
                     continue;
                 }
 
@@ -76,7 +80,7 @@ return new class extends Migration
                     'autor_customer_id' => $incidente->criado_por_customer_id,
                     'autor_grupo_solucao_id' => $this->grupoAtualDoUsuario($userId),
                     'grupo_solucao_id' => $foiEncaminhado ? null : $incidente->grupo_solucao_id,
-                    'created_at' => $incidente->created_at,
+                    'created_at' => $quando,
                 ]);
             }
         });
@@ -138,13 +142,16 @@ return new class extends Migration
 
     /**
      * Incidente cancelado sem nenhum evento `cancelado` (nem do log): autor
-     * desconhecido. Data: concluido_em, senão updated_at, senão created_at.
+     * desconhecido. Data: concluido_em, senão updated_at, senão created_at;
+     * sem nenhuma das três o incidente fica sem `cancelado`.
      */
     private function criarCanceladosSemLog(): void
     {
         DB::table('incidentes')->where('status', 'cancelado')->chunkById(500, function ($incidentes) {
             foreach ($incidentes as $incidente) {
-                if ($this->temEvento($incidente->id, 'cancelado')) {
+                $quando = $incidente->concluido_em ?? $incidente->updated_at ?? $incidente->created_at;
+
+                if ($quando === null || $this->temEvento($incidente->id, 'cancelado')) {
                     continue;
                 }
 
@@ -155,7 +162,7 @@ return new class extends Migration
                     'autor_customer_id' => null,
                     'autor_grupo_solucao_id' => null,
                     'grupo_solucao_id' => $incidente->grupo_solucao_id,
-                    'created_at' => $incidente->concluido_em ?? $incidente->updated_at ?? $incidente->created_at,
+                    'created_at' => $quando,
                 ]);
             }
         });

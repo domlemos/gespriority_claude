@@ -72,6 +72,9 @@ class IncidenteEventoAberturaTest extends TestCase
         $this->assertNull($evento->user_id);
         $this->assertSame($customer->id, $evento->autor_customer_id);
         $this->assertNull($evento->autor_grupo_solucao_id);
+        // O portal não escolhe grupo: a triagem encaminha depois (`encaminhado_grupo`).
+        $this->assertNull($evento->grupo_solucao_id);
+        $this->assertTrue(Incidente::find($id)->created_at->equalTo($evento->created_at));
     }
 
     public function test_trocar_de_grupo_depois_nao_altera_o_evento(): void

@@ -44,7 +44,6 @@ final class FonteIndicadores
             ->map(fn (object $e) => new LinhaIndicador(
                 indicador: $indicadorDoTipo[$e->tipo],
                 chave: self::chaveDo($e, $c->porIntegrante),
-                retroativo: (bool) $e->retroativo,
                 base: new LinhaBase(
                     chave: null,
                     incidenteId: (int) $e->incidente_id,
@@ -56,9 +55,34 @@ final class FonteIndicadores
     }
 
     /**
+     * Indicadores com algum evento retroativo no período e o instante (UTC) do
+     * mais recente deles. Ignora de propósito grupos pedidos e visibilidade:
+     * o backfill põe o evento no grupo ATUAL da pessoa, então quem filtra o
+     * grupo antigo dela fica subcontado justamente por não ver esses eventos.
+     *
+     * @return array{0: list<string>, 1: CarbonImmutable|null}
+     */
+    public static function retroativos(ConsultaIndicadores $c): array
+    {
+        $ultimoPorTipo = DB::table('incidente_eventos')
+            ->whereIn('tipo', array_values(self::TIPOS))
+            ->where('created_at', '>=', PeriodoRelatorio::inicioUtc($c->inicio))
+            ->where('created_at', '<', PeriodoRelatorio::fimExclusivoUtc($c->fim))
+            ->where('retroativo', true)
+            ->groupBy('tipo')
+            ->selectRaw('tipo, max(created_at) as ultimo')
+            ->pluck('ultimo', 'tipo');
+
+        $indicadores = array_keys(array_filter(self::TIPOS, fn (string $tipo) => $ultimoPorTipo->has($tipo)));
+        $ultimo = $ultimoPorTipo->map(fn ($data) => CarbonImmutable::parse($data, 'UTC'))->max();
+
+        return [$indicadores, $ultimo];
+    }
+
+    /**
      * Três ramos, cada um com a sua regra de grupo e de visibilidade:
      * - agente: grupo do autor ∈ grupos pedidos (ou ∈ visíveis, sem pedido);
-     * - portal: só `aberto`; com grupos, pelo grupo do chamado no momento;
+     * - portal: só `aberto`; com grupos, pelo primeiro grupo atribuído ao chamado;
      * - sem autor: só sem grupos pedidos.
      * Portal e sem autor não têm grupo de autor: valem se o chamado é visível hoje.
      */
@@ -72,7 +96,7 @@ final class FonteIndicadores
         ));
 
         return DB::table('incidente_eventos')
-            ->select(['id', 'incidente_id', 'user_id', 'autor_customer_id', 'autor_grupo_solucao_id', 'tipo', 'retroativo', 'created_at'])
+            ->select(['id', 'incidente_id', 'user_id', 'autor_customer_id', 'autor_grupo_solucao_id', 'tipo', 'created_at'])
             ->whereIn('tipo', array_values(self::TIPOS))
             ->where('created_at', '>=', PeriodoRelatorio::inicioUtc($c->inicio))
             ->where('created_at', '<', PeriodoRelatorio::fimExclusivoUtc($c->fim))
@@ -85,12 +109,46 @@ final class FonteIndicadores
                 ->orWhere(fn (Builder $q) => $chamadoVisivel($q
                     ->where('tipo', IncidenteEvento::TIPO_ABERTO)
                     ->whereNotNull('autor_customer_id')
-                    ->when($grupos !== [], fn (Builder $q) => $q->whereIn('grupo_solucao_id', $grupos))))
+                    ->when($grupos !== [], fn (Builder $q) => self::primeiroGrupoEm($q, $grupos))))
                 ->when($grupos === [], fn (Builder $ramos) => $ramos
                     ->orWhere(fn (Builder $q) => $chamadoVisivel(self::semPortal($q)
                         ->where(fn (Builder $q) => $q
                             ->where(fn (Builder $q) => $q->whereNull('user_id')->whereNull('autor_customer_id'))
                             ->orWhere(fn (Builder $q) => $q->whereNotNull('user_id')->whereNull('autor_grupo_solucao_id')))))));
+    }
+
+    /**
+     * Primeiro grupo atribuído ao chamado ∈ grupos. O portal abre sem grupo e
+     * a triagem encaminha depois (`encaminhado_grupo`), então o `aberto` ao
+     * vivo tem `grupo_solucao_id` nulo: vale o grupo do `aberto` se houver
+     * (ex.: backfill de chamado nunca encaminhado), senão o destino do
+     * `encaminhado_grupo` mais antigo (por `created_at`, depois `id`), em
+     * qualquer data. Subconsulta correlacionada, não PHP por linha.
+     *
+     * @param  array<int, int>  $grupos
+     */
+    private static function primeiroGrupoEm(Builder $q, array $grupos): Builder
+    {
+        $encaminhamento = IncidenteEvento::TIPO_ENCAMINHADO_GRUPO;
+
+        return $q->where(fn (Builder $q) => $q
+            ->whereIn('grupo_solucao_id', $grupos)
+            ->orWhere(fn (Builder $q) => $q
+                ->whereNull('grupo_solucao_id')
+                ->whereExists(fn (Builder $primeiro) => $primeiro
+                    ->from('incidente_eventos as primeiro')
+                    ->whereColumn('primeiro.incidente_id', 'incidente_eventos.incidente_id')
+                    ->where('primeiro.tipo', $encaminhamento)
+                    ->whereIn('primeiro.alvo_id', $grupos)
+                    ->whereNotExists(fn (Builder $anterior) => $anterior
+                        ->from('incidente_eventos as anterior')
+                        ->whereColumn('anterior.incidente_id', 'primeiro.incidente_id')
+                        ->where('anterior.tipo', $encaminhamento)
+                        ->where(fn (Builder $q) => $q
+                            ->whereColumn('anterior.created_at', '<', 'primeiro.created_at')
+                            ->orWhere(fn (Builder $q) => $q
+                                ->whereColumn('anterior.created_at', '=', 'primeiro.created_at')
+                                ->whereColumn('anterior.id', '<', 'primeiro.id')))))));
     }
 
     /** Exclui as aberturas do portal, que têm linha própria (mantém os ramos disjuntos). */

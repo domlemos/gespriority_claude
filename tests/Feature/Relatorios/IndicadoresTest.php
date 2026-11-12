@@ -222,24 +222,53 @@ class IndicadoresTest extends TestCase
         $response->assertJsonPath('totais.resolvidos.total', 1);
     }
 
-    public function test_portal_aparece_separado_e_filtra_por_destino_com_grupos(): void
+    /** Encaminhamento de grupo, como o `update()` grava na triagem. */
+    private function encaminhar(Incidente $incidente, GrupoSolucao $para, string $quando, ?User $quem = null): void
+    {
+        $this->evento($incidente, $quem ?? $this->agente($para), IncidenteEvento::TIPO_ENCAMINHADO_GRUPO, $quando, [
+            'alvo_type' => GrupoSolucao::class,
+            'alvo_id' => $para->id,
+        ]);
+    }
+
+    public function test_portal_aparece_separado_e_filtra_pelo_primeiro_grupo_atribuido(): void
     {
         $n1 = $this->grupo('N1');
-        $this->aberturaPortal($n1);
+        $n2 = $this->grupo('N2');
+        // Como em produção: o chamado do portal nasce sem grupo e a triagem encaminha depois.
+        $triado = $this->aberturaPortal(null);
+        $this->encaminhar($triado, $n1, '2026-10-15 13:00:00');
+        // Primeiro para o N1, depois para o N2 (até fora do período): vale o primeiro.
+        $repassado = $this->aberturaPortal(null);
+        $this->encaminhar($repassado, $n2, '2026-11-02 12:00:00');
+        $this->encaminhar($repassado, $n1, '2026-10-15 13:00:00');
+        // Mesmo instante: desempata pelo id.
+        $empate = $this->aberturaPortal(null);
+        $this->encaminhar($empate, $n2, '2026-10-15 13:00:00');
+        $this->encaminhar($empate, $n1, '2026-10-15 13:00:00');
+        // Aberto que já tem grupo (ex.: backfill de chamado nunca encaminhado) vale por ele.
+        $this->aberturaPortal($n2);
+        // Nunca triado.
         $this->aberturaPortal(null);
         $this->evento(Incidente::factory()->create(), $this->agente($n1), 'aberto');
 
-        $comGrupo = $this->consultar(self::OUTUBRO."&grupos[]={$n1->id}")->assertOk();
-        $portal = $this->linha($comGrupo, 'portal');
+        $comN1 = $this->consultar(self::OUTUBRO."&grupos[]={$n1->id}")->assertOk();
+        $portal = $this->linha($comN1, 'portal');
         $this->assertSame('Cliente (portal)', $portal['rotulo']);
         $this->assertSame('portal', $portal['tipo']);
-        $this->assertSame([...$this->zeros(), 'abertos' => 1], $this->valores($comGrupo, 'portal'));
-        $this->assertSame('portal', collect($comGrupo->json('linhas'))->last()['chave']);
-        $this->assertSame(1, $this->valores($comGrupo, $n1->id)['abertos']);
+        $this->assertSame([...$this->zeros(), 'abertos' => 2], $this->valores($comN1, 'portal'));
+        $this->assertSame('portal', collect($comN1->json('linhas'))->last()['chave']);
+        $this->assertSame(1, $this->valores($comN1, $n1->id)['abertos']);
+
+        $comN2 = $this->consultar(self::OUTUBRO."&grupos[]={$n2->id}")->assertOk();
+        $this->assertSame([...$this->zeros(), 'abertos' => 2], $this->valores($comN2, 'portal'));
+
+        $porIntegrante = $this->consultar(self::OUTUBRO."&grupos[]={$n1->id}&por_integrante=1")->assertOk();
+        $this->assertSame([...$this->zeros(), 'abertos' => 2], $this->valores($porIntegrante, 'portal'));
 
         $semGrupo = $this->consultar(self::OUTUBRO);
-        $this->assertSame([...$this->zeros(), 'abertos' => 2], $this->valores($semGrupo, 'portal'));
-        $semGrupo->assertJsonPath('totais.abertos.total', 3);
+        $this->assertSame([...$this->zeros(), 'abertos' => 5], $this->valores($semGrupo, 'portal'));
+        $semGrupo->assertJsonPath('totais.abertos.total', 6);
     }
 
     public function test_sem_grupos_lista_ativos_visiveis_mais_inativos_com_evento(): void
@@ -403,7 +432,7 @@ class IndicadoresTest extends TestCase
     {
         $n1 = $this->grupo('N1');
         $consulta = ConsultaIndicadores::deDados(['data_inicio' => '2026-10-01', 'data_fim' => '2026-10-31', 'grupos' => [$n1->id], 'por_integrante' => true]);
-        $linha = new LinhaIndicador('resolvidos', 999999, false, new LinhaBase(null, 1, 1, 999999, CarbonImmutable::parse('2026-10-15 12:00:00', 'UTC')));
+        $linha = new LinhaIndicador('resolvidos', 999999, new LinhaBase(null, 1, 1, 999999, CarbonImmutable::parse('2026-10-15 12:00:00', 'UTC')));
         [, $admin] = $this->staffToken(['relatorios.view'], asAdmin: true);
 
         $corpo = AgregadorIndicadores::agregar($consulta, collect([$linha]), $admin);
@@ -443,6 +472,33 @@ class IndicadoresTest extends TestCase
             'aviso',
             'Dados aproximados em Abertos, Fechados e Cancelados: registros até 03/10/2026 foram reconstruídos e usam o grupo atual da pessoa, não o da época.'
         );
+    }
+
+    public function test_aviso_ignora_filtro_de_grupos_e_visibilidade(): void
+    {
+        // Agente que hoje está no N2: os retroativos dele foram reconstruídos no N2,
+        // então o N1 fica subcontado — o aviso precisa aparecer mesmo filtrando o N1.
+        $n1 = $this->grupo('N1');
+        $n2 = $this->grupo('N2');
+        $this->evento(Incidente::factory()->create(), $this->agente($n2), 'aberto', '2026-10-05 12:00:00', ['retroativo' => true]);
+        $this->evento(Incidente::factory()->create(), $this->agente($n2), 'cancelado', '2026-10-07 12:00:00', ['retroativo' => true]);
+        $this->evento(Incidente::factory()->create(), $this->agente($n1), 'resolvido', '2026-10-20 12:00:00');
+        $esperado = 'Dados aproximados em Abertos e Cancelados: registros até 07/10/2026 foram reconstruídos e usam o grupo atual da pessoa, não o da época.';
+
+        $this->consultar(self::OUTUBRO."&grupos[]={$n1->id}")->assertOk()->assertJsonPath('aviso', $esperado);
+        $this->consultar(self::OUTUBRO."&grupos[]={$n1->id}&por_integrante=1")->assertOk()->assertJsonPath('aviso', $esperado);
+        $this->consultar(self::OUTUBRO, $this->gestorHeader($n1))->assertOk()->assertJsonPath('aviso', $esperado);
+    }
+
+    public function test_aviso_nulo_sem_retroativos_no_periodo(): void
+    {
+        $a1 = $this->agente($this->grupo('N1'));
+        $this->evento(Incidente::factory()->create(), $a1, 'aberto', '2026-09-30 12:00:00', ['retroativo' => true]);
+        // Retroativo de tipo que não é indicador não conta.
+        $this->evento(Incidente::factory()->create(), $a1, 'encaminhado_grupo', '2026-10-05 12:00:00', ['retroativo' => true]);
+        $this->evento(Incidente::factory()->create(), $a1, 'resolvido', '2026-10-20 12:00:00');
+
+        $this->consultar(self::OUTUBRO)->assertOk()->assertJsonPath('aviso', null);
     }
 
     public function test_titulo_e_legenda(): void

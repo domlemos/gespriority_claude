@@ -176,6 +176,26 @@ class IndicadoresChamadosTest extends TestCase
         $this->assertGreaterThan(30, $verificadas);
     }
 
+    public function test_lista_do_portal_com_grupos_usa_o_primeiro_grupo_atribuido(): void
+    {
+        $n1 = $this->grupo('N1');
+        $n2 = $this->grupo('N2');
+        $triador = $this->agente($n1);
+        $paraN1 = $this->aberturaPortal(null);
+        $paraN2 = $this->aberturaPortal(null);
+        foreach ([[$paraN1, $n1], [$paraN2, $n2]] as [$incidente, $grupo]) {
+            $this->evento($incidente, $triador, IncidenteEvento::TIPO_ENCAMINHADO_GRUPO, '2026-10-16 12:00:00', [
+                'alvo_type' => GrupoSolucao::class,
+                'alvo_id' => $grupo->id,
+            ]);
+        }
+
+        $this->chamados('chave=portal&indicador=abertos&grupos[]='.$n1->id.'&'.self::OUTUBRO)
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.incidente_id', $paraN1->id);
+    }
+
     public function test_um_item_por_chamado_com_o_evento_mais_recente(): void
     {
         $n1 = $this->grupo('N1');

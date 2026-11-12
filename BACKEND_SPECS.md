@@ -633,7 +633,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `alvo_type`/`alvo_id` | `string` nullable / `bigint unsigned` nullable | alvo polimórfico do encaminhamento (`GrupoSolucao` ou `User`) — só preenchido pra `tipo` = `encaminhado_*`; `null` pra `resolvido`/`fechado`, que não têm "destino" |
 | `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo do incidente **no momento do evento**, preenchido pelo hook `creating` do model (só se não informado); `nullOnDelete()`, indexada. Backfill (migration `add_grupo_snapshot_to_incidente_eventos_table`): destino do `encaminhado_grupo` mais recente até o evento; senão, se não há encaminhamento posterior, o grupo atual do incidente; senão `null` (grupo inicial desconhecido — `store()` não gera evento de encaminhamento) |
 | `autor_grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo de quem executou a ação; mesmo hook/FK. Backfill é **aproximação**: grupo atual do usuário (o da época nunca foi guardado) |
-| `retroativo` | `boolean` default `false` | `true` nos eventos reconstruídos (backfill), cujo grupo do autor é o atual da pessoa e não o da época; alimenta o aviso de "dados aproximados" dos relatórios. Migration `backfill_eventos_abertura_cancelamento` (só query builder, chunks de 500, idempotente): (1) marca `true` os `resolvido`/`fechado`/`encaminhado_*` com `created_at` anterior ao deploy da Fase 1 (`2026-11-11 14:49:34` UTC, fim do job de deploy — melhor marcar a mais que a menos; constante na migration); (2) cria `aberto` pra todo incidente sem um (autor = `criado_por_id`/`criado_por_customer_id`, os dois nulos = desconhecido; `autor_grupo_solucao_id` = grupo atual do usuário; `grupo_solucao_id` = grupo atual do incidente se nunca houve `encaminhado_grupo`, senão `null`; `created_at` = `incidentes.created_at`); (3) cria `cancelado`/`reaberto` a partir dos logs `alteracao` de `incidente_descricoes` ("Campo 'Status' alterado de 'X' para 'Y'": `cancelado` se Y = cancelado; `reaberto` se X ∈ resolvido/fechado/cancelado e Y não) com autor = autor do log, grupo do chamado pela regra do backfill da Fase 1 e `created_at` do log (log sem `created_at` é ignorado), sem repetir evento do mesmo tipo/incidente/`created_at`; (4) incidente `cancelado` ainda sem evento `cancelado` ganha um sem autor, com o grupo atual e `created_at` = `concluido_em`, senão `updated_at`, senão `incidentes.created_at`. Todos os criados têm `retroativo = true` |
+| `retroativo` | `boolean` default `false` | `true` nos eventos reconstruídos (backfill), cujo grupo do autor é o atual da pessoa e não o da época; alimenta o aviso de "dados aproximados" dos relatórios. Migration `backfill_eventos_abertura_cancelamento` (só query builder, chunks de 500, idempotente): (1) marca `true` os `resolvido`/`fechado`/`encaminhado_*` com `created_at` anterior ao deploy da Fase 1 (`2026-11-11 14:49:34` UTC, fim do job de deploy — melhor marcar a mais que a menos; constante na migration); (2) cria `aberto` pra todo incidente sem um (autor = `criado_por_id`/`criado_por_customer_id`, os dois nulos = desconhecido; `autor_grupo_solucao_id` = grupo atual do usuário; `grupo_solucao_id` = grupo atual do incidente se nunca houve `encaminhado_grupo`, senão `null`; `created_at` = `incidentes.created_at`, senão `updated_at`; sem nenhum dos dois o incidente fica sem `aberto`); (3) cria `cancelado`/`reaberto` a partir dos logs `alteracao` de `incidente_descricoes` ("Campo 'Status' alterado de 'X' para 'Y'": `cancelado` se Y = cancelado; `reaberto` se X ∈ resolvido/fechado/cancelado e Y não) com autor = autor do log, grupo do chamado pela regra do backfill da Fase 1 e `created_at` do log (log sem `created_at` é ignorado), sem repetir evento do mesmo tipo/incidente/`created_at`; (4) incidente `cancelado` ainda sem evento `cancelado` ganha um sem autor, com o grupo atual e `created_at` = `concluido_em`, senão `updated_at`, senão `incidentes.created_at` (sem nenhuma das três, fica sem `cancelado`). Todos os criados têm `retroativo = true` |
 | `created_at` | `timestamp` | quando o evento aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `AuditLog`) — a linha nunca é alterada depois de criada |
 | índice | `incidente_id`, `[incidente_id, tipo]`, `autor_customer_id`, `[tipo, created_at]` | não únicos, só performance |
 
@@ -1753,8 +1753,8 @@ relatório salvo), que começa por `validarVisibilidade($user)` — nenhum chama
 | Classe | Papel |
 |---|---|
 | `ConsultaIndicadores` (readonly) | `grupos` (ids int na ordem pedida; vazio = todos), `porIntegrante`, `quebra`, `inicio`/`fim` (Y-m-d, atalho resolvido), `atalho`. `regras()`, `deDados($validado, ?$agora)`, `validarVisibilidade($user)` |
-| `FonteIndicadores::linhas($c, $user)` | uma única consulta em `incidente_eventos` (`whereIn('tipo')`, sem hidratar models) → `Collection<LinhaIndicador>`. `TIPOS` (indicador → tipo), `CHAVE_PORTAL = 'portal'`, `CHAVE_SEM_AUTOR = '__sem_autor__'` |
-| `LinhaIndicador` (readonly) | `indicador`, `chave` (id do grupo, id do usuário, `portal` ou `__sem_autor__`), `retroativo`, `base` (`LinhaBase`) |
+| `FonteIndicadores::linhas($c, $user)` | uma única consulta em `incidente_eventos` (`whereIn('tipo')`, sem hidratar models) → `Collection<LinhaIndicador>`. `retroativos($c)` → `[indicadores, último instante]` para o aviso. `TIPOS` (indicador → tipo), `CHAVE_PORTAL = 'portal'`, `CHAVE_SEM_AUTOR = '__sem_autor__'` |
+| `LinhaIndicador` (readonly) | `indicador`, `chave` (id do grupo, id do usuário, `portal` ou `__sem_autor__`), `base` (`LinhaBase`) |
 | `AgregadorIndicadores::agregar($c, $linhas, $user)` | corpo JSON (abaixo) |
 | `App\Exports\IndicadoresExport` | planilha (abaixo); mesmo `bindValue` de `RelatorioTabelaExport` (texto sempre string, sem fórmulas) |
 | `TextosIndicadores` | `titulo($c)`, `LEGENDA`, `aviso($indicadores, $ultimo)`, `ROTULOS` |
@@ -1772,7 +1772,11 @@ grupo para detalhar por integrante."); `formato` (`json|xlsx`). Para não admin,
 
 **Classificação de cada evento** (os três ramos da consulta são disjuntos):
 - **portal** — `aberto` com `autor_customer_id`. Só tem valor em Abertos. Com `grupos` (ou `por_integrante`), conta só se o
-  `grupo_solucao_id` do evento (grupo do chamado no momento) ∈ grupos; sem `grupos`, todos.
+  **primeiro grupo atribuído** ao chamado ∈ grupos: o `grupo_solucao_id` do próprio `aberto` quando não nulo (ex.: backfill
+  de chamado nunca encaminhado); senão o `alvo_id` do `encaminhado_grupo` mais antigo do chamado (por `created_at`, depois
+  `id`; em qualquer data, mesmo fora do período). O portal abre sem grupo e a triagem encaminha via `update()`, então o
+  `aberto` ao vivo sempre tem `grupo_solucao_id` nulo. Em SQL (`FonteIndicadores::primeiroGrupoEm`, `whereExists`
+  correlacionado), o que vale também para a lista de chamados da célula. Sem `grupos`, todos.
 - **agente** — `user_id` e `autor_grupo_solucao_id` preenchidos. Chave = `autor_grupo_solucao_id` (ou `user_id` por
   integrante). Com `grupos`, só autor_grupo ∈ grupos; sem `grupos`, para não admin, autor_grupo ∈ visíveis.
 - **sem autor** — `user_id` e `autor_customer_id` nulos, ou `user_id` preenchido com `autor_grupo_solucao_id` nulo (grupo
@@ -1815,10 +1819,13 @@ cada evento cai na sua por `PeriodoRelatorio::colunaDe()`.
 
 **Título:** `Indicadores por grupo de solução — de dd/mm/aaaa a dd/mm/aaaa[, por {dia|semana|mês}][ — grupos: N1, N2][ —
 por integrante]` (grupos na ordem pedida). **Legenda:** os cinco textos fixos de `TextosIndicadores::LEGENDA` (um por
-indicador + "As colunas são independentes…"). **Aviso:** se algum evento contado tem `retroativo = true` (backfill),
+indicador + "As colunas são independentes…"). **Aviso:** se existe no período algum evento de um dos 4 tipos com `retroativo = true` (backfill),
 `"Dados aproximados em {colunas}: registros até dd/mm/aaaa foram reconstruídos e usam o grupo atual da pessoa, não o da
 época."` — colunas na ordem fixa, unidas por vírgula e "e" ("Abertos, Fechados e Cancelados"); data = `created_at`
-(Brasília) do retroativo contado mais recente. Sem retroativos, `null`.
+(Brasília) do retroativo mais recente no período. Sem retroativos, `null`. **Ignora `grupos`, `por_integrante` e a
+visibilidade** (`FonteIndicadores::retroativos`, uma consulta agrupada por `tipo` sobre o índice `(tipo, created_at)`): o
+backfill põe o evento no grupo **atual** da pessoa, então quem filtra o grupo antigo dela (ou só vê esse grupo) está
+justamente subcontado e precisa do aviso.
 
 **Planilha** (`formato=xlsx`, tratada dentro de `responder()`, então vale também para relatórios salvos): título; `Gerado em
 dd/mm/aaaa hh:mm (horário de Brasília) por {nome}`; linha em branco; cabeçalho `Grupo` (ou `Integrante`) + para cada

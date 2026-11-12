@@ -55,11 +55,11 @@ final class TextosIndicadores
     }
 
     /**
-     * Aviso de dados reconstruídos pelo backfill, ou `null` se nenhum evento
-     * contado é retroativo.
+     * Aviso de dados reconstruídos pelo backfill, ou `null` se não há evento
+     * retroativo no período (de qualquer grupo, ver `FonteIndicadores::retroativos`).
      *
-     * @param  array<int, string>  $indicadores  indicadores com evento retroativo contado (qualquer ordem)
-     * @param  CarbonInterface|null  $ultimo  instante (UTC) do retroativo contado mais recente
+     * @param  array<int, string>  $indicadores  indicadores com evento retroativo no período (qualquer ordem)
+     * @param  CarbonInterface|null  $ultimo  instante (UTC) do retroativo mais recente no período
      */
     public static function aviso(array $indicadores, ?CarbonInterface $ultimo): ?string
     {

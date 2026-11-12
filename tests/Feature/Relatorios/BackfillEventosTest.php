@@ -223,6 +223,36 @@ class BackfillEventosTest extends TestCase
         $this->assertSame('2026-10-01 12:00:00', $cancelado->created_at->format('Y-m-d H:i:s'));
     }
 
+    public function test_aberto_sem_created_at_usa_updated_at(): void
+    {
+        $id = $this->incidente(['created_at' => null, 'updated_at' => '2026-10-02 12:00:00']);
+
+        $this->rodarBackfill();
+
+        $aberto = $this->eventos($id, 'aberto')->sole();
+        $this->assertSame('2026-10-02 12:00:00', $aberto->created_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_incidente_sem_created_at_nem_updated_at_fica_sem_aberto(): void
+    {
+        $semData = $this->incidente(['created_at' => null, 'updated_at' => null]);
+        $comData = $this->incidente();
+
+        $this->rodarBackfill();
+
+        $this->assertCount(0, $this->eventos($semData, 'aberto'));
+        $this->assertCount(1, $this->eventos($comData, 'aberto'));
+    }
+
+    public function test_cancelado_sem_log_e_sem_nenhuma_data_fica_sem_cancelado(): void
+    {
+        $id = $this->incidente(['status' => 'cancelado', 'concluido_em' => null, 'updated_at' => null, 'created_at' => null]);
+
+        $this->rodarBackfill();
+
+        $this->assertCount(0, $this->eventos($id, 'cancelado'));
+    }
+
     public function test_log_de_status_sem_created_at_e_ignorado(): void
     {
         $agente = User::factory()->create();

@@ -32,8 +32,6 @@ final class AgregadorIndicadores
         // [chave][indicador][coluna][incidente] = true — conjuntos, para contar distintos.
         $contados = [];
         $distintos = array_fill_keys($indicadores, []);
-        $retroativos = [];
-        $ultimoRetroativo = null;
 
         foreach ($linhas as $linha) {
             $coluna = PeriodoRelatorio::colunaDe($linha->base->data, $c->quebra);
@@ -46,13 +44,6 @@ final class AgregadorIndicadores
             $incidente = $linha->base->incidenteId;
             $contados[$linha->chave][$linha->indicador][$coluna][$incidente] = true;
             $distintos[$linha->indicador][$incidente] = true;
-
-            if ($linha->retroativo) {
-                $retroativos[$linha->indicador] = true;
-                if ($ultimoRetroativo === null || $linha->base->data->greaterThan($ultimoRetroativo)) {
-                    $ultimoRetroativo = $linha->base->data;
-                }
-            }
         }
 
         $valores = function (int|string $chave) use ($contados, $indicadores, $zeroPorColuna): array {
@@ -104,6 +95,8 @@ final class AgregadorIndicadores
             ];
         }
 
+        [$retroativos, $ultimoRetroativo] = FonteIndicadores::retroativos($c);
+
         $totais = [];
         foreach ($indicadores as $indicador) {
             $celulas = $zeroPorColuna;
@@ -134,7 +127,7 @@ final class AgregadorIndicadores
             'totais' => $totais,
             'distintos' => array_map('count', $distintos),
             'legenda' => TextosIndicadores::LEGENDA,
-            'aviso' => TextosIndicadores::aviso(array_keys($retroativos), $ultimoRetroativo),
+            'aviso' => TextosIndicadores::aviso($retroativos, $ultimoRetroativo),
         ];
     }
 
