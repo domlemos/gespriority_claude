@@ -127,7 +127,7 @@ final class FonteIndicadores
      *
      * @param  array<int, int>  $grupos
      */
-    private static function primeiroGrupoEm(Builder $q, array $grupos): Builder
+    public static function primeiroGrupoEm(Builder $q, array $grupos): Builder
     {
         $encaminhamento = IncidenteEvento::TIPO_ENCAMINHADO_GRUPO;
 

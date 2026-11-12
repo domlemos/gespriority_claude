@@ -1849,6 +1849,76 @@ e `meta` no formato de `GET /relatorios/chamados` (`ListaChamados::montar($user,
 mais de `ConsultaRelatorio`; `acessivel: false` quando o chamado, hoje, não é visível ao usuário, ex.: resolvido por um
 agente do N2 e agora no N3). O `xlsx` usa `RelatorioChamadosExport` e registra auditoria.
 
+#### Mapa de fluxos
+
+`GET /relatorios/fluxos` (`auth:web` + `can:relatorios.view`, `App\Http\Controllers\Api\FluxosController`): como os
+chamados entram em cada grupo de solução no período, para onde saem e quantos cada grupo resolve. `index()` valida →
+`ConsultaIndicadores::deDados()` → `responder($c, $formato, $user)` (público), que começa por `validarVisibilidade($user)`.
+Código em `app/Relatorios/Fluxos/`:
+
+| Classe | Papel |
+|---|---|
+| `Passagem` (readonly) | `origem`, `destino` (chaves de nó, já com a visibilidade aplicada), `via` (`encaminhamento`\|`abertura`), `base` (`LinhaBase`, chave `"{origem}>{destino}"`, `eventoId`, `autorId`, `data`) |
+| `FonteFluxos` | `passagens($c, $user)` (uma consulta para `encaminhado_grupo`, outra para `aberto`), `abertos($c, $user)` (chave = id do grupo do autor ou `cliente`), `resolvidos($c, $user)` (chave = `grupo_solucao_id` do evento), `retroativos($c)` (instante UTC ou `null`). Constantes `CLIENTE`, `SEM_GRUPO`, `ORIGEM_DESCONHECIDA`, `OUTROS` |
+| `AgregadorFluxos::agregar($c, $user)` | corpo JSON (abaixo) |
+| `TextosFluxos` | `titulo($c)`, `ROTULOS` (nós especiais), `LEGENDA`, `aviso($ultimo)` |
+
+**Parâmetros.** Os de `ConsultaIndicadores::regras()` sem `quebra` e `por_integrante` (a consulta usa `quebra = 'nenhuma'`,
+`porIntegrante = false`): `periodo` **ou** `data_inicio`+`data_fim` (obrigatório, 422 em `periodo` "Informe um período."),
+`grupos` (array de ids), `formato` (por ora só `json`). Grupo pedido fora dos visíveis → 422 em `grupos.N` "Grupo fora dos
+seus grupos visíveis.". Data = `incidente_eventos.created_at` em dias de Brasília.
+
+**Passagem** = evento do período que leva um chamado de uma origem X a um grupo Y, com X ≠ Y (X = Y é descartada):
+- `encaminhado_grupo`: Y = `alvo_id`; X = `origem_grupo_id` se preenchido; senão `cliente` se o chamado foi aberto pelo
+  portal com `grupo_solucao_id` nulo e não há `encaminhado_grupo` anterior a este (por `created_at`, depois `id`, em
+  qualquer data — subconsulta correlacionada em SQL); senão `origem_desconhecida` se `retroativo = true` (o backfill da
+  origem marca assim os encaminhamentos de origem desconhecida); senão `sem_grupo` (inclui o encaminhamento depois de um
+  `removido_grupo`).
+- `aberto` com `grupo_solucao_id` = Y: pelo portal → X = `cliente`; por agente com `autor_grupo_solucao_id` = A ≠ Y → X = A.
+  Aberto pelo próprio Y, ou com A nulo, não é passagem.
+
+**Nós e números.** Chaves: id do grupo (string), `cliente`, `sem_grupo`, `origem_desconhecida`, `outros` (o `tipo` é `grupo`
+ou a própria chave especial; rótulos: nome do grupo, `Cliente`, `Sem grupo`, `Origem desconhecida`, `Outros grupos`). Para o
+grupo G: `abertos` = eventos `aberto` com `autor_grupo_solucao_id = G`; `recebidos` = passagens com destino G;
+`encaminhados` = passagens com origem G (inclui aberturas de G direto para outro grupo, para a soma das setas que saem
+bater); `resolvidos` = chamados distintos com `resolvido` e `grupo_solucao_id = G` (qualquer que seja o grupo de quem
+resolveu). `cliente`: só `abertos` (eventos `aberto` do portal), as outras três `null`; demais especiais: as quatro `null`.
+Arestas contam passagens (eventos): ida e volta N1 → N2 → N1 dá N1 → N2 = 1 e N2 → N1 = 1.
+
+**Visibilidade (não admin).** A ponta de grupo invisível vira `outros`; a passagem só entra se ao menos uma ponta é um grupo
+visível (Cliente sozinho não basta, para não revelar o volume de outros grupos). `abertos`/`resolvidos` só de grupos
+visíveis; `cliente.abertos` só de chamados visíveis hoje (`Incidente::visiveisPara`).
+
+**Filtro `grupos`.** Entram as passagens com ao menos uma ponta nos grupos pedidos. Nós de grupo = os pedidos (sempre, mesmo
+zerados) + as outras pontas dessas passagens que são grupos visíveis; um vizinho mostra os seus próprios `abertos` e
+`resolvidos`, mas `recebidos`/`encaminhados` só das passagens que tocam a seleção. `cliente.abertos` conta só chamados cujo
+primeiro grupo atribuído está nos pedidos (`FonteIndicadores::primeiroGrupoEm`, agora público). **Sem filtro:** grupos
+visíveis com algum número > 0 ou alguma passagem.
+
+**Ordem.** Nós: `cliente` (sempre), `sem_grupo` e `origem_desconhecida` (quando têm passagem), grupos por nome (collator de
+`AgregadorRelatorio::ordenar`), `outros` (quando tem passagem). Arestas: `quantidade` desc, depois `origem`, depois
+`destino` (comparação de texto das chaves).
+
+**Resposta:**
+
+```json
+{
+  "titulo": "Mapa de fluxos — de 01/10/2026 a 31/10/2026 — grupos: N1",
+  "periodo": {"inicio": "2026-10-01", "fim": "2026-10-31"}, "grupos": [1],
+  "nos": [{"chave": "cliente", "rotulo": "Cliente", "tipo": "cliente",
+           "abertos": 15, "recebidos": null, "encaminhados": null, "resolvidos": null},
+          {"chave": "1", "rotulo": "N1", "tipo": "grupo", "abertos": 2, "recebidos": 15, "encaminhados": 3, "resolvidos": 9}],
+  "arestas": [{"origem": "cliente", "destino": "1", "quantidade": 15}, {"origem": "1", "destino": "2", "quantidade": 3}],
+  "legenda": ["...5 textos..."], "aviso": null
+}
+```
+
+**Título:** `Mapa de fluxos — de dd/mm/aaaa a dd/mm/aaaa[ — grupos: N1, N2]`. **Legenda:** os cinco textos de
+`TextosFluxos::LEGENDA`. **Aviso:** se existe no período evento `aberto`, `encaminhado_grupo` ou `resolvido` com
+`retroativo = true`, `"Dados aproximados: registros até dd/mm/aaaa foram reconstruídos; nesses casos a origem de um
+encaminhamento pode aparecer como desconhecida e o grupo de quem abriu é o grupo atual da pessoa."` (data = `created_at` do
+mais recente, em Brasília); senão `null`. Ignora `grupos` e a visibilidade, como nos Indicadores.
+
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 
 Guard `customer` (`auth:customer`); token de staff recebe `401`. Controller separado do

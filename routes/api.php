@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CategoriaController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\FluxosController;
 use App\Http\Controllers\Api\GrupoSolucaoController;
 use App\Http\Controllers\Api\GrupoSolucaoPermissaoController;
 use App\Http\Controllers\Api\IncidenteController;
@@ -224,6 +225,10 @@ Route::middleware(['auth:web', 'can:relatorios.view'])
 
 Route::middleware(['auth:web', 'can:relatorios.view'])
     ->get('/relatorios/indicadores/chamados', [IndicadoresController::class, 'chamados']);
+
+// Mapa de fluxos: passagens cliente/grupo → grupo, com abertos/recebidos/encaminhados/resolvidos por grupo.
+Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios/fluxos', [FluxosController::class, 'index']);
 
 Route::middleware(['auth:web', 'can:relatorios.view'])
     ->apiResource('relatorios-salvos', RelatorioSalvoController::class)
