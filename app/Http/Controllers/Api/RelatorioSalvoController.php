@@ -7,6 +7,7 @@ use App\Http\Resources\RelatorioSalvoResource;
 use App\Models\Incidente;
 use App\Models\RelatorioSalvo;
 use App\Relatorios\ConsultaRelatorio;
+use App\Relatorios\Indicadores\ConsultaIndicadores;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -68,11 +69,23 @@ class RelatorioSalvoController extends Controller
         Request $request,
         RelatorioController $controller,
         RelatorioConsultaController $consulta,
+        IndicadoresController $indicadores,
         RelatorioSalvo $relatorioSalvo,
     ) {
         $formato = $request->validate([
             'formato' => ['sometimes', 'string', Rule::in(['json', 'xlsx'])],
         ])['formato'] ?? 'json';
+
+        if ($relatorioSalvo->contar === RelatorioSalvo::CONTAR_INDICADORES) {
+            $filtros = $relatorioSalvo->filtros ?? [];
+            $consultaIndicadores = ConsultaIndicadores::deDados([
+                ...$filtros,
+                'por_integrante' => $relatorioSalvo->agrupar_por === 'integrante',
+                'quebra' => $relatorioSalvo->quebra ?? 'nenhuma',
+            ]);
+
+            return $indicadores->responder($consultaIndicadores, $formato, $request->user());
+        }
 
         $nova = $relatorioSalvo->consultaNova();
         if ($nova === null) {
@@ -100,6 +113,10 @@ class RelatorioSalvoController extends Controller
             'filtros' => ['present', 'array'],
         ]);
 
+        if ($request->input('contar') === RelatorioSalvo::CONTAR_INDICADORES) {
+            return $this->validatedIndicadores($request, $base['nome']);
+        }
+
         $permitidos = ['periodo', 'data_inicio', 'data_fim', ...ConsultaRelatorio::FILTROS];
         $filtros = array_intersect_key($request->input('filtros', []), array_flip($permitidos));
         $topo = ['contar', 'agrupar_por', 'quebra'];
@@ -120,6 +137,47 @@ class RelatorioSalvoController extends Controller
         return [
             'nome' => $base['nome'],
             'contar' => $request->input('contar'),
+            'agrupar_por' => $request->input('agrupar_por'),
+            'quebra' => $request->input('quebra', 'nenhuma'),
+            'filtros' => $filtros,
+        ];
+    }
+
+    /**
+     * Relatório de indicadores por grupo: `agrupar_por` é `grupo` ou
+     * `integrante` (= `por_integrante`), e `filtros` guarda grupos e período.
+     * Mesmo achatamento de `validated()`: erros em campos de `filtros` voltam
+     * com o prefixo `filtros.`.
+     */
+    private function validatedIndicadores(Request $request, string $nome): array
+    {
+        $request->validate([
+            'agrupar_por' => ['required', 'string', Rule::in(['grupo', 'integrante'])],
+            'quebra' => ['sometimes', 'string'],
+        ]);
+
+        $filtros = array_intersect_key(
+            $request->input('filtros', []),
+            array_flip(['grupos', 'periodo', 'data_inicio', 'data_fim']),
+        );
+        $porIntegrante = $request->input('agrupar_por') === 'integrante';
+
+        $validator = Validator::make(
+            [...$filtros, 'por_integrante' => $porIntegrante, 'quebra' => $request->input('quebra', 'nenhuma')],
+            ConsultaIndicadores::regras(),
+        );
+
+        if ($validator->fails()) {
+            $erros = [];
+            foreach ($validator->errors()->messages() as $campo => $mensagens) {
+                $erros[$campo === 'quebra' ? 'quebra' : "filtros.{$campo}"] = $mensagens;
+            }
+            throw ValidationException::withMessages($erros);
+        }
+
+        return [
+            'nome' => $nome,
+            'contar' => RelatorioSalvo::CONTAR_INDICADORES,
             'agrupar_por' => $request->input('agrupar_por'),
             'quebra' => $request->input('quebra', 'nenhuma'),
             'filtros' => $filtros,

@@ -19,6 +19,9 @@ class RelatorioSalvo extends Model
     // último termo pluralizado); a tabela é 'relatorios_salvos'.
     protected $table = 'relatorios_salvos';
 
+    /** `contar` do relatório "Indicadores por grupo"; `agrupar_por` é `grupo` ou `integrante`. */
+    public const CONTAR_INDICADORES = 'indicadores';
+
     public const AGRUPAMENTOS = [
         'status_sla', 'responsavel', 'aberto_por', 'resolvido_por', 'fechado_por', 'concluido_por',
         'encaminhado_por', 'encaminhado_para_grupo', 'encaminhado_para_responsavel',

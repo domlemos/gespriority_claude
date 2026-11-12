@@ -59,6 +59,38 @@ class Incidente extends Model
 
     public const SLA_SEM_SLA = 'sem_sla';
 
+    /**
+     * Registra o evento `aberto` (autor + grupo no momento da abertura). O
+     * criador é gravado num segundo save() depois do create() (fora do
+     * #[Fillable]), por isso o hook é `saved` e olha `wasChanged`.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (self $incidente) {
+            if (! $incidente->wasChanged(['criado_por_id', 'criado_por_customer_id'])) {
+                return;
+            }
+
+            if ($incidente->criado_por_id === null && $incidente->criado_por_customer_id === null) {
+                return;
+            }
+
+            if (IncidenteEvento::where('incidente_id', $incidente->id)->where('tipo', IncidenteEvento::TIPO_ABERTO)->exists()) {
+                return;
+            }
+
+            $evento = new IncidenteEvento([
+                'incidente_id' => $incidente->id,
+                'tipo' => IncidenteEvento::TIPO_ABERTO,
+                'user_id' => $incidente->criado_por_id,
+                'autor_customer_id' => $incidente->criado_por_customer_id,
+                'grupo_solucao_id' => $incidente->grupo_solucao_id,
+            ]);
+            $evento->created_at = $incidente->created_at;
+            $evento->save();
+        });
+    }
+
     protected function casts(): array
     {
         return [

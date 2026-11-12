@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Relatorios;
 
+use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
@@ -367,5 +368,109 @@ class RelatorioSalvoCrudTest extends TestCase
         $this->get("/api/relatorios-salvos/{$relatorio->id}/executar?formato=xlsx", $this->authHeader($token))->assertOk();
 
         Excel::assertDownloaded('relatorio-abertos-categoria.xlsx');
+    }
+
+    public function test_salva_e_executa_indicadores_com_atalho_relativo(): void
+    {
+        [$token] = $this->staffToken(['relatorios.manage', 'relatorios.view']);
+
+        $id = $this->postJson('/api/relatorios-salvos', [
+            'nome' => 'Indicadores do mês passado',
+            'contar' => 'indicadores',
+            'agrupar_por' => 'grupo',
+            'quebra' => 'nenhuma',
+            'filtros' => ['periodo' => 'mes_passado'],
+        ], $this->authHeader($token))
+            ->assertCreated()
+            ->assertJsonPath('data.contar', 'indicadores')
+            ->assertJsonPath('data.agrupar_por', 'grupo')
+            ->assertJsonPath('data.formato_antigo', false)
+            ->json('data.id');
+
+        $this->travelTo('2026-11-05');
+        $titulo = $this->getJson("/api/relatorios-salvos/{$id}/executar", $this->authHeader($token))
+            ->assertOk()->json('titulo');
+        $this->assertStringContainsString('de 01/10/2026 a 31/10/2026', $titulo);
+
+        $this->travelTo('2026-12-05');
+        $titulo = $this->getJson("/api/relatorios-salvos/{$id}/executar", $this->authHeader($token))->json('titulo');
+        $this->assertStringContainsString('de 01/11/2026 a 30/11/2026', $titulo);
+    }
+
+    public function test_salvar_indicadores_valida_por_integrante_com_um_grupo(): void
+    {
+        [$token] = $this->staffToken(['relatorios.manage']);
+        $grupos = GrupoSolucao::factory()->count(2)->create();
+
+        $this->postJson('/api/relatorios-salvos', [
+            'nome' => 'Por integrante',
+            'contar' => 'indicadores',
+            'agrupar_por' => 'integrante',
+            'filtros' => ['grupos' => $grupos->pluck('id')->all(), 'periodo' => 'este_mes'],
+        ], $this->authHeader($token))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('filtros.por_integrante');
+
+        $this->postJson('/api/relatorios-salvos', [
+            'nome' => 'Sem período',
+            'contar' => 'indicadores',
+            'agrupar_por' => 'grupo',
+            'filtros' => [],
+        ], $this->authHeader($token))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('filtros.periodo');
+
+        $this->postJson('/api/relatorios-salvos', [
+            'nome' => 'Integrante ok',
+            'contar' => 'indicadores',
+            'agrupar_por' => 'integrante',
+            'filtros' => ['grupos' => [$grupos[0]->id], 'periodo' => 'este_mes'],
+        ], $this->authHeader($token))
+            ->assertCreated()
+            ->assertJsonPath('data.agrupar_por', 'integrante');
+    }
+
+    public function test_listagem_mostra_salvo_de_indicadores_sem_etiqueta_de_legado(): void
+    {
+        RelatorioSalvo::factory()->create([
+            'contar' => 'indicadores',
+            'agrupar_por' => 'grupo',
+            'quebra' => 'semana',
+            'filtros' => ['periodo' => 'este_mes'],
+        ]);
+        [$token] = $this->staffToken(['relatorios.view']);
+
+        $this->getJson('/api/relatorios-salvos', $this->authHeader($token))
+            ->assertOk()
+            ->assertJsonPath('data.0.contar', 'indicadores')
+            ->assertJsonPath('data.0.quebra', 'semana')
+            ->assertJsonPath('data.0.formato_antigo', false);
+    }
+
+    public function test_executar_indicadores_xlsx_devolve_planilha_e_audita_parametros_do_salvo(): void
+    {
+        $grupo = GrupoSolucao::factory()->create();
+        $relatorio = RelatorioSalvo::factory()->create([
+            'contar' => 'indicadores',
+            'agrupar_por' => 'integrante',
+            'quebra' => 'semana',
+            'filtros' => ['grupos' => [$grupo->id], 'data_inicio' => '2026-10-01', 'data_fim' => '2026-10-31'],
+        ]);
+        [$token, $user] = $this->staffToken(['relatorios.view']);
+        $user->update(['grupo_solucao_id' => $grupo->id]);
+        Excel::fake();
+
+        $this->get("/api/relatorios-salvos/{$relatorio->id}/executar?formato=xlsx", $this->authHeader($token))->assertOk();
+
+        Excel::assertDownloaded('relatorio-indicadores.xlsx');
+        $log = AuditLog::query()->where('acao', 'exportado')->latest('id')->firstOrFail();
+        $this->assertEquals([
+            'grupos' => [$grupo->id],
+            'por_integrante' => true,
+            'quebra' => 'semana',
+            'periodo' => null,
+            'data_inicio' => '2026-10-01',
+            'data_fim' => '2026-10-31',
+        ], $log->alteracoes['parametros']);
     }
 }

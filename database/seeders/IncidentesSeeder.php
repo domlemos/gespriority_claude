@@ -203,10 +203,17 @@ class IncidentesSeeder extends Seeder
                 ]);
             }
 
-            // 'cancelado' nunca passou por 'resolvido'/'fechado' — sem
-            // evento de conclusão (mas os de encaminhamento acima continuam
-            // valendo normalmente).
+            // 'cancelado' nunca passou por 'resolvido'/'fechado': em vez dos
+            // eventos de conclusão, só o de cancelamento, no instante da
+            // conclusão (os de encaminhamento acima continuam valendo).
             if ($status === 'cancelado') {
+                IncidenteEvento::query()->forceCreate([
+                    'incidente_id' => $incidente->id,
+                    'user_id' => ($responsavel ?? $admin)->id,
+                    'tipo' => IncidenteEvento::TIPO_CANCELADO,
+                    'created_at' => $incidente->concluido_em,
+                ]);
+
                 continue;
             }
 

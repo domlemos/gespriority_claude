@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\GrupoSolucaoController;
 use App\Http\Controllers\Api\GrupoSolucaoPermissaoController;
 use App\Http\Controllers\Api\IncidenteController;
 use App\Http\Controllers\Api\IncidenteDescricaoController;
+use App\Http\Controllers\Api\IndicadoresController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\PoliticaSlaController;
@@ -216,6 +217,13 @@ Route::middleware(['auth:web', 'can:relatorios.view'])
 
 Route::middleware(['auth:web', 'can:relatorios.view'])
     ->get('/relatorios/chamados', [RelatorioConsultaController::class, 'chamados']);
+
+// Indicadores por grupo: abertos/resolvidos/fechados/cancelados no grupo do autor no momento.
+Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios/indicadores', [IndicadoresController::class, 'index']);
+
+Route::middleware(['auth:web', 'can:relatorios.view'])
+    ->get('/relatorios/indicadores/chamados', [IndicadoresController::class, 'chamados']);
 
 Route::middleware(['auth:web', 'can:relatorios.view'])
     ->apiResource('relatorios-salvos', RelatorioSalvoController::class)

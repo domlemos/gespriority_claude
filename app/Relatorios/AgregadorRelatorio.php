@@ -97,7 +97,7 @@ final class AgregadorRelatorio
      * entre "Acesso" e "banco"). `Collator` vem da extensão `intl`; sem ela,
      * cai para `strcasecmp`, que ao menos ignora maiúsculas.
      */
-    private static function ordenar(array $tabela): array
+    public static function ordenar(array $tabela): array
     {
         $collator = class_exists(Collator::class) ? new Collator('pt_BR') : null;
         $collator?->setStrength(Collator::PRIMARY);

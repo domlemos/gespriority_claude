@@ -148,7 +148,7 @@ class RelatorioController extends Controller
      * `encaminhado_para_grupo`/`encaminhado_para_responsavel`) são tratadas
      * à parte, ANTES de montar `$query` sobre `Incidente` — a base delas é
      * um evento por transição/encaminhamento, nunca sobrescrito nem limpo
-     * na reabertura (ver `IncidenteController::registrarEventoDeConclusaoSeAplicavel()`/
+     * na reabertura (ver `IncidenteController::registrarEventoDeStatus()`/
      * `logEscalonamentoSeMudou()`), não uma coluna de `Incidente`, que só
      * guarda o estado *atual*. Por isso também não têm a restrição implícita
      * de `STATUS_ATENDIDOS`: um chamado resolvido e depois reaberto pra

@@ -627,13 +627,15 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 |---|---|---|
 | `id` | `bigint` PK | |
 | `incidente_id` | `bigint` FK → `incidentes.id` | obrigatório; `onDelete('cascade')` — mesmo raciocínio de `incidente_descricoes` |
-| `user_id` | `bigint` FK → `users.id` | obrigatório; `onDelete('restrict')`; quem fez a ação (`$request->user()` no momento do `PUT`) |
-| `tipo` | `string` | um de `IncidenteEvento::TIPOS` = `resolvido`\|`fechado`\|`encaminhado_grupo`\|`encaminhado_responsavel`; `default('resolvido')` no schema só pra backfill da migration de generalização (ver nota), aplicação sempre seta explícito |
+| `user_id` | `bigint` FK → `users.id` nullable | `onDelete('restrict')`; quem fez a ação (`$request->user()` no momento do `PUT`). Nulo no evento `aberto` de chamado aberto pelo portal (o autor é `autor_customer_id`) e nos eventos retroativos de autor desconhecido (ver `retroativo`) |
+| `autor_customer_id` | `bigint` FK → `customers.id` nullable | cliente que abriu o chamado pelo portal (evento `aberto`); `nullOnDelete()`, indexada. Migration `add_autoria_completa_to_incidente_eventos_table` |
+| `tipo` | `string` | um de `IncidenteEvento::TIPOS` = `aberto`\|`resolvido`\|`fechado`\|`cancelado`\|`reaberto`\|`encaminhado_grupo`\|`encaminhado_responsavel`; `default('resolvido')` no schema só pra backfill da migration de generalização (ver nota), aplicação sempre seta explícito |
 | `alvo_type`/`alvo_id` | `string` nullable / `bigint unsigned` nullable | alvo polimórfico do encaminhamento (`GrupoSolucao` ou `User`) — só preenchido pra `tipo` = `encaminhado_*`; `null` pra `resolvido`/`fechado`, que não têm "destino" |
 | `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo do incidente **no momento do evento**, preenchido pelo hook `creating` do model (só se não informado); `nullOnDelete()`, indexada. Backfill (migration `add_grupo_snapshot_to_incidente_eventos_table`): destino do `encaminhado_grupo` mais recente até o evento; senão, se não há encaminhamento posterior, o grupo atual do incidente; senão `null` (grupo inicial desconhecido — `store()` não gera evento de encaminhamento) |
 | `autor_grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo de quem executou a ação; mesmo hook/FK. Backfill é **aproximação**: grupo atual do usuário (o da época nunca foi guardado) |
+| `retroativo` | `boolean` default `false` | `true` nos eventos reconstruídos (backfill), cujo grupo do autor é o atual da pessoa e não o da época; alimenta o aviso de "dados aproximados" dos relatórios. Migration `backfill_eventos_abertura_cancelamento` (só query builder, chunks de 500, idempotente): (1) marca `true` os `resolvido`/`fechado`/`encaminhado_*` com `created_at` anterior ao deploy da Fase 1 (`2026-11-11 14:49:34` UTC, fim do job de deploy — melhor marcar a mais que a menos; constante na migration); (2) cria `aberto` pra todo incidente sem um (autor = `criado_por_id`/`criado_por_customer_id`, os dois nulos = desconhecido; `autor_grupo_solucao_id` = grupo atual do usuário; `grupo_solucao_id` = grupo atual do incidente se nunca houve `encaminhado_grupo`, senão `null`; `created_at` = `incidentes.created_at`, senão `updated_at`; sem nenhum dos dois o incidente fica sem `aberto`); (3) cria `cancelado`/`reaberto` a partir dos logs `alteracao` de `incidente_descricoes` ("Campo 'Status' alterado de 'X' para 'Y'": `cancelado` se Y = cancelado; `reaberto` se X ∈ resolvido/fechado/cancelado e Y não) com autor = autor do log, grupo do chamado pela regra do backfill da Fase 1 e `created_at` do log (log sem `created_at` é ignorado), sem repetir evento do mesmo tipo/incidente/`created_at`; (4) incidente `cancelado` ainda sem evento `cancelado` ganha um sem autor, com o grupo atual e `created_at` = `concluido_em`, senão `updated_at`, senão `incidentes.created_at` (sem nenhuma das três, fica sem `cancelado`). Todos os criados têm `retroativo = true` |
 | `created_at` | `timestamp` | quando o evento aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `AuditLog`) — a linha nunca é alterada depois de criada |
-| índice | `incidente_id`, `[incidente_id, tipo]` | não únicos, só performance |
+| índice | `incidente_id`, `[incidente_id, tipo]`, `autor_customer_id`, `[tipo, created_at]` | não únicos, só performance |
 
 > 📌 **Log de eventos, não uma coluna em `Incidente` — de propósito.** Motivação original: um
 > chamado resolvido, reaberto (volta pra `em_andamento`/`aberto`/`pendente`) e resolvido de novo —
@@ -656,12 +658,13 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > resolvido/fechado/encaminhamento, uma coluna direta em `Incidente` já resolve sem overhead de
 > tabela.
 >
-> `IncidenteController::registrarEventoDeConclusaoSeAplicavel()` cria a linha pra `resolvido`/
-> `fechado`; `logEscalonamentoSeMudou()` cria a linha pra `encaminhado_grupo`/`encaminhado_responsavel`
+> `IncidenteController::registrarEventoDeStatus()` cria a linha pra `resolvido`/`fechado`/`cancelado`
+> (tipo = status de destino) e pra `reaberto` (saída de um status concluído pra um não-concluído);
+> uma transição nunca gera dois eventos (`resolvido → fechado` gera só `fechado`), e status igual não
+> gera nenhum; autor = usuário autenticado; `logEscalonamentoSeMudou()` cria a linha pra `encaminhado_grupo`/`encaminhado_responsavel`
 > **junto com** a entrada de texto livre no feed (`IncidenteDescricao` tipo `escalonamento`) — as
 > duas convivem, servem propósitos diferentes (feed = leitura humana no histórico do chamado; esta
-> tabela = agregação em relatório, ver §3.4.9). `cancelado` fica de fora — não foi pedido indicador
-> "cancelado por" ainda, mas a estrutura já suporta se vier a ser preciso.
+> tabela = agregação em relatório, ver §3.4.9).
 
 ### 3.2. Models e relacionamentos
 
@@ -678,11 +681,11 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `App\Models\Subcategoria` | `categoria(): BelongsTo` → `Categoria`; `itens(): HasMany` → `Item`; `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `categoria_id` (igualdade exata), `ativo` (via `array_key_exists`) |
 | `App\Models\GrupoSolucao` | `$table = 'grupos_solucao'` (mesma pegadinha de pluralização de `PoliticaSla`); `users(): HasMany` → `User`; `incidentes(): HasMany` → `Incidente`; `scopeFiltros(array $filtros): Builder` — `nome` busca parcial (`LIKE '%valor%'`, mesmo estilo de `Client::scopeFiltros()`), `ativo` igualdade exata via `array_key_exists()` (não `?? null` — `false ?? null` também vira `false` e faria `when()` pular o filtro, ver §3.4.6) |
 | `App\Models\Item` | `$table = 'itens'` (pluralização automática do Eloquent faria `items`, em inglês); `subcategoria(): BelongsTo` → `Subcategoria`; `incidentes(): HasMany` → `Incidente`; `scopeFiltros(array $filtros): Builder` — `nome` (LIKE parcial), `subcategoria_id` (igualdade exata), `ativo` (via `array_key_exists`) |
-| `App\Models\Incidente` | sem `$table` explícito (`incidente`→`incidentes` acerta por coincidência, como `Categoria`); `customer(): BelongsTo` → `Customer`; `item(): BelongsTo` → `Item`; `grupoSolucao(): BelongsTo` → `GrupoSolucao`; `responsavel(): BelongsTo` → `User` (FK `responsavel_id`, `->withTrashed()` — continua resolvendo o nome mesmo se o `User` for desativado); `criadoPor(): BelongsTo` → `User` (FK `criado_por_id`, `->withTrashed()` — quem abriu, nunca muda, ver §3.1); `descricoes(): HasMany` → `IncidenteDescricao` (`->withTrashed()->latest()` — comentários excluídos continuam no feed, ver §3.1); `anexos(): HasMany` → `Anexo` (`->latest()`); `const STATUSES`, `const ORIGENS`, `const STATUS_CONCLUIDOS`, `const STATUS_ATENDIDOS` (`['resolvido', 'fechado']` — exclui `cancelado`; restrição implícita dos relatórios de desempenho, ver §3.4.9), `const SLA_DENTRO_PRAZO`/`SLA_ESTOURADO`/`SLA_SEM_SLA`; `statusSlaResposta()`/`statusSlaResolucao(): string`; `tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos(): ?int` (ver §3.1); `scopeFiltros(array $filtros): Builder` — filtro composto por igualdade exata (`numero` — na prática `id`, só aceito por `DashboardController`, ver §3.4.8 —, `status`, `prioridade`, `origem`, `customer_id`, `item_id`, `grupo_solucao_id`, `responsavel_id`, `todos_status` — bool, só aceito por `DashboardController`, ver §3.4.8), cada chave opcional, combinadas com AND; sem `status` explícito, aplica `whereIn('status', STATUSES_PADRAO_LISTAGEM)` (`['aberto', 'em_andamento', 'pendente']`) por padrão, a menos que `todos_status` seja truthy (ver §3.4.7 e §3.4.8); `const STATUSES_PADRAO_LISTAGEM`; `scopeOrdenarPor(?string $sortBy, string $sortDir = 'asc'): Builder` — ordenação por coluna clicável, só aceita por `DashboardController` (ver §3.4.8), `const SORTABLE_COLUMNS`; `scopeFiltrosRelatorio(array $filtros): Builder` — separado de `scopeFiltros()`, sem a restrição padrão de status, com `data_inicio`/`data_fim` (sobre `concluido_em`), `categoria_id`/`subcategoria_id` (via `whereHas('item.subcategoria')`), `client_id` (via `whereHas('customer')`), `grupo_analista_id` (via `whereHas('responsavel')` — grupo **atual** do responsável) — ver §3.4.9 |
+| `App\Models\Incidente` | sem `$table` explícito (`incidente`→`incidentes` acerta por coincidência, como `Categoria`); `customer(): BelongsTo` → `Customer`; `item(): BelongsTo` → `Item`; `grupoSolucao(): BelongsTo` → `GrupoSolucao`; `responsavel(): BelongsTo` → `User` (FK `responsavel_id`, `->withTrashed()` — continua resolvendo o nome mesmo se o `User` for desativado); `criadoPor(): BelongsTo` → `User` (FK `criado_por_id`, `->withTrashed()` — quem abriu, nunca muda, ver §3.1); `booted()` com hook `saved`: quando `criado_por_id` ou `criado_por_customer_id` passa de nulo a preenchido (`wasChanged`; o criador é gravado num 2º `save()` fora do `#[Fillable]`) e ainda não há evento `aberto`, grava o evento `aberto` (`user_id`/`autor_customer_id` = criador, `grupo_solucao_id` = grupo do chamado, `created_at` = o do chamado; o `autor_grupo_solucao_id` vem do hook `creating` de `IncidenteEvento`); `descricoes(): HasMany` → `IncidenteDescricao` (`->withTrashed()->latest()` — comentários excluídos continuam no feed, ver §3.1); `anexos(): HasMany` → `Anexo` (`->latest()`); `const STATUSES`, `const ORIGENS`, `const STATUS_CONCLUIDOS`, `const STATUS_ATENDIDOS` (`['resolvido', 'fechado']` — exclui `cancelado`; restrição implícita dos relatórios de desempenho, ver §3.4.9), `const SLA_DENTRO_PRAZO`/`SLA_ESTOURADO`/`SLA_SEM_SLA`; `statusSlaResposta()`/`statusSlaResolucao(): string`; `tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos(): ?int` (ver §3.1); `scopeFiltros(array $filtros): Builder` — filtro composto por igualdade exata (`numero` — na prática `id`, só aceito por `DashboardController`, ver §3.4.8 —, `status`, `prioridade`, `origem`, `customer_id`, `item_id`, `grupo_solucao_id`, `responsavel_id`, `todos_status` — bool, só aceito por `DashboardController`, ver §3.4.8), cada chave opcional, combinadas com AND; sem `status` explícito, aplica `whereIn('status', STATUSES_PADRAO_LISTAGEM)` (`['aberto', 'em_andamento', 'pendente']`) por padrão, a menos que `todos_status` seja truthy (ver §3.4.7 e §3.4.8); `const STATUSES_PADRAO_LISTAGEM`; `scopeOrdenarPor(?string $sortBy, string $sortDir = 'asc'): Builder` — ordenação por coluna clicável, só aceita por `DashboardController` (ver §3.4.8), `const SORTABLE_COLUMNS`; `scopeFiltrosRelatorio(array $filtros): Builder` — separado de `scopeFiltros()`, sem a restrição padrão de status, com `data_inicio`/`data_fim` (sobre `concluido_em`), `categoria_id`/`subcategoria_id` (via `whereHas('item.subcategoria')`), `client_id` (via `whereHas('customer')`), `grupo_analista_id` (via `whereHas('responsavel')` — grupo **atual** do responsável) — ver §3.4.9 |
 | `App\Models\IncidenteDescricao` | `$table = 'incidente_descricoes'` (pluralização automática do Eloquent daria `incidente_descricaos`); `SoftDeletes` (`deleted_at` — excluir = soft delete, permanece no feed, ver §3.1); `resolveRouteBinding()` sobrescrito com `withTrashed()` (senão um comentário já excluído resolveria como `404` na rota); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `const TIPO_COMENTARIO`, `const TIPO_ESCALONAMENTO`, `const TIPO_ALTERACAO`, `const TIPO_ENCERRAMENTO`, `const TIPOS` |
 | `App\Models\Anexo` | sem `$table` explícito (`anexo`→`anexos` acerta por coincidência); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `caminho` fora do `#[Fillable(...)]` de propósito (setado por atribuição direta no controller, nunca vem do request — ver §3.4.7.2) |
-| `App\Models\RelatorioSalvo` | `$table = 'relatorios_salvos'` (pluralização automática do Eloquent daria `relatorio_salvos`, só o último termo); `user(): BelongsTo` → `User` (`->withTrashed()`); `filtros` cast `array`; `const EQUIVALENTES_LEGADO` (legado → `[contar, agrupar_por]` novo), `consultaEquivalente(): ?array` (null para `aberto_por` com `data_inicio`/`data_fim`, ou com só uma das duas datas), `consultaNova(): ?array` (armazenada ou equivalente); `const AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`aberto_por`\|`resolvido_por`\|`fechado_por`\|`concluido_por`\|`encaminhado_por`\|`encaminhado_para_grupo`\|`encaminhado_para_responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
-| `App\Models\IncidenteEvento` | `$table = 'incidente_eventos'` (explícito por consistência com o resto do projeto, mesmo pluralizando certo por coincidência); `const UPDATED_AT = null` (linha nunca atualizada); `const TIPO_RESOLVIDO`/`TIPO_FECHADO`/`TIPO_ENCAMINHADO_GRUPO`/`TIPO_ENCAMINHADO_RESPONSAVEL`, `const TIPOS`; `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `booted()` com hook `creating` que grava o snapshot `grupo_solucao_id` (grupo do chamado no momento do evento) e `autor_grupo_solucao_id` (grupo do autor, `withTrashed()`) quando não informados — o evento é insert-only, então o snapshot não muda; `alvo(): ?Model` — resolve `alvo_type`/`alvo_id` manualmente (não `morphTo()`, pra não depender do comportamento de `withTrashed()` numa relação polimórfica onde só um dos tipos possíveis, `User`, é soft delete); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteEvento`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando o evento aconteceu), não `Incidente.concluido_em`; o filtro `grupo_solucao_id` usa a coluna snapshot `grupo_solucao_id` do evento e `grupo_analista_id` usa `autor_grupo_solucao_id`; `scopeVisiveisPara()` continua usando o grupo **atual** do incidente (caminho legado); `scopeVisiveisParaRelatorio(User)` é a regra do caminho novo (chamado visível hoje OU snapshot `grupo_solucao_id`/`autor_grupo_solucao_id` nos grupos visíveis, admin sem restrição — ver §3.4.9) |
+| `App\Models\RelatorioSalvo` | `$table = 'relatorios_salvos'` (pluralização automática do Eloquent daria `relatorio_salvos`, só o último termo); `user(): BelongsTo` → `User` (`->withTrashed()`); `filtros` cast `array`; `const EQUIVALENTES_LEGADO` (legado → `[contar, agrupar_por]` novo), `consultaEquivalente(): ?array` (null para `aberto_por` com `data_inicio`/`data_fim`, ou com só uma das duas datas), `consultaNova(): ?array` (armazenada ou equivalente); `const CONTAR_INDICADORES = 'indicadores'`; `const AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`aberto_por`\|`resolvido_por`\|`fechado_por`\|`concluido_por`\|`encaminhado_por`\|`encaminhado_para_grupo`\|`encaminhado_para_responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
+| `App\Models\IncidenteEvento` | `$table = 'incidente_eventos'` (explícito por consistência com o resto do projeto, mesmo pluralizando certo por coincidência); `const UPDATED_AT = null` (linha nunca atualizada); `const TIPO_ABERTO`/`TIPO_CANCELADO`/`TIPO_REABERTO`/`TIPO_RESOLVIDO`/`TIPO_FECHADO`/`TIPO_ENCAMINHADO_GRUPO`/`TIPO_ENCAMINHADO_RESPONSAVEL`, `const TIPOS`; `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `booted()` com hook `creating` que grava o snapshot `grupo_solucao_id` (grupo do chamado no momento do evento) e `autor_grupo_solucao_id` (grupo do autor, `withTrashed()`; nulo se `user_id` é nulo) quando não informados; `autor_customer_id` e `retroativo` (cast boolean) no `#[Fillable]` — o evento é insert-only, então o snapshot não muda; `alvo(): ?Model` — resolve `alvo_type`/`alvo_id` manualmente (não `morphTo()`, pra não depender do comportamento de `withTrashed()` numa relação polimórfica onde só um dos tipos possíveis, `User`, é soft delete); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteEvento`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando o evento aconteceu), não `Incidente.concluido_em`; o filtro `grupo_solucao_id` usa a coluna snapshot `grupo_solucao_id` do evento e `grupo_analista_id` usa `autor_grupo_solucao_id`; `scopeVisiveisPara()` continua usando o grupo **atual** do incidente (caminho legado); `scopeVisiveisParaRelatorio(User)` é a regra do caminho novo (chamado visível hoje OU snapshot `grupo_solucao_id`/`autor_grupo_solucao_id` nos grupos visíveis, admin sem restrição — ver §3.4.9) |
 
 ### 3.3. Configuração dos guards (`config/auth.php`)
 
@@ -1183,8 +1186,8 @@ endpoint devolve o dado cru do registro, não uma view computada.
 > (`incidente_descricoes`) pra formato do texto e regras completas. É a mesma chamada, mesma
 > transação; não é uma ação/permission separada — continua exigindo só `tickets.manage`.
 >
-> **`update()` também grava em `IncidenteEvento`** — `registrarEventoDeConclusaoSeAplicavel()` sempre
-> que `status` transiciona pra `'resolvido'`/`'fechado'`; `logEscalonamentoSeMudou()` sempre que
+> **`update()` também grava em `IncidenteEvento`** — `registrarEventoDeStatus()` sempre
+> que `status` transiciona pra `'resolvido'`/`'fechado'`/`'cancelado'` ou sai de um status concluído (`reaberto`); `logEscalonamentoSeMudou()` sempre que
 > `grupo_solucao_id`/`responsavel_id` muda (junto com a entrada de feed, não em vez dela) — uma linha
 > nova por evento, nunca atualiza/apaga uma existente, nem na reabertura. Ver §3.1
 > (`incidente_eventos`) e §3.4.9 (`agrupar_por=resolvido_por`/`fechado_por`/`encaminhado_por`/
@@ -1595,6 +1598,7 @@ nunca é apagado de verdade.
 - **Validação.** Com `contar` no corpo, `RelatorioSalvoController::validated()` valida `contar`, `agrupar_por` (matriz por `contar`), `quebra` e `filtros.*` com `ConsultaRelatorio::regras()`. As regras cruzadas leem os campos irmãos no topo, então os `filtros` são achatados ao validar e os erros voltam com prefixo `filtros.` (`filtros.periodo`, `filtros.data_fim`...). Chaves de `filtros` fora de `periodo`/`data_inicio`/`data_fim`/`ConsultaRelatorio::FILTROS` são descartadas. Sem `contar`, vale a validação legada e `contar`/`quebra` ficam nulos.
 - **Execução.** `executar()` monta a consulta com `ConsultaRelatorio::deDados()` no momento da chamada: o atalho `periodo` é resolvido com o "hoje" de agora (a validação também resolve sem `$agora`, então os dois usam o mesmo relógio) e responde por `RelatorioConsultaController::responder()`. `formato=xlsx` funciona igual.
 - **Legado com par exato.** `RelatorioSalvo::EQUIVALENTES_LEGADO`: `resolvido_por`→resolvidos/analista, `fechado_por`→fechados/analista, `concluido_por`→concluidos/analista, `encaminhado_por`→encaminhamentos/quem_encaminhou, `encaminhado_para_grupo`→encaminhamentos/para_grupo, `encaminhado_para_responsavel`→encaminhamentos/para_responsavel, `aberto_por`→abertos/aberto_por. `aberto_por` só se não houver `data_inicio`/`data_fim` (o legado filtra por `concluido_em`, o novo por `created_at`); período com uma ponta só também fica no legado. Os demais legados (`categoria`, `responsavel`, `status_sla`...) seguem em `RelatorioController::responder()` com a resposta `{agrupado_por, data}`.
+- **Salvo do tipo `indicadores`.** `contar = 'indicadores'` (`RelatorioSalvo::CONTAR_INDICADORES`), `agrupar_por` = `grupo` ou `integrante` (`integrante` = `por_integrante`), `quebra`, e em `filtros` só `grupos`, `periodo` ou `data_inicio`/`data_fim` (o resto é descartado). `RelatorioSalvoController::validatedIndicadores()` achata `filtros` + `por_integrante` + `quebra` e valida com `ConsultaIndicadores::regras()`; erros em campos de `filtros` voltam como `filtros.*` (inclusive `filtros.por_integrante` quando `integrante` não tem exatamente um grupo; `quebra` fica no topo). Não há migration: `contar` e `agrupar_por` são strings livres. `executar` monta `ConsultaIndicadores::deDados()` com o "hoje" de agora (atalho resolvido na hora) e delega a `IndicadoresController::responder()`, que valida a visibilidade dos grupos para quem executa e devolve JSON ou, com `formato=xlsx`, o `BinaryFileResponse`. O log de auditoria `exportado` guarda em `parametros` os valores da consulta (`grupos`, `por_integrante`, `quebra`, `periodo`, `data_inicio`, `data_fim`), não os da requisição `executar`.
 - **Resource.** `RelatorioSalvoResource` devolve `contar`, `quebra` e `agrupar_por` (armazenados; no legado com par exato, os valores do equivalente — ex. `fechado_por` sai como `analista`, para o par bater com a matriz do construtor; legado sem par mantém o `agrupar_por` antigo) e `formato_antigo` (`true` quando não há `contar` nem equivalente).
 
 #### Caminho novo (`contar`) — Fase 2
@@ -1606,7 +1610,7 @@ validação legada intactas (spec 6.5). O código fica em `app/Relatorios/`:
 
 | Classe | Papel |
 |---|---|
-| `ConsultaRelatorio` (readonly) | pedido validado: `contar`, `agruparPor`, `quebra`, `inicio`/`fim` (Y-m-d, atalho já resolvido), `atalho`, `filtros`. `regras()` (chaves sem prefixo, reaproveitadas pelo relatório salvo), `deDados($validado, ?$agora)`, `fonte()` |
+| `ConsultaRelatorio` (readonly) | pedido validado: `contar`, `agruparPor`, `quebra`, `inicio`/`fim` (Y-m-d, atalho já resolvido), `atalho`, `filtros`. `regras()` (chaves sem prefixo, reaproveitadas pelo relatório salvo), `regraQuebra()` (regra cruzada quebra × período, pública para `ConsultaIndicadores`), `deDados($validado, ?$agora)`, `fonte()` |
 | `FonteRelatorio` (interface) | `linhas($c, $user)` → `Collection<LinhaBase>`, `rotulos($c, $chaves)`, `contaEventos()` |
 | `FonteIncidentes` | `abertos`/`cancelados` sobre `incidentes`. Seleciona só `id`, a data e a chave (joins `left` em `itens`/`subcategorias`/`customers`), nunca hidrata o model. Filtros + `visiveisPara` rodam numa subconsulta de ids (`whereIn('incidentes.id', ...)`), porque os scopes usam colunas sem prefixo que ficariam ambíguas ao lado dos joins |
 | `LinhaBase` (readonly) | `chave`, `incidenteId`, `eventoId`, `autorId`, `data` (UTC) |
@@ -1737,6 +1741,109 @@ autores são carregados em uma query cada, só para a página.
 linha 2 `Linha: {rótulo}` (+ ` · {rótulo da coluna}`); linha 3 `Gerado em … (horário de Brasília) por {nome}`; linha 4
 vazia; cabeçalho `Nº, Título, Status, Data, Analista, Grupo de Solução` (+ `Destino` em `encaminhamentos`); datas em
 Brasília `dd/mm/aaaa hh:mm`.
+
+#### Indicadores por grupo
+
+`GET /relatorios/indicadores` (`auth:web` + `can:relatorios.view`, `App\Http\Controllers\Api\IndicadoresController`):
+abertos, resolvidos, fechados e cancelados por grupo de solução, ou por integrante de um grupo. O número de cada evento
+vai sempre para o **grupo do autor no momento** (`incidente_eventos.autor_grupo_solucao_id`), nunca para o grupo atual do
+chamado nem para o grupo atual da pessoa. `index()` valida → `ConsultaIndicadores::deDados()` → `responder($c, $formato, $user)` (público, para o
+relatório salvo), que começa por `validarVisibilidade($user)` — nenhum chamador consegue pular a checagem. Código em `app/Relatorios/Indicadores/`:
+
+| Classe | Papel |
+|---|---|
+| `ConsultaIndicadores` (readonly) | `grupos` (ids int na ordem pedida; vazio = todos), `porIntegrante`, `quebra`, `inicio`/`fim` (Y-m-d, atalho resolvido), `atalho`. `regras()`, `deDados($validado, ?$agora)`, `validarVisibilidade($user)` |
+| `FonteIndicadores::linhas($c, $user)` | uma única consulta em `incidente_eventos` (`whereIn('tipo')`, sem hidratar models) → `Collection<LinhaIndicador>`. `retroativos($c)` → `[indicadores, último instante]` para o aviso. `TIPOS` (indicador → tipo), `CHAVE_PORTAL = 'portal'`, `CHAVE_SEM_AUTOR = '__sem_autor__'` |
+| `LinhaIndicador` (readonly) | `indicador`, `chave` (id do grupo, id do usuário, `portal` ou `__sem_autor__`), `base` (`LinhaBase`) |
+| `AgregadorIndicadores::agregar($c, $linhas, $user)` | corpo JSON (abaixo) |
+| `App\Exports\IndicadoresExport` | planilha (abaixo); mesmo `bindValue` de `RelatorioTabelaExport` (texto sempre string, sem fórmulas) |
+| `TextosIndicadores` | `titulo($c)`, `LEGENDA`, `aviso($indicadores, $ultimo)`, `ROTULOS` |
+
+**Parâmetros.** `periodo` **ou** `data_inicio`+`data_fim` (obrigatório: sem nenhum → 422 em `periodo` "Informe um
+período."), `quebra`, com as mesmas regras e mensagens do caminho `contar` (as de período vêm de
+`ConsultaRelatorio::regras()`, a cruzada de quebra de `ConsultaRelatorio::regraQuebra()`); `grupos` (array de ids
+existentes, distintos); `por_integrante` (boolean; exige exatamente um grupo → 422 em `por_integrante` "Selecione um único
+grupo para detalhar por integrante."); `formato` (`json|xlsx`). Para não admin, grupo pedido fora de
+`visibleGrupoSolucaoIds()` → 422 em `grupos.N` "Grupo fora dos seus grupos visíveis.".
+
+**Indicadores** (ordem fixa): `abertos` = evento `aberto`, `resolvidos` = `resolvido`, `fechados` = `fechado`,
+`cancelados` = `cancelado`. Data = `created_at` do evento em dias de Brasília (`PeriodoRelatorio::inicioUtc`/
+`fimExclusivoUtc`; um evento de 31/10 23:30 BRT cai em outubro).
+
+**Classificação de cada evento** (os três ramos da consulta são disjuntos):
+- **portal** — `aberto` com `autor_customer_id`. Só tem valor em Abertos. Com `grupos` (ou `por_integrante`), conta só se o
+  **primeiro grupo atribuído** ao chamado ∈ grupos: o `grupo_solucao_id` do próprio `aberto` quando não nulo (ex.: backfill
+  de chamado nunca encaminhado); senão o `alvo_id` do `encaminhado_grupo` mais antigo do chamado (por `created_at`, depois
+  `id`; em qualquer data, mesmo fora do período). O portal abre sem grupo e a triagem encaminha via `update()`, então o
+  `aberto` ao vivo sempre tem `grupo_solucao_id` nulo. Em SQL (`FonteIndicadores::primeiroGrupoEm`, `whereExists`
+  correlacionado), o que vale também para a lista de chamados da célula. Sem `grupos`, todos.
+- **agente** — `user_id` e `autor_grupo_solucao_id` preenchidos. Chave = `autor_grupo_solucao_id` (ou `user_id` por
+  integrante). Com `grupos`, só autor_grupo ∈ grupos; sem `grupos`, para não admin, autor_grupo ∈ visíveis.
+- **sem autor** — `user_id` e `autor_customer_id` nulos, ou `user_id` preenchido com `autor_grupo_solucao_id` nulo (grupo
+  excluído). Só sem `grupos` (e, portanto, fora do detalhamento por integrante).
+- Visibilidade de portal e sem autor (não admin): o chamado precisa ser visível hoje (`Incidente::visiveisPara`). Admin
+  vê tudo.
+
+**Linhas.** Com `grupos`: exatamente esses grupos, mesmo zerados. Sem `grupos`: grupos visíveis com `ativo = true` +
+qualquer grupo com evento contado. Por integrante: usuários (`withTrashed`) com evento contado no grupo — inclusive quem
+já saiu dele — + usuários não excluídos com `users.grupo_solucao_id` = o grupo, zerados; rótulo = nome (`"Nome
+(excluído)"` para soft-deleted; `#id` se o usuário não existe mais em `users`). Ordenação: soma dos quatro totais desc, depois rótulo (`AgregadorRelatorio::ordenar`,
+agora público). Depois vêm `portal` ("Cliente (portal)", sempre presente) e `__sem_autor__` ("Sem autor registrado", só
+quando não zerada). `tipo` da linha: `grupo`|`usuario`|`portal`|`sem_autor`. Chaves sempre string.
+
+**Contagem.** Célula = chamados distintos (`incidente_id`) por linha × indicador × coluna; total da linha = soma das
+células; `totais[indicador]` = soma das linhas; `distintos[indicador]` = chamados distintos do indicador no resultado
+(chamado resolvido por N1 e por N2 no período: Resolvidos N1 = 1, N2 = 1, total 2, distintos 1). As colunas são
+independentes: resolvido e fechado no período conta nas duas.
+
+**Resposta:**
+
+```json
+{
+  "titulo": "Indicadores por grupo de solução — de 01/10/2026 a 31/10/2026 — grupos: N1, N2",
+  "periodo": {"inicio": "2026-10-01", "fim": "2026-10-31"}, "quebra": "nenhuma",
+  "grupos": [1, 2], "por_integrante": false,
+  "indicadores": [{"chave": "abertos", "rotulo": "Abertos"}, {"chave": "resolvidos", "rotulo": "Resolvidos"},
+                  {"chave": "fechados", "rotulo": "Fechados"}, {"chave": "cancelados", "rotulo": "Cancelados"}],
+  "colunas": [{"chave": "total", "rotulo": "Total"}],
+  "linhas": [{"chave": "1", "rotulo": "N1", "tipo": "grupo",
+              "valores": {"abertos": {"celulas": {"total": 2}, "total": 2}, "resolvidos": {...}, "fechados": {...}, "cancelados": {...}}}],
+  "totais": {"abertos": {"celulas": {"total": 2}, "total": 2}, ...},
+  "distintos": {"abertos": 2, "resolvidos": 1, "fechados": 1, "cancelados": 0},
+  "legenda": ["...5 textos..."], "aviso": null
+}
+```
+
+Colunas de `PeriodoRelatorio::colunas()` (sem quebra, `[{chave: "total", rotulo: "Total"}]`, como no caminho `contar`);
+cada evento cai na sua por `PeriodoRelatorio::colunaDe()`.
+
+**Título:** `Indicadores por grupo de solução — de dd/mm/aaaa a dd/mm/aaaa[, por {dia|semana|mês}][ — grupos: N1, N2][ —
+por integrante]` (grupos na ordem pedida). **Legenda:** os cinco textos fixos de `TextosIndicadores::LEGENDA` (um por
+indicador + "As colunas são independentes…"). **Aviso:** se existe no período algum evento de um dos 4 tipos com `retroativo = true` (backfill),
+`"Dados aproximados em {colunas}: registros até dd/mm/aaaa foram reconstruídos e usam o grupo atual da pessoa, não o da
+época."` — colunas na ordem fixa, unidas por vírgula e "e" ("Abertos, Fechados e Cancelados"); data = `created_at`
+(Brasília) do retroativo mais recente no período. Sem retroativos, `null`. **Ignora `grupos`, `por_integrante` e a
+visibilidade** (`FonteIndicadores::retroativos`, uma consulta agrupada por `tipo` sobre o índice `(tipo, created_at)`): o
+backfill põe o evento no grupo **atual** da pessoa, então quem filtra o grupo antigo dela (ou só vê esse grupo) está
+justamente subcontado e precisa do aviso.
+
+**Planilha** (`formato=xlsx`, tratada dentro de `responder()`, então vale também para relatórios salvos): título; `Gerado em
+dd/mm/aaaa hh:mm (horário de Brasília) por {nome}`; linha em branco; cabeçalho `Grupo` (ou `Integrante`) + para cada
+indicador uma coluna por período (só com quebra) e `{Indicador} — Total`; as linhas (inclusive portal / sem autor); `Total`;
+`Chamados distintos` (valores de `distintos` sob as colunas de total, vazio nas de período); linha em branco; `Legenda` + os
+5 textos; o aviso, se houver. Registra `Auditoria::registrar('exportado', ...)` com o título do relatório.
+
+**Lista de chamados por célula** — `GET /relatorios/indicadores/chamados` (mesmo middleware; `IndicadoresController::chamados`):
+os parâmetros da consulta + `chave` (obrigatório, chave da linha), `indicador` (obrigatório, um dos 4), `coluna` (opcional;
+inexistente no período → 422 em `coluna` "Coluna inexistente neste período."), `page`, `per_page` (máx. 200, padrão 50) e
+`formato` (`json|xlsx`). Valida a visibilidade como o relatório (grupo fora dos visíveis → 422). A lista parte das mesmas
+`LinhaIndicador` do número (`FonteIndicadores::linhas`), filtradas por chave × indicador × coluna, e traz **um item por
+chamado**, com o evento mais recente no escopo; assim `meta.total` == valor da célula. Sem `coluna` (linha inteira com
+quebra), um chamado que conta em duas colunas aparece uma vez, então `meta.total` pode ser menor que o total da linha.
+Resposta: `{titulo, linha: {chave, rotulo}, indicador: {chave, rotulo}, coluna: {chave, rotulo}|null, data, meta}` — `data`
+e `meta` no formato de `GET /relatorios/chamados` (`ListaChamados::montar($user, $linhas, $comDestino)`, que não depende
+mais de `ConsultaRelatorio`; `acessivel: false` quando o chamado, hoje, não é visível ao usuário, ex.: resolvido por um
+agente do N2 e agora no N3). O `xlsx` usa `RelatorioChamadosExport` e registra auditoria.
 
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 
@@ -1964,6 +2071,8 @@ Não idempotente por design (mesmo raciocínio dos customers aleatórios — só
 > - **Datas**: `created_at` retroativo de 1 a 25 dias (`now()->subDays(N)`, não datas fixas — o seeder
 >   continua fazendo sentido não importa quando rodar), pra `data_inicio`/`data_fim` terem o que
 >   filtrar.
+> - **Eventos**: `encaminhado_*` para grupo/responsável; `resolvido` (+ `fechado`) nos concluídos; o
+>   cancelado ganha o evento `cancelado` (autor = responsável, senão admin; `created_at` = `concluido_em`).
 > - **Segundo `Client`** ("TechCorp Soluções", `financeiro@techcorp.example.com`) criado só aqui
 >   (não em `DatabaseSeeder`) — com um único cliente, o filtro `client_id` nunca mudava o resultado.
 > - **Sem feed** (`IncidenteDescricao`) de propósito — o feed completo já é demonstrado no
@@ -2027,7 +2136,8 @@ massa):
 - **Status ponderados** (aberto 20, em andamento 20, pendente 10, resolvido 20, fechado 25,
   cancelado 5) e `created_at` espalhado pelos últimos 60 dias. Coerência com o status: fora de
   `aberto` → `respondido_em`; concluídos → `concluido_em` (nunca no futuro); `resolvido`/`fechado`
-  → `IncidenteEvento` `resolvido` (+ `fechado`); grupo/responsável → eventos `encaminhado_*`.
+  → `IncidenteEvento` `resolvido` (+ `fechado`); `cancelado` → `IncidenteEvento` `cancelado` (autor = responsável,
+  senão criador; `created_at` = `concluido_em`); grupo/responsável → eventos `encaminhado_*`.
 - Toda entrada tem a **descrição de abertura** no feed (autor staff ou cliente).
 
 Coberto por `tests/Feature/Seeders/ChamadosDemoSeederTest.php` (ver §3.9).
@@ -2083,7 +2193,7 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Incidentes/IncidenteDescricaoAutorTest.php` | Guarda "exatamente um autor" de `IncidenteDescricao` (`LogicException` sem autor ou com `user_id`+`customer_id`; só `customer_id` salva) |
 | `Portal/PortalIncidenteTest.php` | Cliente abre incidente em nome próprio com tudo fixado no servidor; campos forjados no payload (`customer_id`, `item_id`, `prioridade`, `status`, `tipo`, `origem`, grupo/responsável) ignorados; descrição de abertura com autor cliente; resposta só com `id`/`titulo`/`status`/datas; validação; "meus chamados" só traz os do cliente (nem de colega da mesma empresa); token de staff `401` nas rotas do portal e token de cliente `401` nas do staff |
 | `Portal/PortalTriagemTest.php` | Primeira classificação pelo staff 3h depois da abertura → prioridade do item e prazos contados de `created_at` (SLA de resposta já `estourado`); chamado não triado visível a todo staff com `prioridade: null`/`sem_sla`; `?sem_classificacao=1` (inclusive com `sort_by=prioridade`) |
-| `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; `--quantidade`; recusa em produção sem confirmação |
+| `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; todo chamado `cancelado` (do seed padrão e da massa de demo) tem evento `cancelado`; `--quantidade`; recusa em produção sem confirmação |
 | `Relatorios/*` e `Dashboard/*` | (atualizados) filtro `tipo` em relatório, em agrupamento por evento e em relatório salvo; grupo "Portal (cliente)" no `aberto_por`; `tipo` exposto no dashboard |
 | `Customers/CustomerCrudTest.php` | (atualizado) `409` (não `500`) ao excluir um customer que abriu pelo portal um chamado depois trocado de cliente |
 | `Auditoria/AuditLogCapturaTest.php` | Nada é gravado sem usuário autenticado (factories); CRUD via API grava `criado`/`atualizado`/`excluido` com autor, diff e rótulo snapshot; update sem mudança não grava; troca de senha vira `senha: (alterada)` sem o hash; `sync()` de papéis e permissões do grupo grava diff de relação; chamado grava só nomes de campos (coluna de sistema ignorada); feed grava só `comentario`, sem texto; `login`/`login_falhou` (com e sem conta existente); ação do portal com autor `customer`; `model:prune` apaga só o que passou de 6 meses |

@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // reabertura (diferente de Incidente.concluido_em). Generalização de
 // IncidenteResolucao (que só cobria 'resolvido') — ver
 // BACKEND_SPECS.md §3.1 (`incidente_eventos`) pro porquê.
-#[Fillable(['incidente_id', 'user_id', 'tipo', 'alvo_type', 'alvo_id', 'grupo_solucao_id', 'autor_grupo_solucao_id'])]
+#[Fillable(['incidente_id', 'user_id', 'tipo', 'alvo_type', 'alvo_id', 'grupo_solucao_id', 'autor_grupo_solucao_id', 'autor_customer_id', 'retroativo'])]
 class IncidenteEvento extends Model
 {
     /** @use HasFactory<IncidenteEventoFactory> */
@@ -28,20 +28,34 @@ class IncidenteEvento extends Model
 
     public const UPDATED_AT = null;
 
+    public const TIPO_ABERTO = 'aberto';
+
     public const TIPO_RESOLVIDO = 'resolvido';
 
     public const TIPO_FECHADO = 'fechado';
+
+    public const TIPO_CANCELADO = 'cancelado';
+
+    public const TIPO_REABERTO = 'reaberto';
 
     public const TIPO_ENCAMINHADO_GRUPO = 'encaminhado_grupo';
 
     public const TIPO_ENCAMINHADO_RESPONSAVEL = 'encaminhado_responsavel';
 
     public const TIPOS = [
+        self::TIPO_ABERTO,
         self::TIPO_RESOLVIDO,
         self::TIPO_FECHADO,
+        self::TIPO_CANCELADO,
+        self::TIPO_REABERTO,
         self::TIPO_ENCAMINHADO_GRUPO,
         self::TIPO_ENCAMINHADO_RESPONSAVEL,
     ];
+
+    protected function casts(): array
+    {
+        return ['retroativo' => 'boolean'];
+    }
 
     /**
      * Congela o grupo do incidente e o grupo do autor no momento do evento.
@@ -59,7 +73,9 @@ class IncidenteEvento extends Model
             }
 
             if (! array_key_exists('autor_grupo_solucao_id', $atributos)) {
-                $evento->autor_grupo_solucao_id = User::withTrashed()->find($evento->user_id)?->grupo_solucao_id;
+                $evento->autor_grupo_solucao_id = $evento->user_id === null
+                    ? null
+                    : User::withTrashed()->find($evento->user_id)?->grupo_solucao_id;
             }
         });
     }

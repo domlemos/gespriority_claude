@@ -232,11 +232,15 @@ class ChamadosDemoSeeder extends Seeder
         $concluidoEm = $respondidoEm->copy()->addMinutes($this->faker->numberBetween(30, 60 * 72));
         $incidente->forceFill(['concluido_em' => min($concluidoEm, now())])->save();
 
+        $autor = $responsavel ?? $criador;
+
+        // Cancelado nunca passou por resolvido/fechado: só o evento de cancelamento.
         if ($status === 'cancelado') {
+            $this->evento($incidente, $autor, IncidenteEvento::TIPO_CANCELADO, $incidente->concluido_em);
+
             return;
         }
 
-        $autor = $responsavel ?? $criador;
         $this->evento($incidente, $autor, IncidenteEvento::TIPO_RESOLVIDO, $incidente->concluido_em);
 
         if ($status === 'fechado') {
