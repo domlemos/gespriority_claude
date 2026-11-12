@@ -629,13 +629,14 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `incidente_id` | `bigint` FK → `incidentes.id` | obrigatório; `onDelete('cascade')` — mesmo raciocínio de `incidente_descricoes` |
 | `user_id` | `bigint` FK → `users.id` nullable | `onDelete('restrict')`; quem fez a ação (`$request->user()` no momento do `PUT`). Nulo no evento `aberto` de chamado aberto pelo portal (o autor é `autor_customer_id`) e nos eventos retroativos de autor desconhecido (ver `retroativo`) |
 | `autor_customer_id` | `bigint` FK → `customers.id` nullable | cliente que abriu o chamado pelo portal (evento `aberto`); `nullOnDelete()`, indexada. Migration `add_autoria_completa_to_incidente_eventos_table` |
-| `tipo` | `string` | um de `IncidenteEvento::TIPOS` = `aberto`\|`resolvido`\|`fechado`\|`cancelado`\|`reaberto`\|`encaminhado_grupo`\|`encaminhado_responsavel`; `default('resolvido')` no schema só pra backfill da migration de generalização (ver nota), aplicação sempre seta explícito |
-| `alvo_type`/`alvo_id` | `string` nullable / `bigint unsigned` nullable | alvo polimórfico do encaminhamento (`GrupoSolucao` ou `User`) — só preenchido pra `tipo` = `encaminhado_*`; `null` pra `resolvido`/`fechado`, que não têm "destino" |
+| `tipo` | `string` | um de `IncidenteEvento::TIPOS` = `aberto`\|`resolvido`\|`fechado`\|`cancelado`\|`reaberto`\|`encaminhado_grupo`\|`encaminhado_responsavel`\|`removido_grupo`; `default('resolvido')` no schema só pra backfill da migration de generalização (ver nota), aplicação sempre seta explícito |
+| `alvo_type`/`alvo_id` | `string` nullable / `bigint unsigned` nullable | alvo polimórfico do encaminhamento (`GrupoSolucao` ou `User`) — só preenchido pra `tipo` = `encaminhado_*`; `null` pra `resolvido`/`fechado`/`removido_grupo`, que não têm "destino" |
+| `origem_grupo_id` | `bigint` FK → `grupos_solucao.id` nullable | grupo do chamado **antes** do `encaminhado_grupo` (o `grupo_solucao_id` desse evento já é o destino) ou, no `removido_grupo`, o grupo que foi limpo; `nullOnDelete()`, indexada; nulo nos demais tipos. Ao vivo: `IncidenteController::update` grava o grupo anterior do chamado (nulo = chamado sem grupo). Migration `add_origem_grupo_to_incidente_eventos_table` (só query builder, chunks de 500, idempotente só antes da entrada em produção — depois, rodar de novo sobrescreveria nulos reais de "Sem grupo": só toca `encaminhado_grupo` com origem nula, `retroativo` só é ligado), por chamado, em ordem de `created_at` e depois `id`: (1) há `encaminhado_grupo` anterior → origem = o `alvo_id` dele; se esse grupo foi excluído, origem nula e o evento vira `retroativo = true`; (2) senão, há `aberto` (o primeiro) → origem = o `grupo_solucao_id` dele; se nulo: portal (`autor_customer_id`) fica nulo sem marcar, `aberto` reconstruído (`retroativo`) marca o encaminhamento `retroativo = true` (origem desconhecida), `aberto` ao vivo fica nulo sem marcar (sem grupo, de fato); (3) sem `aberto` → nulo e `retroativo = true`. `down()` apaga os `removido_grupo` e remove a coluna (não desmarca `retroativo`) |
 | `grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo do incidente **no momento do evento**, preenchido pelo hook `creating` do model (só se não informado); `nullOnDelete()`, indexada. Backfill (migration `add_grupo_snapshot_to_incidente_eventos_table`): destino do `encaminhado_grupo` mais recente até o evento; senão, se não há encaminhamento posterior, o grupo atual do incidente; senão `null` (grupo inicial desconhecido — `store()` não gera evento de encaminhamento) |
 | `autor_grupo_solucao_id` | `bigint` FK → `grupos_solucao.id` nullable | snapshot do grupo de quem executou a ação; mesmo hook/FK. Backfill é **aproximação**: grupo atual do usuário (o da época nunca foi guardado) |
-| `retroativo` | `boolean` default `false` | `true` nos eventos reconstruídos (backfill), cujo grupo do autor é o atual da pessoa e não o da época; alimenta o aviso de "dados aproximados" dos relatórios. Migration `backfill_eventos_abertura_cancelamento` (só query builder, chunks de 500, idempotente): (1) marca `true` os `resolvido`/`fechado`/`encaminhado_*` com `created_at` anterior ao deploy da Fase 1 (`2026-11-11 14:49:34` UTC, fim do job de deploy — melhor marcar a mais que a menos; constante na migration); (2) cria `aberto` pra todo incidente sem um (autor = `criado_por_id`/`criado_por_customer_id`, os dois nulos = desconhecido; `autor_grupo_solucao_id` = grupo atual do usuário; `grupo_solucao_id` = grupo atual do incidente se nunca houve `encaminhado_grupo`, senão `null`; `created_at` = `incidentes.created_at`, senão `updated_at`; sem nenhum dos dois o incidente fica sem `aberto`); (3) cria `cancelado`/`reaberto` a partir dos logs `alteracao` de `incidente_descricoes` ("Campo 'Status' alterado de 'X' para 'Y'": `cancelado` se Y = cancelado; `reaberto` se X ∈ resolvido/fechado/cancelado e Y não) com autor = autor do log, grupo do chamado pela regra do backfill da Fase 1 e `created_at` do log (log sem `created_at` é ignorado), sem repetir evento do mesmo tipo/incidente/`created_at`; (4) incidente `cancelado` ainda sem evento `cancelado` ganha um sem autor, com o grupo atual e `created_at` = `concluido_em`, senão `updated_at`, senão `incidentes.created_at` (sem nenhuma das três, fica sem `cancelado`). Todos os criados têm `retroativo = true` |
+| `retroativo` | `boolean` default `false` | `true` nos eventos reconstruídos (backfill), cujo grupo do autor é o atual da pessoa e não o da época; alimenta o aviso de "dados aproximados" dos relatórios. No `encaminhado_grupo` também quer dizer **origem desconhecida** (o Mapa de fluxos mostra `Origem desconhecida`): o backfill de `origem_grupo_id` marca assim os encaminhamentos cuja origem não dá pra reconstruir, inclusive encaminhamentos **ao vivo** (depois da Fase 1) em chamados cujo `aberto` reconstruído não tem grupo. Migration `backfill_eventos_abertura_cancelamento` (só query builder, chunks de 500, idempotente): (1) marca `true` os `resolvido`/`fechado`/`encaminhado_*` com `created_at` anterior ao deploy da Fase 1 (`2026-11-11 14:49:34` UTC, fim do job de deploy — melhor marcar a mais que a menos; constante na migration); (2) cria `aberto` pra todo incidente sem um (autor = `criado_por_id`/`criado_por_customer_id`, os dois nulos = desconhecido; `autor_grupo_solucao_id` = grupo atual do usuário; `grupo_solucao_id` = grupo atual do incidente se nunca houve `encaminhado_grupo`, senão `null`; `created_at` = `incidentes.created_at`, senão `updated_at`; sem nenhum dos dois o incidente fica sem `aberto`); (3) cria `cancelado`/`reaberto` a partir dos logs `alteracao` de `incidente_descricoes` ("Campo 'Status' alterado de 'X' para 'Y'": `cancelado` se Y = cancelado; `reaberto` se X ∈ resolvido/fechado/cancelado e Y não) com autor = autor do log, grupo do chamado pela regra do backfill da Fase 1 e `created_at` do log (log sem `created_at` é ignorado), sem repetir evento do mesmo tipo/incidente/`created_at`; (4) incidente `cancelado` ainda sem evento `cancelado` ganha um sem autor, com o grupo atual e `created_at` = `concluido_em`, senão `updated_at`, senão `incidentes.created_at` (sem nenhuma das três, fica sem `cancelado`). Todos os criados têm `retroativo = true` |
 | `created_at` | `timestamp` | quando o evento aconteceu; **sem `updated_at`** (`const UPDATED_AT = null`, mesmo padrão de `AuditLog`) — a linha nunca é alterada depois de criada |
-| índice | `incidente_id`, `[incidente_id, tipo]`, `autor_customer_id`, `[tipo, created_at]` | não únicos, só performance |
+| índice | `incidente_id`, `[incidente_id, tipo]`, `autor_customer_id`, `[tipo, created_at]`, `origem_grupo_id` | não únicos, só performance |
 
 > 📌 **Log de eventos, não uma coluna em `Incidente` — de propósito.** Motivação original: um
 > chamado resolvido, reaberto (volta pra `em_andamento`/`aberto`/`pendente`) e resolvido de novo —
@@ -664,7 +665,10 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > gera nenhum; autor = usuário autenticado; `logEscalonamentoSeMudou()` cria a linha pra `encaminhado_grupo`/`encaminhado_responsavel`
 > **junto com** a entrada de texto livre no feed (`IncidenteDescricao` tipo `escalonamento`) — as
 > duas convivem, servem propósitos diferentes (feed = leitura humana no histórico do chamado; esta
-> tabela = agregação em relatório, ver §3.4.9).
+> tabela = agregação em relatório, ver §3.4.9). No `encaminhado_grupo` grava também `origem_grupo_id` = grupo
+> anterior do chamado (o do responsável não muda). Quando o grupo é limpo (A → nenhum),
+> `registrarRemocaoDeGrupo()` grava um `removido_grupo` com `origem_grupo_id = A`, sem alvo, autor =
+> usuário autenticado e **sem** entrada no feed; os relatórios existentes filtram por tipo e o ignoram.
 
 ### 3.2. Models e relacionamentos
 
@@ -685,7 +689,7 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 | `App\Models\IncidenteDescricao` | `$table = 'incidente_descricoes'` (pluralização automática do Eloquent daria `incidente_descricaos`); `SoftDeletes` (`deleted_at` — excluir = soft delete, permanece no feed, ver §3.1); `resolveRouteBinding()` sobrescrito com `withTrashed()` (senão um comentário já excluído resolveria como `404` na rota); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `const TIPO_COMENTARIO`, `const TIPO_ESCALONAMENTO`, `const TIPO_ALTERACAO`, `const TIPO_ENCERRAMENTO`, `const TIPOS` |
 | `App\Models\Anexo` | sem `$table` explícito (`anexo`→`anexos` acerta por coincidência); `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `caminho` fora do `#[Fillable(...)]` de propósito (setado por atribuição direta no controller, nunca vem do request — ver §3.4.7.2) |
 | `App\Models\RelatorioSalvo` | `$table = 'relatorios_salvos'` (pluralização automática do Eloquent daria `relatorio_salvos`, só o último termo); `user(): BelongsTo` → `User` (`->withTrashed()`); `filtros` cast `array`; `const EQUIVALENTES_LEGADO` (legado → `[contar, agrupar_por]` novo), `consultaEquivalente(): ?array` (null para `aberto_por` com `data_inicio`/`data_fim`, ou com só uma das duas datas), `consultaNova(): ?array` (armazenada ou equivalente); `const CONTAR_INDICADORES = 'indicadores'`; `const AGRUPAMENTOS` = `status_sla`\|`responsavel`\|`aberto_por`\|`resolvido_por`\|`fechado_por`\|`concluido_por`\|`encaminhado_por`\|`encaminhado_para_grupo`\|`encaminhado_para_responsavel`\|`grupo_solucao`\|`categoria`\|`subcategoria`\|`item` |
-| `App\Models\IncidenteEvento` | `$table = 'incidente_eventos'` (explícito por consistência com o resto do projeto, mesmo pluralizando certo por coincidência); `const UPDATED_AT = null` (linha nunca atualizada); `const TIPO_ABERTO`/`TIPO_CANCELADO`/`TIPO_REABERTO`/`TIPO_RESOLVIDO`/`TIPO_FECHADO`/`TIPO_ENCAMINHADO_GRUPO`/`TIPO_ENCAMINHADO_RESPONSAVEL`, `const TIPOS`; `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `booted()` com hook `creating` que grava o snapshot `grupo_solucao_id` (grupo do chamado no momento do evento) e `autor_grupo_solucao_id` (grupo do autor, `withTrashed()`; nulo se `user_id` é nulo) quando não informados; `autor_customer_id` e `retroativo` (cast boolean) no `#[Fillable]` — o evento é insert-only, então o snapshot não muda; `alvo(): ?Model` — resolve `alvo_type`/`alvo_id` manualmente (não `morphTo()`, pra não depender do comportamento de `withTrashed()` numa relação polimórfica onde só um dos tipos possíveis, `User`, é soft delete); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteEvento`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando o evento aconteceu), não `Incidente.concluido_em`; o filtro `grupo_solucao_id` usa a coluna snapshot `grupo_solucao_id` do evento e `grupo_analista_id` usa `autor_grupo_solucao_id`; `scopeVisiveisPara()` continua usando o grupo **atual** do incidente (caminho legado); `scopeVisiveisParaRelatorio(User)` é a regra do caminho novo (chamado visível hoje OU snapshot `grupo_solucao_id`/`autor_grupo_solucao_id` nos grupos visíveis, admin sem restrição — ver §3.4.9) |
+| `App\Models\IncidenteEvento` | `$table = 'incidente_eventos'` (explícito por consistência com o resto do projeto, mesmo pluralizando certo por coincidência); `const UPDATED_AT = null` (linha nunca atualizada); `const TIPO_ABERTO`/`TIPO_CANCELADO`/`TIPO_REABERTO`/`TIPO_RESOLVIDO`/`TIPO_FECHADO`/`TIPO_ENCAMINHADO_GRUPO`/`TIPO_ENCAMINHADO_RESPONSAVEL`/`TIPO_REMOVIDO_GRUPO`, `const TIPOS`; `incidente(): BelongsTo` → `Incidente`; `user(): BelongsTo` → `User` (`->withTrashed()`); `booted()` com hook `creating` que grava o snapshot `grupo_solucao_id` (grupo do chamado no momento do evento) e `autor_grupo_solucao_id` (grupo do autor, `withTrashed()`; nulo se `user_id` é nulo) quando não informados; `origem_grupo_id`, `autor_customer_id` e `retroativo` (cast boolean) no `#[Fillable]` — o evento é insert-only, então o snapshot não muda; `alvo(): ?Model` — resolve `alvo_type`/`alvo_id` manualmente (não `morphTo()`, pra não depender do comportamento de `withTrashed()` numa relação polimórfica onde só um dos tipos possíveis, `User`, é soft delete); `scopeFiltrosRelatorio(array $filtros): Builder` — mesmas dimensões de `Incidente::scopeFiltrosRelatorio()`, via `whereHas('incidente')`/`whereHas('incidente.item')`/etc. (base é `IncidenteEvento`, não `Incidente`); `data_inicio`/`data_fim` filtram `created_at` **desta tabela** (quando o evento aconteceu), não `Incidente.concluido_em`; o filtro `grupo_solucao_id` usa a coluna snapshot `grupo_solucao_id` do evento e `grupo_analista_id` usa `autor_grupo_solucao_id`; `scopeVisiveisPara()` continua usando o grupo **atual** do incidente (caminho legado); `scopeVisiveisParaRelatorio(User)` é a regra do caminho novo (chamado visível hoje OU snapshot `grupo_solucao_id`/`autor_grupo_solucao_id` nos grupos visíveis, admin sem restrição — ver §3.4.9) |
 
 ### 3.3. Configuração dos guards (`config/auth.php`)
 
@@ -1844,6 +1848,106 @@ Resposta: `{titulo, linha: {chave, rotulo}, indicador: {chave, rotulo}, coluna: 
 e `meta` no formato de `GET /relatorios/chamados` (`ListaChamados::montar($user, $linhas, $comDestino)`, que não depende
 mais de `ConsultaRelatorio`; `acessivel: false` quando o chamado, hoje, não é visível ao usuário, ex.: resolvido por um
 agente do N2 e agora no N3). O `xlsx` usa `RelatorioChamadosExport` e registra auditoria.
+
+#### Mapa de fluxos
+
+`GET /relatorios/fluxos` (`auth:web` + `can:relatorios.view`, `App\Http\Controllers\Api\FluxosController`): como os
+chamados entram em cada grupo de solução no período, para onde saem e quantos cada grupo resolve. `index()` valida →
+`ConsultaIndicadores::deDados()` → `responder($c, $formato, $user)` (público), que começa por `validarVisibilidade($user)`.
+Código em `app/Relatorios/Fluxos/`:
+
+| Classe | Papel |
+|---|---|
+| `Passagem` (readonly) | `origem`, `destino` (chaves de nó, já com a visibilidade aplicada), `via` (`encaminhamento`\|`abertura`), `base` (`LinhaBase`, chave `"{origem}>{destino}"`, `eventoId`, `autorId`, `data`) |
+| `FonteFluxos` | `passagens($c, $user)` (uma consulta para `encaminhado_grupo`, outra para `aberto`), `abertos($c, $user)` (chave = id do grupo do autor ou `cliente`), `resolvidos($c, $user)` (chave = `grupo_solucao_id` do evento), `retroativos($c)` (instante UTC ou `null`). Constantes `CLIENTE`, `SEM_GRUPO`, `ORIGEM_DESCONHECIDA`, `OUTROS` |
+| `AgregadorFluxos::agregar($c, $user)` | corpo JSON (abaixo) |
+| `TextosFluxos` | `titulo($c)`, `ROTULOS` (nós especiais), `LEGENDA`, `aviso($ultimo)` |
+
+**Parâmetros.** Os de `ConsultaIndicadores::regras()` sem `quebra` e `por_integrante` (a consulta usa `quebra = 'nenhuma'`,
+`porIntegrante = false`): `periodo` **ou** `data_inicio`+`data_fim` (obrigatório, 422 em `periodo` "Informe um período."),
+`grupos` (array de ids), `formato` (`json` ou `xlsx`). Grupo pedido fora dos visíveis → 422 em `grupos.N` "Grupo fora dos
+seus grupos visíveis.". Data = `incidente_eventos.created_at` em dias de Brasília.
+
+**Passagem** = evento do período que leva um chamado de uma origem X a um grupo Y, com X ≠ Y (X = Y é descartada):
+- `encaminhado_grupo`: Y = `alvo_id`; X = `origem_grupo_id` se preenchido; senão `cliente` se o chamado foi aberto pelo
+  portal com `grupo_solucao_id` nulo e não há `encaminhado_grupo` anterior a este (por `created_at`, depois `id`, em
+  qualquer data — subconsulta correlacionada em SQL); senão `origem_desconhecida` se `retroativo = true` (o backfill da
+  origem marca assim os encaminhamentos de origem desconhecida); senão `sem_grupo` (inclui o encaminhamento depois de um
+  `removido_grupo`).
+- `aberto` com `grupo_solucao_id` = Y: pelo portal → X = `cliente`; por agente com `autor_grupo_solucao_id` = A ≠ Y → X = A.
+  Aberto pelo próprio Y, ou com A nulo, não é passagem.
+
+**Nós e números.** Chaves: id do grupo (string), `cliente`, `sem_grupo`, `origem_desconhecida`, `outros` (o `tipo` é `grupo`
+ou a própria chave especial; rótulos: nome do grupo, `Cliente`, `Sem grupo`, `Origem desconhecida`, `Outros grupos`). Para o
+grupo G: `abertos` = eventos `aberto` com `autor_grupo_solucao_id = G`; `recebidos` = passagens com destino G;
+`encaminhados` = passagens com origem G (inclui aberturas de G direto para outro grupo, para a soma das setas que saem
+bater); `resolvidos` = chamados distintos com `resolvido` e `grupo_solucao_id = G` (qualquer que seja o grupo de quem
+resolveu). `cliente`: só `abertos` (eventos `aberto` do portal), as outras três `null`; demais especiais: as quatro `null`.
+Arestas contam passagens (eventos): ida e volta N1 → N2 → N1 dá N1 → N2 = 1 e N2 → N1 = 1.
+
+**Visibilidade (não admin).** A ponta de grupo invisível vira `outros`; a passagem só entra se ao menos uma ponta é um grupo
+visível (Cliente sozinho não basta, para não revelar o volume de outros grupos). `abertos`/`resolvidos` só de grupos
+visíveis; `cliente.abertos` só de chamados visíveis hoje (`Incidente::visiveisPara`).
+
+**Filtro `grupos`.** Entram as passagens com ao menos uma ponta nos grupos pedidos. Nós de grupo = os pedidos (sempre, mesmo
+zerados) + as outras pontas dessas passagens que são grupos visíveis. Essas pontas fora da seleção são **vizinhos**
+(`vizinho: true`): aparecem só para ancorar as setas, com as quatro métricas `null` (seriam parciais). Todo nó, de grupo ou
+especial, traz o booleano `vizinho` (`false` fora desse caso, e sempre `false` sem filtro). `cliente.abertos` conta só chamados cujo
+primeiro grupo atribuído está nos pedidos (`FonteIndicadores::primeiroGrupoEm`, agora público). **Sem filtro:** grupos
+visíveis com algum número > 0 ou alguma passagem.
+
+**Ordem.** Nós: `cliente` (sempre), `sem_grupo` e `origem_desconhecida` (quando têm passagem), grupos por nome (collator de
+`AgregadorRelatorio::ordenar`), `outros` (quando tem passagem). Arestas: `quantidade` desc, depois `origem`, depois
+`destino` (comparação de texto das chaves).
+
+**Resposta:**
+
+```json
+{
+  "titulo": "Mapa de fluxos — de 01/10/2026 a 31/10/2026 — grupos: N1",
+  "periodo": {"inicio": "2026-10-01", "fim": "2026-10-31"}, "grupos": [1],
+  "nos": [{"chave": "cliente", "rotulo": "Cliente", "tipo": "cliente", "vizinho": false,
+           "abertos": 15, "recebidos": null, "encaminhados": null, "resolvidos": null},
+          {"chave": "1", "rotulo": "N1", "tipo": "grupo", "vizinho": false, "abertos": 2, "recebidos": 15, "encaminhados": 3, "resolvidos": 9},
+          {"chave": "2", "rotulo": "N2", "tipo": "grupo", "vizinho": true, "abertos": null, "recebidos": null, "encaminhados": null, "resolvidos": null}],
+  "arestas": [{"origem": "cliente", "destino": "1", "quantidade": 15}, {"origem": "1", "destino": "2", "quantidade": 3}],
+  "legenda": ["...5 textos..."], "aviso": null
+}
+```
+
+**Título:** `Mapa de fluxos — de dd/mm/aaaa a dd/mm/aaaa[ — grupos: N1, N2]`. **Legenda:** os cinco textos de
+`TextosFluxos::LEGENDA`. **Aviso:** se existe no período evento `aberto`, `encaminhado_grupo` ou `resolvido` com
+`retroativo = true`, `"Dados aproximados: registros até dd/mm/aaaa foram reconstruídos; nesses casos a origem de um
+encaminhamento pode aparecer como desconhecida e o grupo de quem abriu é o grupo atual da pessoa."` (data = `created_at` do
+mais recente, em Brasília); senão `null`. Ignora `grupos` e a visibilidade, como nos Indicadores.
+
+**Lista de chamados** — `GET /relatorios/fluxos/chamados` (mesmo middleware): os parâmetros da consulta + **um** dos modos,
+mais `page`, `per_page` (máx. 200, padrão 50) e `formato` (`json`\|`xlsx`). Valida a visibilidade primeiro (mesmo 422 em `grupos.N`).
+- Modo nó: `no` (chave) + `metrica` (`abertos`, `recebidos`, `encaminhados`, `resolvidos`). Modo seta: `origem` + `destino`.
+  Os dois modos juntos, ou nenhum (ou um modo incompleto), dão 422 em `no`: "Informe um nó e uma métrica, ou uma origem e um
+  destino.". Nó que não está no mapa: 422 em `no` "Nó inexistente neste mapa.". Métrica `null` para o nó (`cliente.recebidos`,
+  qualquer métrica de especial ou de vizinho sob o filtro `grupos`) dá 422 em `metrica` "Este número não existe para este nó."; a seta que toca
+  um vizinho continua listável.
+- Unidade: `abertos` e `resolvidos` um item por chamado (evento mais recente); `recebidos`, `encaminhados` e seta um item por
+  passagem (`ListaChamados::montar(..., comDestino: true)`), de modo que `meta.total` = número clicado. Vêm das mesmas
+  linhas do agregador (`FonteFluxos`).
+- Resposta: `{titulo, filtro: {rotulo}, data, meta}` — `rotulo` = `"N1 · Recebidos"` ou `"Cliente → N1"`; `data` e `meta` no formato
+  de `GET /relatorios/indicadores/chamados`. Não vaza grupo invisível: o `destino` de uma passagem sai do rótulo do nó
+  (`Outros grupos`) e `grupo_chamado` vira `null` se o grupo atual do chamado não é visível ao usuário; `acessivel` segue
+  `ListaChamados::montar` (regra de `visiveisPara` de hoje).
+- `xlsx`: `RelatorioChamadosExport` (`mapa-de-fluxos-chamados.xlsx`), com coluna `Destino` nas passagens.
+
+**Planilha** — `formato=xlsx` em `GET /relatorios/fluxos` (`responder()`, `App\Exports\FluxosExport`, arquivo
+`mapa-de-fluxos.xlsx`), na ordem: título; `Gerado em dd/mm/aaaa hh:mm (horário de Brasília) por {nome}`; linha em branco;
+`Nós` + cabeçalho `Grupo | Abertos pelo grupo | Recebidos | Encaminhados | Resolvidos` + uma linha por nó (célula vazia onde a
+métrica é `null`, inclusive vizinhos); linha em branco; `Fluxos` + `Origem | Destino | Quantidade` (rótulos dos nós); linha em
+branco; `Legenda` + 5 textos; o aviso, se houver. Todo texto é gravado como string (sem fórmulas). As duas exportações
+(planilha e lista) registram auditoria `exportado` (`entidade_type = relatorio`, `parametros` da consulta executada).
+
+**Limites conhecidos.**
+- Histórico antigo A → (sem grupo) → B é preenchido com origem A: remoções de grupo não eram registradas antes de `removido_grupo`.
+- Excluir um grupo de solução que só tem histórico anula o id dele nos snapshots e em `origem_grupo_id` (`nullOnDelete`), mas `alvo_id` guarda o id morto; o balanço de fluxo quebra só para grupos excluídos (grupo com chamados atuais não pode ser excluído, `409`).
+- `encaminhados` inclui as aberturas de G direto para outro grupo, então a soma das setas que saem de G é sempre igual a `encaminhados`.
 
 ### 3.4.10. Endpoints — Portal do cliente (`App\Http\Controllers\Api\Portal\IncidenteController`)
 

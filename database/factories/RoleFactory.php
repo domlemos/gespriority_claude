@@ -22,7 +22,19 @@ class RoleFactory extends Factory
 
         return [
             'name' => $name,
-            'slug' => Str::slug($name),
+            'slug' => self::slugPara($name),
         ];
+    }
+
+    /**
+     * Slug do cargo gerado. A lista do Faker tem "Admin", e o slug `admin` é
+     * o que `User::isAdmin()` reconhece: sem o sufixo, um papel "comum" de
+     * teste viraria admin ao acaso. Quem quer admin passa `['slug' => 'admin']`.
+     */
+    public static function slugPara(string $nome): string
+    {
+        $slug = Str::slug($nome);
+
+        return $slug === 'admin' ? 'admin-gerado' : $slug;
     }
 }

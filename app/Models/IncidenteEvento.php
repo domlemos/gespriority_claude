@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // reabertura (diferente de Incidente.concluido_em). Generalização de
 // IncidenteResolucao (que só cobria 'resolvido') — ver
 // BACKEND_SPECS.md §3.1 (`incidente_eventos`) pro porquê.
-#[Fillable(['incidente_id', 'user_id', 'tipo', 'alvo_type', 'alvo_id', 'grupo_solucao_id', 'autor_grupo_solucao_id', 'autor_customer_id', 'retroativo'])]
+#[Fillable(['incidente_id', 'user_id', 'tipo', 'alvo_type', 'alvo_id', 'origem_grupo_id', 'grupo_solucao_id', 'autor_grupo_solucao_id', 'autor_customer_id', 'retroativo'])]
 class IncidenteEvento extends Model
 {
     /** @use HasFactory<IncidenteEventoFactory> */
@@ -42,6 +42,11 @@ class IncidenteEvento extends Model
 
     public const TIPO_ENCAMINHADO_RESPONSAVEL = 'encaminhado_responsavel';
 
+    // Grupo do chamado foi limpo (A → nenhum). Sem alvo; o grupo de antes
+    // fica em `origem_grupo_id`. Não aparece no feed nem nos relatórios
+    // existentes, que filtram por tipo.
+    public const TIPO_REMOVIDO_GRUPO = 'removido_grupo';
+
     public const TIPOS = [
         self::TIPO_ABERTO,
         self::TIPO_RESOLVIDO,
@@ -50,6 +55,7 @@ class IncidenteEvento extends Model
         self::TIPO_REABERTO,
         self::TIPO_ENCAMINHADO_GRUPO,
         self::TIPO_ENCAMINHADO_RESPONSAVEL,
+        self::TIPO_REMOVIDO_GRUPO,
     ];
 
     protected function casts(): array
