@@ -130,7 +130,7 @@ class IndicadoresController extends Controller
         if ($formato === 'xlsx') {
             Auditoria::registrar(
                 'exportado',
-                alteracoes: ['parametros' => request()->except('formato')],
+                alteracoes: ['parametros' => $this->parametros($c)],
                 entidadeType: 'relatorio',
                 entidadeLabel: $corpo['titulo'],
             );
@@ -139,6 +139,24 @@ class IndicadoresController extends Controller
         }
 
         return response()->json($corpo);
+    }
+
+    /**
+     * Parâmetros da consulta como executada (e não da requisição, que no
+     * relatório salvo é só o `executar`), para o log de auditoria.
+     *
+     * @return array<string, mixed>
+     */
+    private function parametros(ConsultaIndicadores $c): array
+    {
+        return [
+            'grupos' => $c->grupos,
+            'por_integrante' => $c->porIntegrante,
+            'quebra' => $c->quebra,
+            'periodo' => $c->atalho,
+            'data_inicio' => $c->inicio,
+            'data_fim' => $c->fim,
+        ];
     }
 
     /**
