@@ -11,10 +11,13 @@ use Illuminate\Support\Facades\Schema;
  * nem constantes da aplicação (mesma regra das outras migrations de
  * backfill), em chunks de 500.
  *
- * Idempotente: a coluna só é criada se não existe, e o preenchimento só toca
- * `encaminhado_grupo` com `origem_grupo_id` nulo; o resultado de cada evento
- * depende só do histórico (nunca da origem de outro evento), então rodar de
- * novo dá o mesmo resultado. `retroativo` só é ligado, nunca desligado.
+ * Idempotente **só antes da entrada em produção**: a coluna só é criada se
+ * não existe, e o preenchimento só toca `encaminhado_grupo` com
+ * `origem_grupo_id` nulo; o resultado de cada evento depende só do histórico
+ * (nunca da origem de outro evento), então rodar de novo dá o mesmo
+ * resultado. `retroativo` só é ligado, nunca desligado. Depois que o
+ * `IncidenteController` passa a gravar a origem ao vivo, rodar de novo
+ * sobrescreveria os nulos reais ("Sem grupo") com uma origem reconstruída.
  */
 return new class extends Migration
 {

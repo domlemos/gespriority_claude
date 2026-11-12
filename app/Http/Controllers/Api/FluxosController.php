@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Relatorios\Fluxos\AgregadorFluxos;
 use App\Relatorios\Fluxos\FonteFluxos;
 use App\Relatorios\Fluxos\Passagem;
+use App\Relatorios\Fluxos\TextosFluxos;
 use App\Relatorios\Indicadores\ConsultaIndicadores;
 use App\Relatorios\LinhaBase;
 use App\Relatorios\ListaChamados;
@@ -175,7 +176,7 @@ class FluxosController extends Controller
             if ($comDestino) {
                 // Passagens têm `chave` "{origem}>{destino}".
                 $destino = substr((string) $linha->chave, strpos((string) $linha->chave, '>') + 1);
-                $itens[$i]['destino'] = $rotulos[$destino] ?? $itens[$i]['destino'];
+                $itens[$i]['destino'] = $rotulos[$destino] ?? TextosFluxos::ROTULOS[FonteFluxos::OUTROS];
             }
             $grupo = $itens[$i]['grupo_chamado']['id'] ?? null;
             if ($visiveis !== null && $grupo !== null && ! in_array($grupo, $visiveis, true)) {
