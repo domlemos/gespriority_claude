@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Relatorios;
 
+use App\Http\Controllers\Api\IndicadoresController;
 use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
@@ -9,8 +10,14 @@ use App\Models\IncidenteEvento;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Relatorios\Indicadores\AgregadorIndicadores;
+use App\Relatorios\Indicadores\ConsultaIndicadores;
+use App\Relatorios\Indicadores\LinhaIndicador;
+use App\Relatorios\LinhaBase;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 /**
@@ -374,6 +381,38 @@ class IndicadoresTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors(['grupos.1' => 'Grupo fora dos seus grupos visíveis.'])
             ->assertJsonMissingValidationErrors(['grupos.0']);
+    }
+
+    public function test_responder_valida_visibilidade_mesmo_sem_passar_pelo_index(): void
+    {
+        $n2 = $this->grupo('N2');
+        $n3 = $this->grupo('N3');
+        $this->evento(Incidente::factory()->create(), $this->agente($n3), 'aberto');
+        [, $gestor] = $this->staffToken(['relatorios.view'], $n2);
+        $consulta = ConsultaIndicadores::deDados(['data_inicio' => '2026-10-01', 'data_fim' => '2026-10-31', 'grupos' => [$n3->id]]);
+
+        try {
+            app(IndicadoresController::class)->responder($consulta, 'json', $gestor);
+            $this->fail('Esperava ValidationException.');
+        } catch (ValidationException $e) {
+            $this->assertSame(['grupos.0' => ['Grupo fora dos seus grupos visíveis.']], $e->errors());
+        }
+    }
+
+    public function test_por_integrante_mantem_linha_de_usuario_sem_registro(): void
+    {
+        $n1 = $this->grupo('N1');
+        $consulta = ConsultaIndicadores::deDados(['data_inicio' => '2026-10-01', 'data_fim' => '2026-10-31', 'grupos' => [$n1->id], 'por_integrante' => true]);
+        $linha = new LinhaIndicador('resolvidos', 999999, false, new LinhaBase(null, 1, 1, 999999, CarbonImmutable::parse('2026-10-15 12:00:00', 'UTC')));
+        [, $admin] = $this->staffToken(['relatorios.view'], asAdmin: true);
+
+        $corpo = AgregadorIndicadores::agregar($consulta, collect([$linha]), $admin);
+
+        $orfa = collect($corpo['linhas'])->firstWhere('chave', '999999');
+        $this->assertSame('#999999', $orfa['rotulo']);
+        $this->assertSame(1, $orfa['valores']['resolvidos']['total']);
+        $this->assertSame(1, $corpo['totais']['resolvidos']['total']);
+        $this->assertSame(1, $corpo['distintos']['resolvidos']);
     }
 
     public function test_aviso_lista_colunas_com_retroativos_e_data_mais_recente(): void

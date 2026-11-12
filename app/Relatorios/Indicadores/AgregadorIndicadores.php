@@ -156,11 +156,15 @@ final class AgregadorIndicadores
         if ($c->porIntegrante) {
             $membros = User::query()->where('grupo_solucao_id', $c->grupos[0])->pluck('id')->all();
 
-            return User::withTrashed()
-                ->whereIn('id', array_unique([...$comEvento, ...$membros]))
-                ->get(['id', 'name', 'deleted_at'])
-                ->mapWithKeys(fn (User $p) => [$p->id => $p->trashed() ? "{$p->name} (excluído)" : $p->name])
-                ->all();
+            $ids = array_values(array_unique([...$comEvento, ...$membros]));
+            $pessoas = User::withTrashed()->whereIn('id', $ids)->get(['id', 'name', 'deleted_at'])->keyBy('id');
+
+            // Usuário sem registro em `users` ainda vira linha (`#id`), para as somas baterem com `distintos`.
+            return array_combine($ids, array_map(fn (int $id) => match (true) {
+                ! $pessoas->has($id) => "#{$id}",
+                $pessoas[$id]->trashed() => "{$pessoas[$id]->name} (excluído)",
+                default => $pessoas[$id]->name,
+            }, $ids));
         }
 
         if ($c->grupos !== []) {

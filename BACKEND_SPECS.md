@@ -1746,8 +1746,8 @@ Brasília `dd/mm/aaaa hh:mm`.
 `GET /relatorios/indicadores` (`auth:web` + `can:relatorios.view`, `App\Http\Controllers\Api\IndicadoresController`):
 abertos, resolvidos, fechados e cancelados por grupo de solução, ou por integrante de um grupo. O número de cada evento
 vai sempre para o **grupo do autor no momento** (`incidente_eventos.autor_grupo_solucao_id`), nunca para o grupo atual do
-chamado nem para o grupo atual da pessoa. `index()` valida → `ConsultaIndicadores::deDados()` → `validarVisibilidade()` →
-`responder($c, $formato, $user)` (público, para o relatório salvo). Código em `app/Relatorios/Indicadores/`:
+chamado nem para o grupo atual da pessoa. `index()` valida → `ConsultaIndicadores::deDados()` → `responder($c, $formato, $user)` (público, para o
+relatório salvo), que começa por `validarVisibilidade($user)` — nenhum chamador consegue pular a checagem. Código em `app/Relatorios/Indicadores/`:
 
 | Classe | Papel |
 |---|---|
@@ -1781,7 +1781,7 @@ grupo para detalhar por integrante."); `formato` (só `json` por enquanto). Para
 **Linhas.** Com `grupos`: exatamente esses grupos, mesmo zerados. Sem `grupos`: grupos visíveis com `ativo = true` +
 qualquer grupo com evento contado. Por integrante: usuários (`withTrashed`) com evento contado no grupo — inclusive quem
 já saiu dele — + usuários não excluídos com `users.grupo_solucao_id` = o grupo, zerados; rótulo = nome (`"Nome
-(excluído)"` para soft-deleted). Ordenação: soma dos quatro totais desc, depois rótulo (`AgregadorRelatorio::ordenar`,
+(excluído)"` para soft-deleted; `#id` se o usuário não existe mais em `users`). Ordenação: soma dos quatro totais desc, depois rótulo (`AgregadorRelatorio::ordenar`,
 agora público). Depois vêm `portal` ("Cliente (portal)", sempre presente) e `__sem_autor__` ("Sem autor registrado", só
 quando não zerada). `tipo` da linha: `grupo`|`usuario`|`portal`|`sem_autor`. Chaves sempre string.
 

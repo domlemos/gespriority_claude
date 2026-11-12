@@ -10,6 +10,7 @@ use App\Relatorios\Indicadores\FonteIndicadores;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * `GET /relatorios/indicadores` — abertos, resolvidos, fechados e cancelados
@@ -25,15 +26,20 @@ class IndicadoresController extends Controller
             'formato' => ['sometimes', 'string', Rule::in(['json'])],
         ]);
 
-        $c = ConsultaIndicadores::deDados($validado);
-        $c->validarVisibilidade($request->user());
-
-        return $this->responder($c, $validado['formato'] ?? 'json', $request->user());
+        return $this->responder(ConsultaIndicadores::deDados($validado), $validado['formato'] ?? 'json', $request->user());
     }
 
-    /** Público para o relatório salvo executar a mesma consulta. */
+    /**
+     * Público para o relatório salvo executar a mesma consulta. Valida a
+     * visibilidade aqui (e não em `index()`) para nenhum chamador esquecer:
+     * com `grupos`, a fonte filtra só pelos grupos pedidos.
+     *
+     * @throws ValidationException
+     */
     public function responder(ConsultaIndicadores $c, string $formato, User $u): JsonResponse
     {
+        $c->validarVisibilidade($u);
+
         return response()->json(AgregadorIndicadores::agregar($c, FonteIndicadores::linhas($c, $u), $u));
     }
 }
