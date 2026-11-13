@@ -26,6 +26,20 @@ class PortalIncidenteResource extends JsonResource
             // Só no detalhe (GET /customer/incidentes/{id}) — já filtrado pelo
             // controller, nunca o feed inteiro do staff.
             'descricoes' => PortalDescricaoResource::collection($this->whenLoaded('descricoesPortal')),
+            // Também só no detalhe (evita uma consulta por linha na listagem):
+            // o portal mostra o botão "Reabrir" enquanto `pode_reabrir`.
+            $this->mergeWhen($this->relationLoaded('descricoesPortal'), fn () => $this->dadosReabertura()),
+        ];
+    }
+
+    /** @return array{reabrir_ate: ?string, pode_reabrir: bool} */
+    private function dadosReabertura(): array
+    {
+        $ate = $this->resource->reaberturaPortalPermitidaAte();
+
+        return [
+            'reabrir_ate' => $ate?->toJSON(),
+            'pode_reabrir' => $ate !== null && $ate->isFuture(),
         ];
     }
 }

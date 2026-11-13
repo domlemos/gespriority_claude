@@ -53,6 +53,9 @@ class Incidente extends Model
     /** Status que encerram o incidente pra fins de SLA — congelam `concluido_em`. */
     public const STATUS_CONCLUIDOS = ['resolvido', 'fechado', 'cancelado'];
 
+    /** Dias, contados do último fechamento, em que o cliente ainda pode reabrir pelo portal. */
+    public const PRAZO_REABERTURA_PORTAL_DIAS = 7;
+
     public const SLA_DENTRO_PRAZO = 'dentro_prazo';
 
     public const SLA_ESTOURADO = 'estourado';
@@ -163,6 +166,29 @@ class Incidente extends Model
     public function descricoes(): HasMany
     {
         return $this->hasMany(IncidenteDescricao::class)->withTrashed()->latest();
+    }
+
+    /**
+     * Até quando o cliente pode reabrir o chamado pelo portal: só `fechado`,
+     * por PRAZO_REABERTURA_PORTAL_DIAS a partir do fechamento MAIS RECENTE
+     * (evento `fechado` — um chamado reaberto e fechado de novo ganha prazo
+     * novo). Sem evento (chamado legado), cai em `concluido_em` e, por fim,
+     * `updated_at`. `null` = não pode reabrir (status diferente de fechado).
+     */
+    public function reaberturaPortalPermitidaAte(): ?Carbon
+    {
+        if ($this->status !== 'fechado') {
+            return null;
+        }
+
+        $fechadoEm = IncidenteEvento::query()
+            ->where('incidente_id', $this->id)
+            ->where('tipo', IncidenteEvento::TIPO_FECHADO)
+            ->max('created_at');
+
+        $base = $fechadoEm !== null ? Carbon::parse($fechadoEm) : ($this->concluido_em ?? $this->updated_at);
+
+        return $base?->copy()->addDays(self::PRAZO_REABERTURA_PORTAL_DIAS);
     }
 
     public function anexos(): HasMany
