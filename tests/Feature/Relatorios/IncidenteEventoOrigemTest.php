@@ -83,6 +83,9 @@ class IncidenteEventoOrigemTest extends TestCase
         $n1 = GrupoSolucao::factory()->create();
         [$token, $admin] = $this->admin();
         $incidente = $this->incidente($n1);
+        // Já 'aberto': isola o evento de remoção da regra "troca de grupo
+        // volta para aberto", que geraria uma linha de Status no feed.
+        $incidente->forceFill(['status' => 'aberto'])->saveQuietly();
         $descricoesAntes = $incidente->descricoes()->count();
 
         $this->mudarGrupo($token, $incidente, null);
