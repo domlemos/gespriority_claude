@@ -1981,8 +1981,25 @@ ficam fora da listagem de propósito (seria uma consulta de evento por linha).
 > `autor_customer_id` (e `user_id` nulo), entrada `alteracao` "Campo 'Status' alterado de 'fechado'
 > para 'aberto'…" no feed do staff (mesmo formato que o backfill de eventos lê) e o motivo como
 > comentário do cliente ("Chamado reaberto pelo cliente. Motivo: …"). No log de ações (§3.4.11),
-> aparece como `atualizado` do chamado com autor cliente. Não há notificação ao staff: o chamado
-> reaparece na fila como `aberto`.
+> aparece como `atualizado` do chamado com autor cliente. O motivo, como todo comentário do
+> cliente, dispara o e-mail ao agente de solução (nota abaixo), com assunto "Chamado reaberto pelo
+> cliente".
+
+> 📌 **E-mail ao agente de solução a cada comentário do cliente (2026-11-13).** Todo comentário
+> feito pelo cliente no portal — `POST /customer/incidentes/{id}/comentarios` e o motivo de
+> `POST /customer/incidentes/{id}/reabrir` — dispara `App\Notifications\ComentarioDoCliente`
+> (canal `mail`, `ShouldQueue` + `afterCommit()`: sai pelo worker `queue` e só depois do commit, então
+> uma reabertura que falhe não envia nada). Destinatários (`App\Support\NotificacaoComentarioCliente`):
+> 1. o **responsável** pelo chamado, se houver e estiver ativo;
+> 2. senão (sem responsável, ou responsável desativado), os **usuários ativos do grupo de solução** do chamado;
+> 3. senão (chamado ainda não triado, sem grupo), **ninguém** — o comentário fica só no feed.
+>
+> A descrição de abertura de um chamado do portal **não** dispara (não é comentário, e o chamado
+> nasce sem grupo/responsável). Comentário recusado (`422`) não dispara. E-mail
+> (`App\Mail\ComentarioDoClienteMail`, view `emails.comentario-cliente`): assunto
+> `[#id] Novo comentário do cliente: <título>` (ou `Chamado reaberto pelo cliente: <título>`),
+> nome do cliente e da empresa, o texto do comentário (escapado) e o botão para
+> `{FRONTEND_URL}/incidents/{id}` (tela do staff). Comentários do staff não disparam e-mail.
 
 > 📌 **O feed do staff é interno.** No detalhe, o cliente vê só: a **descrição de abertura**
 > (primeira entrada, mesmo quando o staff abriu em nome dele), os **próprios comentários** e a
@@ -2316,6 +2333,7 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Portal/PortalIncidenteTest.php` | Cliente abre incidente em nome próprio com tudo fixado no servidor; campos forjados no payload (`customer_id`, `item_id`, `prioridade`, `status`, `tipo`, `origem`, grupo/responsável) ignorados; descrição de abertura com autor cliente; resposta só com `id`/`titulo`/`status`/datas; validação; "meus chamados" só traz os do cliente (nem de colega da mesma empresa); token de staff `401` nas rotas do portal e token de cliente `401` nas do staff |
 | `Portal/PortalTriagemTest.php` | Primeira classificação pelo staff 3h depois da abertura → prioridade do item e prazos contados de `created_at` (SLA de resposta já `estourado`); chamado não triado visível a todo staff com `prioridade: null`/`sem_sla`; `?sem_classificacao=1` (inclusive com `sort_by=prioridade`) |
 | `Portal/PortalReaberturaTest.php` | Cliente reabre chamado `fechado`: volta para `aberto` com o mesmo grupo/responsável, `concluido_em` limpo, evento `reaberto` com `autor_customer_id`, motivo como comentário, linha de alteração no feed (oculta no portal) e log de ações com autor cliente; `pode_reabrir`/`reabrir_ate` só no detalhe; `422` para os outros status, depois de 7 dias do fechamento mais recente (reabrir e fechar de novo renova o prazo), chamado legado sem evento (usa `concluido_em`) e motivo ausente/em branco; `404` em chamado de outro cliente; `401` com token de staff |
+| `Portal/PortalNotificacaoComentarioTest.php` | Comentário do cliente envia `ComentarioDoCliente` só ao responsável (não aos colegas do grupo); sem responsável, aos membros ativos do grupo (não a desativados nem a outros grupos); responsável desativado cai no grupo; chamado sem grupo/responsável não envia; reabertura envia com o motivo; comentário/reabertura recusados (`422`) não enviam; conteúdo do e-mail (assunto, destinatário, cliente e empresa, HTML escapado, link para a tela do staff) |
 | `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; todo chamado `cancelado` (do seed padrão e da massa de demo) tem evento `cancelado`; `--quantidade`; recusa em produção sem confirmação |
 | `Relatorios/*` e `Dashboard/*` | (atualizados) filtro `tipo` em relatório, em agrupamento por evento e em relatório salvo; grupo "Portal (cliente)" no `aberto_por`; `tipo` exposto no dashboard |
 | `Customers/CustomerCrudTest.php` | (atualizado) `409` (não `500`) ao excluir um customer que abriu pelo portal um chamado depois trocado de cliente |
