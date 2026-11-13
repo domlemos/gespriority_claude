@@ -85,9 +85,12 @@ class IncidenteController extends Controller
             'descricao' => ['required', 'string', 'max:5000'],
         ]);
 
-        if (in_array($incidente->status, ['fechado', 'cancelado'], true)) {
+        // Só 'fechado' recusa comentário (para ele há a reabertura). Chamado
+        // 'cancelado' aceita: em geral foi o próprio cliente quem pediu o
+        // cancelamento, e o comentário avisa o agente por e-mail como os demais.
+        if ($incidente->status === 'fechado') {
             throw ValidationException::withMessages([
-                'descricao' => 'Este chamado já foi encerrado e não aceita novos comentários.',
+                'descricao' => 'Este chamado foi fechado e não aceita novos comentários. Se o problema continua, reabra o chamado.',
             ]);
         }
 

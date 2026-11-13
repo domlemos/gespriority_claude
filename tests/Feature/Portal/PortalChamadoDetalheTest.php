@@ -111,15 +111,18 @@ class PortalChamadoDetalheTest extends TestCase
         ]);
     }
 
-    public function test_comment_is_required_and_blocked_on_closed_or_cancelled_tickets(): void
+    public function test_comment_is_required_and_blocked_only_on_closed_tickets(): void
     {
         $this->postJson("/api/customer/incidentes/{$this->chamado()->id}/comentarios", ['descricao' => ''], $this->headers)
             ->assertStatus(422)->assertJsonValidationErrors('descricao');
 
-        foreach (['fechado', 'cancelado'] as $status) {
-            $this->postJson("/api/customer/incidentes/{$this->chamado(['status' => $status])->id}/comentarios", ['descricao' => 'Oi'], $this->headers)
-                ->assertStatus(422)->assertJsonValidationErrors('descricao');
-        }
+        $this->postJson("/api/customer/incidentes/{$this->chamado(['status' => 'fechado'])->id}/comentarios", ['descricao' => 'Oi'], $this->headers)
+            ->assertStatus(422)->assertJsonValidationErrors('descricao');
+
+        // Cancelado aceita comentário (status não muda).
+        $cancelado = $this->chamado(['status' => 'cancelado']);
+        $this->postJson("/api/customer/incidentes/{$cancelado->id}/comentarios", ['descricao' => 'Oi'], $this->headers)->assertCreated();
+        $this->assertSame('cancelado', $cancelado->fresh()->status);
     }
 
     public function test_staff_token_cannot_use_portal_detail_routes(): void
