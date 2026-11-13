@@ -1140,7 +1140,7 @@ via `status` (`resolvido`/`fechado`/`cancelado`), nunca via `DELETE`. Como `GET`
 | `GET` | `/incidentes` | `tickets.view` | — | `200` — paginado (`?per_page=`), filtrável (ver abaixo), ordenado por mais recente, com `customer`/`item`/`grupoSolucao`/`responsavel` carregados |
 | `GET` | `/incidentes/{incidente}` | `tickets.view` | — | `200` — `{data: {...}}` |
 | `POST` | `/incidentes` | `tickets.manage` | `{customer_id, titulo, descricao, prioridade, origem, tipo?, item_id?, grupo_solucao_id?, responsavel_id?}` | `201` — `{data: {...}}`; `status` sempre `"aberto"`, **qualquer `status` enviado no payload é ignorado** |
-| `PUT`/`PATCH` | `/incidentes/{incidente}` | `tickets.manage` | qualquer subconjunto de `{customer_id, titulo, prioridade, origem, tipo, item_id, grupo_solucao_id, responsavel_id, status, mensagem_encerramento}` — `mensagem_encerramento` é **obrigatória quando o status muda para `fechado`** (`422` sem ela) e vira uma entrada `encerramento` no feed, autor = quem fechou; fora dessa transição é ignorada | `200` — `{data: {...}}` |
+| `PUT`/`PATCH` | `/incidentes/{incidente}` | `tickets.manage` | qualquer subconjunto de `{customer_id, titulo, prioridade, origem, tipo, item_id, grupo_solucao_id, responsavel_id, status, mensagem_encerramento}` — `mensagem_encerramento` é **obrigatória quando o status muda para `fechado`** (`422` sem ela) e vira uma entrada `encerramento` no feed, autor = quem fechou, e o e-mail de fechamento ao cliente (nota abaixo); fora dessa transição é ignorada | `200` — `{data: {...}}` |
 
 **Filtro por query string (`GET /incidentes`)** — todos opcionais, combinados com AND
 (`Incidente::scopeFiltros()`, ver §3.2, reaproveitado por §3.4.8):
@@ -1230,6 +1230,18 @@ endpoint devolve o dado cru do registro, não uma view computada.
 > evento `reaberto` (como uma reabertura manual). Trocar só o responsável não mexe no status. No
 > frontend, o formulário avisa "Ao salvar, o status volta para Aberto." ao trocar o grupo e, ao salvar,
 > mostra o status devolvido pela API.
+
+> 📌 **E-mail ao cliente quando o chamado é fechado (2026-11-13).** Toda transição para `fechado`
+> no `update()` (a mesma que exige `mensagem_encerramento`) envia `App\Notifications\ChamadoFechado`
+> ao **cliente do chamado** (`customer_id` — o solicitante; se o mesmo PUT trocou o cliente, vai para
+> o novo). Canal `mail`, `ShouldQueue` + `afterCommit()`: sai pelo worker `queue` e só se a
+> transação confirmar. Não envia quando: o chamado já estava `fechado` (reenvio do mesmo status), o
+> fechamento é recusado (`422` sem mensagem), a troca de grupo no mesmo PUT anula o fechamento, ou o
+> status é outro (inclusive `resolvido` e `cancelado`). E-mail (`App\Mail\ChamadoFechadoMail`, view
+> `emails.chamado-fechado`): assunto `[#id] Seu chamado foi fechado: <título>`, a mensagem de
+> encerramento (escapada), o aviso de que dá para reabrir pelo portal em até
+> `Incidente::PRAZO_REABERTURA_PORTAL_DIAS` (7) dias e o botão para
+> `{FRONTEND_URL}/portal/incidentes/{id}`.
 
 ### 3.4.7.1. Endpoints — Feed de `Incidente` (`App\Http\Controllers\Api\IncidenteDescricaoController`)
 
@@ -2355,6 +2367,7 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Dashboard/IncidentesDashboardTest.php` | Formato achatado completo (cliente/email/taxonomia/SLA), `status_sla_*`/`tempo_restante_*` calculados sem query extra (derivados de `prazo_*` já persistido, não chama mais `resolvedSlaFor()`), `estourado` quando aberto e passou do prazo, congela via `concluido_em` mesmo com o prazo já no passado em relação a "agora", `sem_sla` sem política aplicável, classificação `null` sem `item_id`, mesmo filtro do CRUD funcionando (isolado, combinado, `422` em valor inválido, mesma restrição padrão de `status`), `todos_status=1` traz todos os status (incluindo `resolvido`/`fechado`/`cancelado`), `status` explícito tem prioridade sobre `todos_status` quando os dois são enviados, `403`/`401` |
 | `Incidentes/IncidenteTrocaGrupoStatusTest.php` | Trocar o grupo devolve para `aberto` a partir de `aberto`/`em_andamento`/`pendente`/`resolvido`; vindo de `resolvido`, `concluido_em` limpo, evento `reaberto` e alteração de Status no feed; `fechado`/`cancelado` mantêm o status; troca de grupo vence `status` enviado no mesmo PUT (inclusive `fechado`, sem exigir mensagem de encerramento); remover o grupo também reabre; reenviar o mesmo grupo (até como string) e trocar só o responsável não mudam o status |
 | `Incidentes/IncidenteStatusAguardandoTest.php` | `aguardando_interno`/`aguardando_externo` aceitos no `update()` (status inválido → `422`), com rótulos em `TituloRelatorio::STATUS` e alteração de Status no feed; sem efeito no SLA (não conclui, não pausa — prazo vencido continua `estourado` —, nenhum `IncidenteEvento`); sair deles não é reabertura; filtro `?status=` no dashboard. Listagem padrão (`IncidenteCrudTest`/`IncidentesDashboardTest`) e recusa de reabertura no portal (`PortalReaberturaTest`) atualizadas com os dois status |
+| `Incidentes/IncidenteEmailFechamentoTest.php` | Fechar o chamado envia `ChamadoFechado` ao cliente com a mensagem de encerramento; não envia para outros status (`em_andamento`/`resolvido`/`cancelado`/`aguardando_externo`), para reenvio de `fechado`, para fechamento recusado sem mensagem, nem quando a troca de grupo no mesmo PUT anula o fechamento; cliente trocado no mesmo PUT recebe (o antigo não); conteúdo do e-mail (assunto, destinatário, HTML escapado, prazo de 7 dias, link do portal) |
 | `Incidentes/IncidenteTipoTest.php` | `tipo` na criação (ausente → `incidente`, `solicitacao` aceito, valor inválido → `422`), troca de `tipo` com `tickets.edit_all` gera entrada `alteracao` no feed com os rótulos "Incidente"/"Solicitação", filtro `?tipo=` em `GET /incidentes` |
 | `Incidentes/IncidenteCamposRestritosTest.php` | (atualizado) `tipo` entra nos campos restritos após a abertura — `422` sem `tickets.edit_all`, reenvio do mesmo valor aceito; analista trocando grupo + `status: em_andamento` agora grava `aberto` (regra de troca de grupo) |
 | `Incidentes/IncidenteDescricaoAutorTest.php` | Guarda "exatamente um autor" de `IncidenteDescricao` (`LogicException` sem autor ou com `user_id`+`customer_id`; só `customer_id` salva) |
