@@ -178,11 +178,13 @@ class IncidenteCrudTest extends TestCase
         $response->assertOk()->assertJsonCount(1, 'data');
     }
 
-    public function test_listing_without_status_filter_defaults_to_aberto_em_andamento_and_pendente_only(): void
+    public function test_listing_without_status_filter_defaults_to_active_statuses_only(): void
     {
         Incidente::factory()->create(['status' => 'aberto']);
         Incidente::factory()->create(['status' => 'em_andamento']);
         Incidente::factory()->create(['status' => 'pendente']);
+        Incidente::factory()->create(['status' => 'aguardando_interno']);
+        Incidente::factory()->create(['status' => 'aguardando_externo']);
         Incidente::factory()->create(['status' => 'resolvido']);
         Incidente::factory()->create(['status' => 'fechado']);
         Incidente::factory()->create(['status' => 'cancelado']);
@@ -190,9 +192,9 @@ class IncidenteCrudTest extends TestCase
 
         $response = $this->getJson('/api/incidentes', $this->authHeader($token));
 
-        $response->assertOk()->assertJsonCount(3, 'data');
+        $response->assertOk()->assertJsonCount(5, 'data');
         $statuses = collect($response->json('data'))->pluck('status');
-        $this->assertEqualsCanonicalizing(['aberto', 'em_andamento', 'pendente'], $statuses->all());
+        $this->assertEqualsCanonicalizing(['aberto', 'em_andamento', 'pendente', 'aguardando_interno', 'aguardando_externo'], $statuses->all());
     }
 
     public function test_explicit_status_filter_overrides_the_default_aberto_em_andamento_restriction(): void

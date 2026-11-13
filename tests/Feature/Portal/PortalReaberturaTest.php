@@ -124,7 +124,7 @@ class PortalReaberturaTest extends TestCase
     {
         $customer = Customer::factory()->create();
 
-        foreach (['aberto', 'em_andamento', 'pendente', 'resolvido', 'cancelado'] as $status) {
+        foreach (['aberto', 'em_andamento', 'pendente', 'aguardando_interno', 'aguardando_externo', 'resolvido', 'cancelado'] as $status) {
             $incidente = Incidente::factory()->create(['customer_id' => $customer->id, 'status' => $status]);
 
             $this->reabrir($customer, $incidente)->assertStatus(422)->assertJsonValidationErrors(['status']);

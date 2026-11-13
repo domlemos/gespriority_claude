@@ -45,6 +45,8 @@ final class TituloRelatorio
         'aberto' => 'Aberto',
         'em_andamento' => 'Em andamento',
         'pendente' => 'Pendente',
+        'aguardando_interno' => 'Aguardando Interno',
+        'aguardando_externo' => 'Aguardando Externo',
         'resolvido' => 'Resolvido',
         'fechado' => 'Fechado',
         'cancelado' => 'Cancelado',

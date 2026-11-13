@@ -498,7 +498,19 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 > `origem` é uma lista fechada atrelada a integrações de sistema (adicionar uma origem nova exige
 > código, não só um cadastro) — mesmo raciocínio já usado pra `prioridade` em `PoliticaSla`.
 >
-> `Incidente::STATUSES` = `aberto`, `em_andamento`, `pendente`, `resolvido`, `fechado`, `cancelado`.
+> `Incidente::STATUSES` = `aberto`, `em_andamento`, `pendente`, `aguardando_interno`,
+> `aguardando_externo`, `resolvido`, `fechado`, `cancelado`.
+>
+> 📌 **`aguardando_interno` / `aguardando_externo` (2026-11-13)** — rótulos "Aguardando Interno" e
+> "Aguardando Externo". São status **ativos**, tratados exatamente como `pendente`: **sem nenhum
+> impacto no SLA por ora** — não pausam nem congelam prazos (o `prazo_resolucao` segue correndo
+> contra `now()`), não entram em `STATUS_CONCLUIDOS`/`STATUS_ATENDIDOS`, não geram `IncidenteEvento`
+> e sair deles não é reabertura. Como qualquer saída de `aberto`, ir de `aberto` para um deles marca
+> `respondido_em` (primeira resposta). Entram na listagem padrão (`STATUSES_PADRAO_LISTAGEM`), nos
+> filtros de chamados/dashboard/relatórios/portal e nos rótulos das planilhas
+> (`TituloRelatorio::STATUS`); a troca de grupo os devolve para `aberto` como os demais ativos. Sem
+> migration: `incidentes.status` é `string` sem `CHECK`. O tratamento de SLA (ex.: pausa em
+> "Aguardando Externo") será definido depois — ver também a nota sobre pausas acima.
 > `Incidente::ORIGENS` = `portal`, `email`, `telefone`, `chat`, `presencial`, `monitoramento`.
 > Nenhuma regra de transição entre status é validada nesta entrega (qualquer status → qualquer
 > status) — fica pra quando o motor de workflow for implementado.
@@ -1148,7 +1160,7 @@ Ex.: `GET /incidentes?status=aberto&prioridade=alta&grupo_solucao_id=2`. Valor i
 ou id inexistente) → `422`, mesmo comportamento de validação do resto da API — não retorna lista
 vazia silenciosamente pra um filtro errado.
 
-**Sem `status` explícito, a listagem é restrita por padrão a `aberto`+`em_andamento`+`pendente`**
+**Sem `status` explícito, a listagem é restrita por padrão aos status ativos — `aberto`+`em_andamento`+`pendente`+`aguardando_interno`+`aguardando_externo`**
 (`Incidente::STATUSES_PADRAO_LISTAGEM`) — os demais status (`resolvido`, `fechado`,
 `cancelado`) ficam de fora até que o chamador informe um `status` explicitamente (ex.:
 `?status=resolvido` mostra só os resolvidos, não soma aos padrão). Os outros filtros (`prioridade`,
@@ -2342,6 +2354,7 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Incidentes/IncidenteSlaTest.php` | Métodos `statusSlaResposta()`/`statusSlaResolucao()`/`tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos()` do `Incidente` isolados (sem HTTP): `sem_sla` sem prazo, `dentro_prazo`/`estourado` comparando com "agora" enquanto aberto, uso de `respondido_em`/`concluido_em` como referência congelada em vez de "agora" quando já concluído |
 | `Dashboard/IncidentesDashboardTest.php` | Formato achatado completo (cliente/email/taxonomia/SLA), `status_sla_*`/`tempo_restante_*` calculados sem query extra (derivados de `prazo_*` já persistido, não chama mais `resolvedSlaFor()`), `estourado` quando aberto e passou do prazo, congela via `concluido_em` mesmo com o prazo já no passado em relação a "agora", `sem_sla` sem política aplicável, classificação `null` sem `item_id`, mesmo filtro do CRUD funcionando (isolado, combinado, `422` em valor inválido, mesma restrição padrão de `status`), `todos_status=1` traz todos os status (incluindo `resolvido`/`fechado`/`cancelado`), `status` explícito tem prioridade sobre `todos_status` quando os dois são enviados, `403`/`401` |
 | `Incidentes/IncidenteTrocaGrupoStatusTest.php` | Trocar o grupo devolve para `aberto` a partir de `aberto`/`em_andamento`/`pendente`/`resolvido`; vindo de `resolvido`, `concluido_em` limpo, evento `reaberto` e alteração de Status no feed; `fechado`/`cancelado` mantêm o status; troca de grupo vence `status` enviado no mesmo PUT (inclusive `fechado`, sem exigir mensagem de encerramento); remover o grupo também reabre; reenviar o mesmo grupo (até como string) e trocar só o responsável não mudam o status |
+| `Incidentes/IncidenteStatusAguardandoTest.php` | `aguardando_interno`/`aguardando_externo` aceitos no `update()` (status inválido → `422`), com rótulos em `TituloRelatorio::STATUS` e alteração de Status no feed; sem efeito no SLA (não conclui, não pausa — prazo vencido continua `estourado` —, nenhum `IncidenteEvento`); sair deles não é reabertura; filtro `?status=` no dashboard. Listagem padrão (`IncidenteCrudTest`/`IncidentesDashboardTest`) e recusa de reabertura no portal (`PortalReaberturaTest`) atualizadas com os dois status |
 | `Incidentes/IncidenteTipoTest.php` | `tipo` na criação (ausente → `incidente`, `solicitacao` aceito, valor inválido → `422`), troca de `tipo` com `tickets.edit_all` gera entrada `alteracao` no feed com os rótulos "Incidente"/"Solicitação", filtro `?tipo=` em `GET /incidentes` |
 | `Incidentes/IncidenteCamposRestritosTest.php` | (atualizado) `tipo` entra nos campos restritos após a abertura — `422` sem `tickets.edit_all`, reenvio do mesmo valor aceito; analista trocando grupo + `status: em_andamento` agora grava `aberto` (regra de troca de grupo) |
 | `Incidentes/IncidenteDescricaoAutorTest.php` | Guarda "exatamente um autor" de `IncidenteDescricao` (`LogicException` sem autor ou com `user_id`+`customer_id`; só `customer_id` salva) |

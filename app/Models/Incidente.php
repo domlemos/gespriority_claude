@@ -22,7 +22,10 @@ class Incidente extends Model
     /** @use HasFactory<IncidenteFactory> */
     use Auditavel, HasFactory;
 
-    public const STATUSES = ['aberto', 'em_andamento', 'pendente', 'resolvido', 'fechado', 'cancelado'];
+    // 'aguardando_interno'/'aguardando_externo' (2026-11-13): status ativos
+    // como 'pendente', sem efeito no SLA por ora (não pausam nem congelam
+    // prazos) — o tratamento de SLA deles será definido depois.
+    public const STATUSES = ['aberto', 'em_andamento', 'pendente', 'aguardando_interno', 'aguardando_externo', 'resolvido', 'fechado', 'cancelado'];
 
     /** Status que representam atendimento efetivo — exclui `cancelado`. Base dos relatórios de desempenho. */
     public const STATUS_ATENDIDOS = ['resolvido', 'fechado'];
@@ -204,7 +207,7 @@ class Incidente extends Model
     }
 
     /** Status exibidos por padrão quando nenhum filtro `status` é informado. */
-    public const STATUSES_PADRAO_LISTAGEM = ['aberto', 'em_andamento', 'pendente'];
+    public const STATUSES_PADRAO_LISTAGEM = ['aberto', 'em_andamento', 'pendente', 'aguardando_interno', 'aguardando_externo'];
 
     /**
      * Filtro composto por igualdade exata em colunas do Incidente — cada
@@ -214,7 +217,7 @@ class Incidente extends Model
      * scope — ele só monta a query.
      *
      * Sem `status` explícito, a listagem já nasce restrita a
-     * `STATUSES_PADRAO_LISTAGEM` (aberto/em_andamento) — os demais status só
+     * `STATUSES_PADRAO_LISTAGEM` (os status ativos) — os demais status só
      * aparecem quando o chamador pede um `status` explicitamente, ou quando
      * `todos_status` (bool) é passado como truthy — usado pelo botão
      * "Mostrar todos os registros" da listagem (só `DashboardController`
