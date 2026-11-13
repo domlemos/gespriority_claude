@@ -107,12 +107,25 @@ class PortalNotificacaoComentarioTest extends TestCase
         Notification::fake();
         $customer = Customer::factory()->create();
         $responsavel = User::factory()->create();
+        $fechado = Incidente::factory()->create(['customer_id' => $customer->id, 'status' => 'fechado', 'responsavel_id' => $responsavel->id]);
         $cancelado = Incidente::factory()->create(['customer_id' => $customer->id, 'status' => 'cancelado', 'responsavel_id' => $responsavel->id]);
 
-        $this->comentar($customer, $cancelado)->assertStatus(422);
+        $this->comentar($customer, $fechado)->assertStatus(422);
         $this->postJson("/api/customer/incidentes/{$cancelado->id}/reabrir", ['motivo' => 'x'], $this->headers($customer))->assertStatus(422);
 
         Notification::assertNothingSent();
+    }
+
+    public function test_comment_on_a_cancelled_ticket_emails_the_agent(): void
+    {
+        Notification::fake();
+        $customer = Customer::factory()->create();
+        $responsavel = User::factory()->create();
+        $cancelado = Incidente::factory()->create(['customer_id' => $customer->id, 'status' => 'cancelado', 'responsavel_id' => $responsavel->id]);
+
+        $this->comentar($customer, $cancelado, 'Na verdade ainda preciso disso.')->assertCreated();
+
+        Notification::assertSentTo($responsavel, ComentarioDoCliente::class);
     }
 
     public function test_email_content_has_ticket_customer_comment_and_staff_link(): void
