@@ -53,6 +53,13 @@ class Incidente extends Model
     /** Status que encerram o incidente pra fins de SLA — congelam `concluido_em`. */
     public const STATUS_CONCLUIDOS = ['resolvido', 'fechado', 'cancelado'];
 
+    /**
+     * Trocar o grupo de solução devolve o chamado para 'aberto' (volta à fila
+     * do novo grupo), exceto nestes status, que ficam como estão — ver
+     * IncidenteController::update() e BACKEND_SPECS.md §3.4.7.
+     */
+    public const STATUS_MANTIDOS_NA_TROCA_DE_GRUPO = ['fechado', 'cancelado'];
+
     /** Dias, contados do último fechamento, em que o cliente ainda pode reabrir pelo portal. */
     public const PRAZO_REABERTURA_PORTAL_DIAS = 7;
 

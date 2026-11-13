@@ -1205,6 +1205,20 @@ endpoint devolve o dado cru do registro, não uma view computada.
 > atribuição, com notificação/auditoria), não misturada no `update()` genérico. `agente` tem
 > `tickets.manage` (não tinha `tickets.assign`, que continua só admin/supervisor).
 
+> 📌 **Troca de grupo de solução devolve o chamado para `aberto` (2026-11-13).** No `update()`,
+> quando `grupo_solucao_id` muda de verdade — outro grupo ou remoção (`null`); reenviar o mesmo grupo,
+> inclusive como string, não conta —, o status vira **`aberto`**, mesmo vindo de `resolvido`, para o
+> chamado entrar na fila do novo grupo como novo. **Exceções:** `fechado` e `cancelado` ficam como
+> estão (`Incidente::STATUS_MANTIDOS_NA_TROCA_DE_GRUPO`). A regra roda antes da checagem de
+> encerramento, então **vence o `status` enviado no mesmo PUT** (o formulário do staff sempre reenvia
+> o status, e o backend não distingue "escolhido" de "reenviado"): grupo trocado + `status:
+> em_andamento` grava `aberto`; grupo trocado + `status: fechado` grava `aberto`, sem exigir
+> `mensagem_encerramento` nem criar entrada `encerramento`. A mudança passa pelo fluxo normal de
+> transição: entrada `alteracao` de Status no feed, e, vindo de `resolvido`, `concluido_em` limpo e
+> evento `reaberto` (como uma reabertura manual). Trocar só o responsável não mexe no status. No
+> frontend, o formulário avisa "Ao salvar, o status volta para Aberto." ao trocar o grupo e, ao salvar,
+> mostra o status devolvido pela API.
+
 ### 3.4.7.1. Endpoints — Feed de `Incidente` (`App\Http\Controllers\Api\IncidenteDescricaoController`)
 
 Recurso aninhado em `/incidentes/{incidente}/descricoes`. Leitura segue `tickets.view`/`tickets.manage`
@@ -2327,8 +2341,9 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Relatorios/RelatorioSalvoCrudTest.php` | CRUD completo (`relatorios.view` pra ler/executar, `relatorios.manage` pra criar/editar/excluir), `filtros` vazio (`{}`) é aceito (regressão — `'required'` rejeitava array vazio, corrigido pra `'present'`; achado também que `$request->validate()` some com a chave pai quando reconstrói a partir de sub-regras `filtros.*` vazias, contornado lendo o input bruto), `422` em `nome`/`agrupar_por`/`filtros` ausentes ou `agrupar_por` inválido, `executar` roda os filtros salvos contra dados atuais (json e xlsx), `403`/`401` |
 | `Incidentes/IncidenteSlaTest.php` | Métodos `statusSlaResposta()`/`statusSlaResolucao()`/`tempoRestanteRespostaMinutos()`/`tempoRestanteResolucaoMinutos()` do `Incidente` isolados (sem HTTP): `sem_sla` sem prazo, `dentro_prazo`/`estourado` comparando com "agora" enquanto aberto, uso de `respondido_em`/`concluido_em` como referência congelada em vez de "agora" quando já concluído |
 | `Dashboard/IncidentesDashboardTest.php` | Formato achatado completo (cliente/email/taxonomia/SLA), `status_sla_*`/`tempo_restante_*` calculados sem query extra (derivados de `prazo_*` já persistido, não chama mais `resolvedSlaFor()`), `estourado` quando aberto e passou do prazo, congela via `concluido_em` mesmo com o prazo já no passado em relação a "agora", `sem_sla` sem política aplicável, classificação `null` sem `item_id`, mesmo filtro do CRUD funcionando (isolado, combinado, `422` em valor inválido, mesma restrição padrão de `status`), `todos_status=1` traz todos os status (incluindo `resolvido`/`fechado`/`cancelado`), `status` explícito tem prioridade sobre `todos_status` quando os dois são enviados, `403`/`401` |
+| `Incidentes/IncidenteTrocaGrupoStatusTest.php` | Trocar o grupo devolve para `aberto` a partir de `aberto`/`em_andamento`/`pendente`/`resolvido`; vindo de `resolvido`, `concluido_em` limpo, evento `reaberto` e alteração de Status no feed; `fechado`/`cancelado` mantêm o status; troca de grupo vence `status` enviado no mesmo PUT (inclusive `fechado`, sem exigir mensagem de encerramento); remover o grupo também reabre; reenviar o mesmo grupo (até como string) e trocar só o responsável não mudam o status |
 | `Incidentes/IncidenteTipoTest.php` | `tipo` na criação (ausente → `incidente`, `solicitacao` aceito, valor inválido → `422`), troca de `tipo` com `tickets.edit_all` gera entrada `alteracao` no feed com os rótulos "Incidente"/"Solicitação", filtro `?tipo=` em `GET /incidentes` |
-| `Incidentes/IncidenteCamposRestritosTest.php` | (atualizado) `tipo` entra nos campos restritos após a abertura — `422` sem `tickets.edit_all`, reenvio do mesmo valor aceito |
+| `Incidentes/IncidenteCamposRestritosTest.php` | (atualizado) `tipo` entra nos campos restritos após a abertura — `422` sem `tickets.edit_all`, reenvio do mesmo valor aceito; analista trocando grupo + `status: em_andamento` agora grava `aberto` (regra de troca de grupo) |
 | `Incidentes/IncidenteDescricaoAutorTest.php` | Guarda "exatamente um autor" de `IncidenteDescricao` (`LogicException` sem autor ou com `user_id`+`customer_id`; só `customer_id` salva) |
 | `Portal/PortalIncidenteTest.php` | Cliente abre incidente em nome próprio com tudo fixado no servidor; campos forjados no payload (`customer_id`, `item_id`, `prioridade`, `status`, `tipo`, `origem`, grupo/responsável) ignorados; descrição de abertura com autor cliente; resposta só com `id`/`titulo`/`status`/datas; validação; "meus chamados" só traz os do cliente (nem de colega da mesma empresa); token de staff `401` nas rotas do portal e token de cliente `401` nas do staff |
 | `Portal/PortalTriagemTest.php` | Primeira classificação pelo staff 3h depois da abertura → prioridade do item e prazos contados de `created_at` (SLA de resposta já `estourado`); chamado não triado visível a todo staff com `prioridade: null`/`sem_sla`; `?sem_classificacao=1` (inclusive com `sort_by=prioridade`) |

@@ -101,7 +101,9 @@ class IncidenteCamposRestritosTest extends TestCase
         $this->assertSame($novoItem->id, $fresh->item_id);
         $this->assertSame($grupo->id, $fresh->grupo_solucao_id);
         $this->assertSame($responsavel->id, $fresh->responsavel_id);
-        $this->assertSame('em_andamento', $fresh->status);
+        // Troca de grupo no mesmo PUT vence o status enviado: volta para
+        // 'aberto' (regra de troca de grupo, BACKEND_SPECS.md §3.4.7).
+        $this->assertSame('aberto', $fresh->status);
     }
 
     public function test_analista_can_resend_restricted_fields_unchanged(): void

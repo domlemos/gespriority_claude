@@ -139,6 +139,20 @@ class IncidenteController extends Controller
             'mensagem_encerramento' => ['nullable', 'string', 'max:5000'],
         ]);
 
+        // Grupo de solução alterado (inclusive removido) → o chamado volta
+        // para 'aberto', mesmo vindo de 'resolvido' e mesmo que o payload
+        // traga outro status: entra na fila do novo grupo como novo. Só
+        // 'fechado'/'cancelado' ficam como estão. Antes do cálculo de
+        // `$fechando` de propósito — a troca de grupo vence um fechamento no
+        // mesmo PUT. Reabrir a partir de 'resolvido' passa pelo mesmo fluxo de
+        // uma reabertura manual (concluido_em limpo, evento 'reaberto',
+        // alteração de Status no feed).
+        if (array_key_exists('grupo_solucao_id', $data)
+            && $this->idOuNulo($data['grupo_solucao_id']) !== $incidente->grupo_solucao_id
+            && ! in_array($incidente->status, Incidente::STATUS_MANTIDOS_NA_TROCA_DE_GRUPO, true)) {
+            $data['status'] = 'aberto';
+        }
+
         $mensagemEncerramento = trim($data['mensagem_encerramento'] ?? '');
         unset($data['mensagem_encerramento']);
         $fechando = ($data['status'] ?? $incidente->status) === 'fechado' && $incidente->status !== 'fechado';
@@ -526,6 +540,11 @@ class IncidenteController extends Controller
             'descricao' => "Campo '{$campo}' alterado de '".($valorAnterior ?? '(nenhum)')."' para '"
                 .($valorNovo ?? '(nenhum)')."' às ".$this->agoraLocal()->format('H:i').' do dia '.$this->agoraLocal()->format('d/m/Y').'.',
         ]);
+    }
+
+    private function idOuNulo(mixed $valor): ?int
+    {
+        return $valor === null ? null : (int) $valor;
     }
 
     /** "Agora" no horário de Brasília, só pra texto exibido — ver config('app.timezone_exibicao'). */
