@@ -8,6 +8,7 @@ use App\Http\Resources\PortalIncidenteResource;
 use App\Models\Incidente;
 use App\Models\IncidenteDescricao;
 use App\Models\IncidenteEvento;
+use App\Support\NotificacaoComentarioCliente;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -96,6 +97,8 @@ class IncidenteController extends Controller
             'descricao' => $data['descricao'],
         ]);
 
+        NotificacaoComentarioCliente::disparar($descricao);
+
         return (new PortalDescricaoResource($descricao->load('customer:id,name')))
             ->response()
             ->setStatusCode(201);
@@ -153,11 +156,14 @@ class IncidenteController extends Controller
                 'descricao' => "Campo 'Status' alterado de 'fechado' para 'aberto' às ".$agora->format('H:i').' do dia '.$agora->format('d/m/Y').'.',
             ]);
 
-            $incidente->descricoes()->create([
+            $comentario = $incidente->descricoes()->create([
                 'customer_id' => $customer->id,
                 'tipo' => IncidenteDescricao::TIPO_COMENTARIO,
                 'descricao' => "Chamado reaberto pelo cliente. Motivo: {$motivo}",
             ]);
+
+            // afterCommit() na notificação: só sai se a transação confirmar.
+            NotificacaoComentarioCliente::disparar($comentario);
 
             IncidenteEvento::query()->create([
                 'incidente_id' => $incidente->id,
