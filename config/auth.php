@@ -39,13 +39,34 @@ return [
     */
 
     'guards' => [
+        // Perfis usados nas rotas (`auth:web`, `auth:customer`): sessão por
+        // cookie HttpOnly (SPA) ou, em último caso, token Bearer do Sanctum —
+        // ver App\Support\Auth\GuardSessaoOuToken. `duracao_maxima_minutos`
+        // é o teto absoluto da sessão; a inatividade é `session.lifetime`.
         'web' => [
-            'driver' => 'sanctum',
+            'driver' => 'sessao_ou_token',
             'provider' => 'users',
+            'sessao' => 'web_sessao',
+            'duracao_maxima_minutos' => 720,
         ],
 
         'customer' => [
-            'driver' => 'sanctum',
+            'driver' => 'sessao_ou_token',
+            'provider' => 'customers',
+            'sessao' => 'customer_sessao',
+            'duracao_maxima_minutos' => 720,
+        ],
+
+        // Guards de sessão internos, um por perfil (chaves de sessão
+        // distintas): o mesmo navegador pode estar logado como staff e como
+        // cliente sem que uma sessão autentique o outro perfil.
+        'web_sessao' => [
+            'driver' => 'session',
+            'provider' => 'users',
+        ],
+
+        'customer_sessao' => [
+            'driver' => 'session',
             'provider' => 'customers',
         ],
     ],

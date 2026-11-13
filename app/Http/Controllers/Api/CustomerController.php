@@ -70,6 +70,10 @@ class CustomerController extends Controller
 
         if (! empty($data['password'])) {
             $customer->password = Hash::make($data['password']);
+            // Senha trocada pelo admin derruba as sessões abertas da conta
+            // (OWASP) — ver App\Support\Auth\GuardSessaoOuToken.
+            $customer->sessoes_invalidadas_em = now();
+            $customer->tokens()->delete();
         }
 
         $customer->save();

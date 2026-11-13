@@ -25,7 +25,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // 5 tentativas/minuto por IP + e-mail, para /api/login e /api/refresh.
+        // 5 tentativas/minuto por IP + e-mail, para /api/login e /api/customer/login.
         RateLimiter::for('login', function (Request $request) {
             $key = Str::lower($request->input('email', $request->ip())).'|'.$request->ip();
 

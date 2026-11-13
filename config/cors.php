@@ -19,8 +19,9 @@ return [
 
     'allowed_methods' => ['*'],
 
-    // Whitelist estrita por domínio explícito do Vue — nunca wildcard `*`,
-    // já que não há cookie de sessão (Bearer only) para exigir credentials.
+    // Whitelist estrita por domínio explícito do Vue — nunca wildcard `*`
+    // (obrigatório com supports_credentials: o SPA autentica por cookie de
+    // sessão HttpOnly, ver BACKEND_SPECS.md §1.3).
     'allowed_origins' => array_filter(explode(',', env('FRONTEND_URL', ''))),
 
     'allowed_origins_patterns' => [],
@@ -31,6 +32,6 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => false,
+    'supports_credentials' => true,
 
 ];

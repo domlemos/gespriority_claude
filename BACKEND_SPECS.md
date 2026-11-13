@@ -52,30 +52,58 @@ O ambiente local não utilizará o combo tradicional Nginx + PHP-FPM. Toda a orq
 
 - [x] **Autenticação Local:** O login será resolvido inteiramente pela aplicação, sem dependência de Identity Provider externo. Credenciais (e-mail + senha) são validadas contra a tabela `users` do Postgres.
 - [x] **Hash de Senha:** Senhas armazenadas com `bcrypt` (padrão do Laravel, `Hash::make`), nunca em texto plano.
-- [x] **Emissão de Token (Laravel Sanctum — modo Bearer, Vue e API em domínios distintos):**
-  - **Tipo:** *personal access tokens* (`personal_access_tokens`), enviados pelo Vue via header `Authorization: Bearer {token}`. Nunca em query string.
-  - **Hash no banco:** comportamento padrão do Sanctum — o token em texto plano é retornado uma única vez na criação; no banco fica só o hash (SHA-256). Não requer configuração adicional, mas deve ser validado em code review (nenhum log/observer deve persistir o token cru).
-  - **Expiração obrigatória:** Sanctum **não expira tokens por padrão**.
-    > 📌 **Ajuste de implementação:** `Sanctum::personalAccessTokenExpiration()`/`config('sanctum.expiration')` é um valor **global**, compartilhado por todos os guards — não é possível usá-lo para diferenciar 2h (staff) de 4h (customer). Em vez disso, o TTL é aplicado **por token, no momento da criação**, passando `$expiresAt` explícito para `createToken()`. `config('sanctum.expiration')` permanece `null`. Ver seção 3.3.
-  - **Estratégia de renovação (sem refresh token nativo):** endpoint `POST /api/refresh` — autenticado com o token atual (ainda válido), emite um novo token e revoga o anterior de forma atômica (sliding window). O front deve chamar esse endpoint proativamente antes da expiração (ex: aos 80% do TTL).
-  - **Abilities/scopes por token:** `createToken('spa', ['staff'])` ou `['customer']` conforme o guard, permitindo checagem adicional via `tokenCan()` em rotas sensíveis, além do guard em si.
-  - **Revogação:**
-    - `POST /api/logout` → revoga apenas o token da sessão atual (`currentAccessToken()->delete()`).
-    - `POST /api/logout-all` → revoga todos os tokens do usuário (uso: "sair de todos os dispositivos").
-    - Troca de senha deve revogar automaticamente todos os tokens existentes do usuário.
-  - **Armazenamento no client (Vue):** preferencialmente em memória (store Pinia, não persistido em disco), minimizando exposição a XSS. Se for necessário persistir entre reloads de página, usar `sessionStorage` (nunca `localStorage`), sabendo que ainda há exposição residual a XSS — reforça a necessidade de CSP estrita no front.
-  - **CORS:** whitelist estrita por domínio explícito do Vue (sem wildcard `*`), `Access-Control-Allow-Credentials` desabilitado (não há cookie de sessão nesse modo).
+- [x] **Sessão do SPA por cookie `HttpOnly` (Laravel Sanctum — modo SPA) — desde 2026-11-13, conforme OWASP:**
+  > 📌 **Por que mudou.** Até 2026-11-13 o SPA recebia um token Bearer no login e o guardava no
+  > `sessionStorage`. Isso tinha dois problemas: o token ficava legível por qualquer JavaScript da
+  > página, o que um XSS consegue roubar (a OWASP — HTML5 Security e Session Management Cheat
+  > Sheets — desaconselha guardar identificadores de sessão em `localStorage`/`sessionStorage`); e
+  > o `sessionStorage` é por aba, então abrir uma aba nova perdia a sessão. O padrão recomendado é o
+  > cookie de sessão `HttpOnly` + `Secure` + `SameSite`, com proteção CSRF — que é o modo SPA do
+  > Sanctum.
+  - **Credencial:** cookie de sessão do Laravel (`session.cookie`, driver `database`), **`HttpOnly`**
+    (o JavaScript nunca lê), **`Secure`** (padrão `true` quando `APP_ENV=production`;
+    `SESSION_SECURE_COOKIE` sobrescreve) e **`SameSite=Lax`**. Cookie do host da API (sem
+    `SESSION_DOMAIN`); o front (`uplexis.gespriority.com.br`) e a API (`api.gespriority.com.br`) são
+    o mesmo *site*, então o navegador envia o cookie nas chamadas `withCredentials`. **Nenhum token
+    é entregue ao navegador.**
+  - **Quem ganha sessão:** `$middleware->statefulApi()` (`bootstrap/app.php`) liga sessão + CSRF
+    para requisições cuja `Origin`/`Referer` está em `sanctum.stateful` — por padrão os hosts de
+    `FRONTEND_URL` (mesma lista do CORS) mais os de desenvolvimento. Outras origens seguem sem estado.
+  - **CSRF:** `GET /api/csrf-token` devolve o token da sessão em JSON; o front o envia no header
+    `X-CSRF-TOKEN` em toda requisição de escrita (inclusive o login). JSON em vez do cookie
+    `XSRF-TOKEN` porque esse cookie seria do host da API e o JavaScript do front (outro subdomínio)
+    não conseguiria lê-lo. Sem token → `419`.
+  - **Anti-fixação:** o login troca o ID da sessão (`session()->regenerate()`).
+  - **Expiração:** inatividade = `session.lifetime` (`SESSION_LIFETIME`, padrão 120 min, deslizante)
+    e **duração máxima absoluta de 12h** por perfil (`duracao_maxima_minutos` em `config/auth.php`,
+    checada em `App\Support\Auth\GuardSessaoOuToken` contra o instante do login guardado na sessão).
+    Substitui o TTL de 2h/4h dos tokens e o `POST /api/refresh`, que foi **removido**.
+  - **Logout:** `POST /api/logout` (ou `/api/customer/logout`) sai do perfil e **invalida a sessão**
+    (ID e CSRF novos); se o mesmo navegador ainda está logado no outro perfil, só troca ID e CSRF.
+  - **Invalidação global:** coluna `sessoes_invalidadas_em` em `users`/`customers` — toda sessão
+    iniciada até esse instante deixa de valer. Preenchida por `POST /api/logout-all` ("sair de todos
+    os dispositivos"), pela redefinição de senha e pela troca de senha feita pelo admin
+    (`PUT /users/{id}`, `PUT /customers/{id}` com `password`). Os três também revogam os tokens.
+  - **Token Bearer:** os guards ainda aceitam `Authorization: Bearer` (personal access tokens do
+    Sanctum, restritos ao model do perfil) — usado pela suíte de testes e reservado a integrações
+    futuras —, mas **nenhum endpoint emite token**. Tokens antigos expiram sozinhos (TTL de 2h/4h já
+    gravado em `expires_at`).
+  - **CORS:** whitelist estrita por domínio explícito do Vue (`FRONTEND_URL`, sem wildcard `*`),
+    **`supports_credentials: true`** (necessário para o cookie).
   - **Transporte:** HTTPS obrigatório em todos os ambientes, incluindo staging.
-  - **Auditoria:** log de emissão e revogação de tokens (IP, user-agent, timestamp) para detecção de uso anômalo/roubo de token.
-  - **Rate limiting:** throttle dedicado em `/api/login`, `/api/refresh` e demais endpoints sensíveis (ex: 5 tentativas/minuto por IP+e-mail).
+  - **Auditoria:** login, falha de login, logout, "sair de todos" e redefinição de senha vão para o
+    log de ações (§3.4.11). O autor de uma ação só é considerado em rota que exige `auth:` — em rota
+    sem login, uma sessão do outro perfil no mesmo navegador nunca vira autor. O middleware
+    `AuthenticateSession` do Sanctum fica desligado (`sanctum.middleware.authenticate_session =
+    null`): com `sanctum.guard` vazio ele não invalida nada e só resolveria o usuário à toa.
 - [x] **Endpoints de Autenticação:**
-  - `POST /api/login` (+ `POST /api/customer/login`) — valida credenciais e retorna token Bearer (não há modo cookie/sessão neste projeto — ver seção 3.4).
-  - `POST /api/logout` — revoga o token atual (`currentAccessToken()->delete()`).
-  - `POST /api/logout-all` — revoga todos os tokens do usuário/cliente autenticado.
-  - `POST /api/refresh` — rotação atômica de token.
-  - `GET /api/me` — retorna o usuário/cliente autenticado (com roles/permissions carregadas, quando aplicável).
-  - `POST /api/forgot-password` / `POST /api/reset-password` (+ variantes `/api/customer/forgot-password` e `/api/customer/reset-password`) — fluxo padrão do Laravel (`Password` facade + `notifiable`), com e-mail de recuperação.
-- [x] **Rate Limiting:** rota de login protegida por throttle (`throttle:login`, ex. 5 tentativas/minuto por IP + e-mail) para mitigar brute-force.
+  - `GET /api/csrf-token` — token CSRF da sessão do SPA (JSON).
+  - `POST /api/login` (+ `POST /api/customer/login`) — valida credenciais e abre a sessão do perfil (cookie `HttpOnly`); devolve `{user, csrf_token}`, **sem token** — ver seção 3.4.
+  - `GET /api/me` / `GET /api/customer/me` — o usuário/cliente da sessão (com roles/permissions, quando aplicável).
+  - `POST /api/logout` / `POST /api/customer/logout` — sai do perfil e invalida a sessão.
+  - `POST /api/logout-all` / `POST /api/customer/logout-all` — invalida todas as sessões e tokens da conta.
+  - `POST /api/forgot-password` / `POST /api/reset-password` (+ variantes `/api/customer/forgot-password` e `/api/customer/reset-password`) — fluxo padrão do Laravel (`Password` facade + `notifiable`), com e-mail de recuperação; o reset invalida as sessões existentes.
+- [x] **Rate Limiting:** rotas de login protegidas por throttle (`throttle:login`, 5 tentativas/minuto por IP + e-mail) para mitigar brute-force.
 - [x] **Guards Separados:** dois guards distintos para diferenciar perfis:
   - `web` → colaboradores internos (agentes, supervisores, administradores).
   - `customer` → clientes que abrem chamados no portal externo.
@@ -239,6 +267,7 @@ Esta seção documenta, com precisão de coluna e payload, o que foi efetivament
 | `email_verified_at` | `timestamp` nullable | |
 | `password` | `string` | `bcrypt` via cast `'hashed'` no model |
 | `remember_token` | `string` nullable | padrão do Laravel |
+| `sessoes_invalidadas_em` | `timestamp` nullable | sessão por cookie iniciada até este instante deixa de valer — preenchida por "sair de todos os dispositivos", redefinição de senha e troca de senha pelo admin; oculta no JSON (`#[Hidden]`), fora do log de ações. Ver §1.3 (2026-11-13) |
 | `deleted_at` | `timestamp` nullable | soft delete (`SoftDeletes`) — "excluir" um `User` é desativação, não remoção; ver §3.4.3 |
 | `created_at`, `updated_at` | `timestamp` | |
 
@@ -274,6 +303,7 @@ Esta seção documenta, com precisão de coluna e payload, o que foi efetivament
 | `email_verified_at` | `timestamp` nullable | |
 | `password` | `string` | `bcrypt` via cast `'hashed'` |
 | `remember_token` | `string` nullable | |
+| `sessoes_invalidadas_em` | `timestamp` nullable | sessão por cookie iniciada até este instante deixa de valer — preenchida por "sair de todos os dispositivos", redefinição de senha e troca de senha pelo admin; oculta no JSON (`#[Hidden]`), fora do log de ações. Ver §1.3 (2026-11-13) |
 | `created_at`, `updated_at` | `timestamp` | |
 
 #### `customer_password_reset_tokens` (broker `customers`)
@@ -707,8 +737,12 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 
 ```php
 'guards' => [
-    'web'      => ['driver' => 'sanctum', 'provider' => 'users'],
-    'customer' => ['driver' => 'sanctum', 'provider' => 'customers'],
+    // Perfis usados nas rotas (`auth:web`, `auth:customer`)
+    'web'      => ['driver' => 'sessao_ou_token', 'provider' => 'users',     'sessao' => 'web_sessao',      'duracao_maxima_minutos' => 720],
+    'customer' => ['driver' => 'sessao_ou_token', 'provider' => 'customers', 'sessao' => 'customer_sessao', 'duracao_maxima_minutos' => 720],
+    // Guards de sessão internos, um por perfil (chaves de sessão distintas)
+    'web_sessao'      => ['driver' => 'session', 'provider' => 'users'],
+    'customer_sessao' => ['driver' => 'session', 'provider' => 'customers'],
 ],
 'providers' => [
     'users'     => ['driver' => 'eloquent', 'model' => App\Models\User::class],
@@ -720,31 +754,53 @@ Mesma estrutura de `password_reset_tokens`, tabela separada para não misturar o
 ],
 ```
 
-E em `config/sanctum.php`:
+O driver `sessao_ou_token` é registrado em `AuthServiceProvider::boot()` (`Auth::extend`) como um
+`RequestGuard` sobre `App\Support\Auth\GuardSessaoOuToken`, que tenta, nesta ordem:
+
+1. **a sessão do perfil** (guard `web_sessao`/`customer_sessao`), recusando-a — e fazendo logout —
+   se passou da duração máxima ou se começou até `sessoes_invalidadas_em` da conta;
+2. **o token Bearer do Sanctum** (`Laravel\Sanctum\Guard` com o provider do perfil — um token de
+   `Customer` nunca autentica o perfil `web` e vice-versa).
+
+Um guard de sessão por perfil, e não um só: o mesmo navegador pode estar logado como staff e como
+cliente ao mesmo tempo (mesmo cookie, chaves de sessão diferentes), e a sessão de um perfil nunca
+autentica o outro. Por isso `/me`, `/logout` e `/logout-all` existem nas duas variantes.
+
+Em `config/sanctum.php`:
 
 ```php
-'guard' => [],       // ver nota abaixo — NÃO adicionar 'web'/'customer' aqui
-'expiration' => null, // TTL é por-token (ver 3.1 personal_access_tokens), não global
+'stateful'   => /* SANCTUM_STATEFUL_DOMAINS ou: dev (localhost...) + hosts de FRONTEND_URL */,
+'guard'      => [],    // ver nota abaixo — NÃO adicionar guards aqui
+'expiration' => null,  // tokens têm expires_at próprio
+'middleware' => ['authenticate_session' => null, /* encrypt_cookies, validate_csrf_token padrão */],
 ```
 
-> ⚠️ **Bug encontrado e corrigido durante a implementação:** `config('sanctum.guard')` é consultado dentro do próprio `Laravel\Sanctum\Guard::__invoke()` para checar guards de sessão "stateful" (cookie SPA) *antes* de tentar o Bearer token. Como os guards `web` e `customer` deste projeto usam o próprio driver `sanctum` (não `session`), colocar `['web', 'customer']` nessa lista causa **recursão infinita** (`Guard::__invoke` chama `Auth::guard('web')->user()`, que é o mesmo `Guard::__invoke`). Como o projeto é Bearer-only (sem `EnsureFrontendRequestsAreStateful`), a lista fica vazia.
+> ⚠️ **`sanctum.guard` continua vazio, de propósito.** O `Laravel\Sanctum\Guard` percorre essa
+> lista procurando sessão *antes* do token, sem checar o provider: com `['web_sessao',
+> 'customer_sessao']` ali, uma sessão de cliente autenticaria rotas `auth:web`. A sessão é checada
+> pelo `GuardSessaoOuToken`, que sabe qual guard de sessão pertence a cada perfil. (Histórico: antes
+> de 2026-11-13 os guards usavam o driver `sanctum` direto, e colocar `web`/`customer` nessa lista
+> causava recursão infinita.)
 
 ### 3.4. Endpoints
 
-Todos sob prefixo `/api`. Guard `web` é o default para as rotas sem prefixo; as rotas `/customer/*` usam `->defaults('guard', 'customer')` no mesmo `AuthController`.
+Todos sob prefixo `/api`. Guard `web` é o default para as rotas sem prefixo; as rotas `/customer/*` usam `->defaults('guard', 'customer')` no mesmo `AuthController`. Escritas vindas do SPA exigem o header `X-CSRF-TOKEN` (§1.3).
 
 | Método | Rota | Guard | Middleware | Body | Resposta (200) |
 |---|---|---|---|---|---|
-| `POST` | `/login` | `web` | `throttle:login` | `{email, password}` | `{token, expires_at, user}` |
-| `POST` | `/customer/login` | `customer` | `throttle:login` | `{email, password}` | `{token, expires_at, user}` |
-| `GET` | `/me` | `web,customer` | `auth:web,customer` | — | `User` (via `UserResource`, ver 3.4.1) ou `Customer` puro + `client: {id, name}` |
-| `POST` | `/refresh` | `web,customer` | `auth:web,customer`, `throttle:login` | — | `{token, expires_at}` — revoga o token atual e emite outro, na mesma transação |
-| `POST` | `/logout` | `web,customer` | `auth:web,customer` | — | `{message}` — revoga só `currentAccessToken()` |
-| `POST` | `/logout-all` | `web,customer` | `auth:web,customer` | — | `{message}` — `tokens()->delete()` |
+| `GET` | `/csrf-token` | — | — | — | `{csrf_token}`; `400` fora da origem do SPA (sem sessão) |
+| `POST` | `/login` | `web` | `throttle:login` | `{email, password}` | `{user, csrf_token}` — abre a sessão (cookie `HttpOnly`, ID novo), **sem token**; `400` fora da origem do SPA |
+| `POST` | `/customer/login` | `customer` | `throttle:login` | `{email, password}` | `{user, csrf_token}` — idem, perfil cliente |
+| `GET` | `/me` | `web` | `auth:web` | — | `User` (via `UserResource`, ver 3.4.1) |
+| `GET` | `/customer/me` | `customer` | `auth:customer` | — | `Customer` puro + `client: {id, name}` |
+| `POST` | `/logout` (+ `/customer/logout`) | `web` / `customer` | `auth:web` / `auth:customer` | — | `{message, csrf_token}` — sai do perfil e invalida a sessão (se veio por token Bearer, revoga só esse token) |
+| `POST` | `/logout-all` (+ `/customer/logout-all`) | `web` / `customer` | `auth:web` / `auth:customer` | — | `{message, csrf_token}` — `sessoes_invalidadas_em = now()`, `tokens()->delete()` e encerra a sessão atual |
 | `POST` | `/forgot-password` (+ `/customer/forgot-password`) | `web` / `customer` | — | `{email}` | `{message}` genérica (não revela se o e-mail existe) |
-| `POST` | `/reset-password` (+ `/customer/reset-password`) | `web` / `customer` | — | `{token, email, password, password_confirmation}` | `{message}` — revoga todos os tokens do usuário/cliente ao concluir |
+| `POST` | `/reset-password` (+ `/customer/reset-password`) | `web` / `customer` | — | `{token, email, password, password_confirmation}` | `{message}` — invalida as sessões e revoga os tokens do usuário/cliente ao concluir |
 
-Validação de erro: credenciais inválidas ou payload malformado → `422` (`ValidationException`); acima do rate limit → `429`; sem token/expirado/revogado em rota protegida → `401`.
+`POST /refresh` foi **removido** em 2026-11-13 (a sessão expira por inatividade e por duração máxima).
+
+Validação de erro: credenciais inválidas ou payload malformado → `422` (`ValidationException`); acima do rate limit → `429`; sem sessão/token válido em rota protegida → `401`; token CSRF ausente ou inválido → `419`.
 
 #### 3.4.1. Formato de `user` (`App\Http\Resources\UserResource`)
 
@@ -2329,8 +2385,8 @@ Feature tests com `RefreshDatabase`, dados montados via factories (`UserFactory`
 
 | Arquivo | Cobre |
 |---|---|
-| `LoginTest.php` | Login staff (com roles/permissions no payload), login customer, e-mail/senha inválidos (staff e customer), e-mail de `User` não autentica no guard `customer` (tabelas separadas), `User` desativado (soft-deleted) não consegue logar mesmo com senha correta |
-| `TokenLifecycleTest.php` | `/refresh` (rotação atômica — token antigo é revogado, abilities preservadas), `/logout` (revoga só o token atual), `/logout-all` (revoga todos, não afeta tokens de outro usuário), `401` sem autenticação |
+| `LoginTest.php` | (reescrito em 2026-11-13 para a sessão por cookie, com o helper `Tests\Concerns\UsaSessaoSpa`, que simula a origem do SPA e leva o cookie de uma requisição à próxima) `GET /csrf-token` só na origem do SPA; login staff abre sessão com cookie `HttpOnly`/`SameSite=Lax`, troca o ID da sessão, não devolve token nem grava `personal_access_tokens`; `/me` funciona e `/customer/me` não (perfis isolados); login cliente e `/customer/me` com `client`; login fora da origem do SPA → `400`; credenciais inválidas/desativado/perfil errado → `422`; rate limit não contornável por `X-Forwarded-For`; logout invalida a sessão (o ID antigo também deixa de valer); staff e cliente no mesmo navegador saem de forma independente; `logout-all` derruba a sessão de outro navegador; redefinição de senha e troca de senha pelo admin derrubam sessões existentes; duração máxima absoluta de 12h |
+| `TokenLifecycleTest.php` | Token Bearer (ainda aceito, não mais emitido): `/refresh` não existe mais (`404`); token de cliente vale em `/customer/me` e não em `/me`; `/logout` revoga só o token atual; `/logout-all` revoga todos e não afeta outro usuário; `401` sem autenticação |
 | `PasswordRecoveryTest.php` | Throttle em `/forgot-password` e `/reset-password` (5 tentativas + bloqueio na 6ª, bucket isolado por e-mail), revogação de todos os tokens após reset bem-sucedido (staff e customer), reset com token inválido não muda a senha |
 | `ConviteTest.php` | `POST /users/{user}/convite` e `/customers/{customer}/convite` disparam `ConviteUsuario` (`Notification::fake()`/`assertSentTo`), `403` sem `users.manage`/`customers.manage` (nenhuma notificação enviada), `401` sem autenticação, `ConviteUsuarioMail::render()` contém o nome do destinatário/URL do token e não tem nenhuma tag `<img>` |
 
