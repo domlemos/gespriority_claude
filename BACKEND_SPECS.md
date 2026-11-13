@@ -1961,16 +1961,34 @@ encaminhamento e origem, que o cliente não pode tocar.
 | `POST` | `/customer/incidentes` | `auth:customer`, `throttle:portal-abertura` (10/min por cliente+IP) | `{titulo, descricao}` | `201` — `{data: {...}}` |
 | `GET` | `/customer/incidentes/{incidente}` | `auth:customer` | — | `200` — o chamado + `descricoes`; `404` se o chamado não é do cliente |
 | `POST` | `/customer/incidentes/{incidente}/comentarios` | `auth:customer`, `throttle:portal-abertura` | `{descricao}` (obrigatório, até 5000) | `201` — a entrada criada (`tipo: comentario`, autor = o cliente); `404` se não é do cliente; `422` em `descricao` se o chamado está `fechado` ou `cancelado` |
+| `POST` | `/customer/incidentes/{incidente}/reabrir` | `auth:customer`, `throttle:portal-abertura` | `{motivo}` (obrigatório, até 5000) | `200` — o chamado no formato do detalhe (`status: aberto`); `404` se não é do cliente; `422` em `motivo` (ausente/em branco) ou em `status` (chamado não está `fechado`, ou passou o prazo de 7 dias) |
 
 `App\Http\Resources\PortalIncidenteResource`: só `id`, `titulo`, `status`, `created_at`,
 `updated_at` — sem grupo, responsável, prioridade, SLA ou classificação. No detalhe, também
 `descricoes` (`PortalDescricaoResource`: `id`, `tipo`, `descricao`, `created_at`,
-`autor: {nome, equipe}` — `equipe` = escrito pelo staff).
+`autor: {nome, equipe}` — `equipe` = escrito pelo staff) e os dados de reabertura:
+`reabrir_ate` (ISO 8601, `null` se o status não é `fechado`) e `pode_reabrir` (bool). Esses dois
+ficam fora da listagem de propósito (seria uma consulta de evento por linha).
+
+> 📌 **Reabertura pelo cliente (2026-11-13).** Só chamado **`fechado`** (não `resolvido` nem
+> `cancelado`), até **7 dias** (`Incidente::PRAZO_REABERTURA_PORTAL_DIAS`) depois do fechamento
+> **mais recente** — o último `IncidenteEvento` `fechado`; chamado reaberto e fechado de novo ganha
+> prazo novo; sem evento (legado), conta de `concluido_em` e, por fim, `updated_at`
+> (`Incidente::reaberturaPortalPermitidaAte()`). Motivo obrigatório. O chamado volta para
+> **`aberto` mantendo grupo e responsável** (volta à fila de quem já atendeu), com os mesmos efeitos
+> de uma reabertura feita pelo staff: `concluido_em` limpo (o SLA de resolução volta a contar contra
+> o `prazo_resolucao` original, que **não** é recalculado), `IncidenteEvento` `reaberto` com
+> `autor_customer_id` (e `user_id` nulo), entrada `alteracao` "Campo 'Status' alterado de 'fechado'
+> para 'aberto'…" no feed do staff (mesmo formato que o backfill de eventos lê) e o motivo como
+> comentário do cliente ("Chamado reaberto pelo cliente. Motivo: …"). No log de ações (§3.4.11),
+> aparece como `atualizado` do chamado com autor cliente. Não há notificação ao staff: o chamado
+> reaparece na fila como `aberto`.
 
 > 📌 **O feed do staff é interno.** No detalhe, o cliente vê só: a **descrição de abertura**
 > (primeira entrada, mesmo quando o staff abriu em nome dele), os **próprios comentários** e a
 > **mensagem de encerramento** (`tipo: encerramento`). Comentários do staff, escalonamentos,
-> alterações e comentários excluídos nunca aparecem.
+> alterações e comentários excluídos nunca aparecem — inclusive a linha de alteração de status que a
+> reabertura grava com autoria do cliente: do cliente, só entram entradas `tipo: comentario`.
 
 > 📌 **Por auditoria, o cliente só abre em nome próprio.** Tudo além de `titulo`/`descricao` é
 > fixado no servidor e qualquer valor no payload é ignorado: `customer_id` e
@@ -2297,6 +2315,7 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Incidentes/IncidenteDescricaoAutorTest.php` | Guarda "exatamente um autor" de `IncidenteDescricao` (`LogicException` sem autor ou com `user_id`+`customer_id`; só `customer_id` salva) |
 | `Portal/PortalIncidenteTest.php` | Cliente abre incidente em nome próprio com tudo fixado no servidor; campos forjados no payload (`customer_id`, `item_id`, `prioridade`, `status`, `tipo`, `origem`, grupo/responsável) ignorados; descrição de abertura com autor cliente; resposta só com `id`/`titulo`/`status`/datas; validação; "meus chamados" só traz os do cliente (nem de colega da mesma empresa); token de staff `401` nas rotas do portal e token de cliente `401` nas do staff |
 | `Portal/PortalTriagemTest.php` | Primeira classificação pelo staff 3h depois da abertura → prioridade do item e prazos contados de `created_at` (SLA de resposta já `estourado`); chamado não triado visível a todo staff com `prioridade: null`/`sem_sla`; `?sem_classificacao=1` (inclusive com `sort_by=prioridade`) |
+| `Portal/PortalReaberturaTest.php` | Cliente reabre chamado `fechado`: volta para `aberto` com o mesmo grupo/responsável, `concluido_em` limpo, evento `reaberto` com `autor_customer_id`, motivo como comentário, linha de alteração no feed (oculta no portal) e log de ações com autor cliente; `pode_reabrir`/`reabrir_ate` só no detalhe; `422` para os outros status, depois de 7 dias do fechamento mais recente (reabrir e fechar de novo renova o prazo), chamado legado sem evento (usa `concluido_em`) e motivo ausente/em branco; `404` em chamado de outro cliente; `401` com token de staff |
 | `Seeders/ChamadosDemoSeederTest.php` | `db:seed` padrão **não** cria a massa de demo; `chamados:popular` cria 100 chamados com os dois tipos, solicitações sempre do staff, classificados com prioridade do item, chamados do portal sem triagem com autor cliente, todos com descrição de abertura; todo chamado `cancelado` (do seed padrão e da massa de demo) tem evento `cancelado`; `--quantidade`; recusa em produção sem confirmação |
 | `Relatorios/*` e `Dashboard/*` | (atualizados) filtro `tipo` em relatório, em agrupamento por evento e em relatório salvo; grupo "Portal (cliente)" no `aberto_por`; `tipo` exposto no dashboard |
 | `Customers/CustomerCrudTest.php` | (atualizado) `409` (não `500`) ao excluir um customer que abriu pelo portal um chamado depois trocado de cliente |

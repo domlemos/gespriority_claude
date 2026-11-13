@@ -57,6 +57,8 @@ Route::prefix('customer')->middleware('auth:customer')->group(function () {
     Route::get('/incidentes/{incidente}', [PortalIncidenteController::class, 'show']);
     Route::post('/incidentes/{incidente}/comentarios', [PortalIncidenteController::class, 'comentar'])
         ->middleware('throttle:portal-abertura');
+    Route::post('/incidentes/{incidente}/reabrir', [PortalIncidenteController::class, 'reabrir'])
+        ->middleware('throttle:portal-abertura');
 });
 
 // Sessão autenticada: funciona para qualquer um dos dois guards, resolvido

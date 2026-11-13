@@ -7,6 +7,7 @@ use App\Http\Resources\PortalDescricaoResource;
 use App\Http\Resources\PortalIncidenteResource;
 use App\Models\Incidente;
 use App\Models\IncidenteDescricao;
+use App\Models\IncidenteEvento;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -62,7 +63,9 @@ class IncidenteController extends Controller
         $descricoes = IncidenteDescricao::query()
             ->where('incidente_id', $incidente->id)
             ->where(fn ($q) => $q
-                ->where('customer_id', $request->user()->id)
+                // Só os comentários do cliente: a linha de "status alterado"
+                // gravada na reabertura (autoria dele) é registro do staff.
+                ->where(fn ($qc) => $qc->where('customer_id', $request->user()->id)->where('tipo', IncidenteDescricao::TIPO_COMENTARIO))
                 ->orWhere('tipo', IncidenteDescricao::TIPO_ENCERRAMENTO)
                 ->orWhere('id', $aberturaId))
             ->with(['user:id,name', 'customer:id,name'])
@@ -96,6 +99,75 @@ class IncidenteController extends Controller
         return (new PortalDescricaoResource($descricao->load('customer:id,name')))
             ->response()
             ->setStatusCode(201);
+    }
+
+    /**
+     * Reabertura pelo cliente: só chamado `fechado` e dentro do prazo
+     * (Incidente::reaberturaPortalPermitidaAte()), com motivo obrigatório.
+     * Volta para `aberto` mantendo grupo e responsável — retorna à fila de
+     * quem já atendeu. Mesmos efeitos colaterais de uma reabertura feita pelo
+     * staff (IncidenteController::update()): `concluido_em` limpo (o SLA de
+     * resolução volta a contar contra o prazo original), evento `reaberto`
+     * (aqui com autoria de cliente) e a alteração de status no feed, no mesmo
+     * formato que o backfill de eventos lê. O motivo vira um comentário do
+     * cliente, visível ao staff e no portal.
+     */
+    public function reabrir(Request $request, Incidente $incidente)
+    {
+        $this->garantirDono($request, $incidente);
+
+        $data = $request->validate([
+            'motivo' => ['required', 'string', 'max:5000'],
+        ]);
+
+        $motivo = trim($data['motivo']);
+        if ($motivo === '') {
+            throw ValidationException::withMessages(['motivo' => 'Informe o motivo da reabertura.']);
+        }
+
+        if ($incidente->status !== 'fechado') {
+            throw ValidationException::withMessages([
+                'status' => 'Só chamados fechados podem ser reabertos.',
+            ]);
+        }
+
+        $ate = $incidente->reaberturaPortalPermitidaAte();
+        if ($ate === null || $ate->isPast()) {
+            throw ValidationException::withMessages([
+                'status' => 'O prazo de '.Incidente::PRAZO_REABERTURA_PORTAL_DIAS.' dias para reabrir este chamado terminou. Abra um novo chamado.',
+            ]);
+        }
+
+        $customer = $request->user();
+
+        DB::transaction(function () use ($incidente, $customer, $motivo) {
+            $incidente->status = 'aberto';
+            $incidente->concluido_em = null;
+            $incidente->save();
+
+            $agora = now(config('app.timezone_exibicao'));
+
+            $incidente->descricoes()->create([
+                'customer_id' => $customer->id,
+                'tipo' => IncidenteDescricao::TIPO_ALTERACAO,
+                'descricao' => "Campo 'Status' alterado de 'fechado' para 'aberto' às ".$agora->format('H:i').' do dia '.$agora->format('d/m/Y').'.',
+            ]);
+
+            $incidente->descricoes()->create([
+                'customer_id' => $customer->id,
+                'tipo' => IncidenteDescricao::TIPO_COMENTARIO,
+                'descricao' => "Chamado reaberto pelo cliente. Motivo: {$motivo}",
+            ]);
+
+            IncidenteEvento::query()->create([
+                'incidente_id' => $incidente->id,
+                'user_id' => null,
+                'autor_customer_id' => $customer->id,
+                'tipo' => IncidenteEvento::TIPO_REABERTO,
+            ]);
+        });
+
+        return $this->show($request, $incidente->refresh());
     }
 
     // 404, não 403: chamado de outro cliente nem "existe" para quem pergunta.
