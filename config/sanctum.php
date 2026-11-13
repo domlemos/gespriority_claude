@@ -2,7 +2,6 @@
 
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
-use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
 use Laravel\Sanctum\Sanctum;
 
 return [
@@ -18,12 +17,17 @@ return [
     |
     */
 
-    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-        '%s%s',
+    // Sem SANCTUM_STATEFUL_DOMAINS, inclui também os hosts de FRONTEND_URL
+    // (a mesma lista do CORS): o SPA ganha sessão por cookie HttpOnly sem
+    // configuração extra em produção. Ver BACKEND_SPECS.md §1.3.
+    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', implode(',', array_filter([
         'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
-        Sanctum::currentApplicationUrlWithPort(),
-        // Sanctum::currentRequestHost(),
-    ))),
+        ...array_map(
+            fn (string $url) => parse_url(trim($url), PHP_URL_HOST).(parse_url(trim($url), PHP_URL_PORT) ? ':'.parse_url(trim($url), PHP_URL_PORT) : ''),
+            array_filter(explode(',', (string) env('FRONTEND_URL', ''))),
+        ),
+        ltrim(Sanctum::currentApplicationUrlWithPort(), ','),
+    ])))),
 
     /*
     |--------------------------------------------------------------------------
@@ -89,7 +93,12 @@ return [
     */
 
     'middleware' => [
-        'authenticate_session' => AuthenticateSession::class,
+        // Desligado: com `sanctum.guard` vazio ele não invalida nada — só
+        // resolveria o usuário do guard padrão em toda requisição do SPA,
+        // inclusive em rotas sem login (e a sessão de um perfil passaria por
+        // autor de ações do outro). Troca de senha e "sair de todos" são
+        // cobertos por `sessoes_invalidadas_em` (GuardSessaoOuToken).
+        'authenticate_session' => null,
         'encrypt_cookies' => EncryptCookies::class,
         'validate_csrf_token' => ValidateCsrfToken::class,
     ],

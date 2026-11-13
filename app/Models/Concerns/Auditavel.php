@@ -21,7 +21,7 @@ use App\Support\Auditoria;
 trait Auditavel
 {
     /** Colunas nunca registradas: técnicas ou sensíveis. */
-    private static array $camposIgnoradosAuditoria = ['id', 'created_at', 'updated_at', 'deleted_at', 'password', 'remember_token'];
+    private static array $camposIgnoradosAuditoria = ['id', 'created_at', 'updated_at', 'deleted_at', 'password', 'remember_token', 'sessoes_invalidadas_em'];
 
     public static function bootAuditavel(): void
     {

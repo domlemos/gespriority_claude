@@ -2,58 +2,34 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Auth;
-use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
 class TokenLifecycleTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_refresh_rotates_the_token_atomically(): void
+    // Token Bearer: ainda aceito pelo guard (testes/integrações), mas nenhum
+    // endpoint o emite ao navegador — /refresh foi removido junto com a
+    // emissão de token no login (BACKEND_SPECS.md §1.3).
+    public function test_refresh_endpoint_no_longer_exists(): void
     {
         $user = User::factory()->create();
-        $original = $user->createToken('spa', ['staff'], now()->addMinutes(120));
+        $token = $user->createToken('spa', ['staff'], now()->addMinutes(120))->plainTextToken;
 
-        $response = $this->postJson('/api/refresh', [], [
-            'Authorization' => "Bearer {$original->plainTextToken}",
-        ]);
-
-        $response->assertOk()->assertJsonStructure(['token', 'expires_at']);
-
-        $newPlainTextToken = $response->json('token');
-        $this->assertNotSame($original->plainTextToken, $newPlainTextToken);
-
-        // Rotação atômica: continua existindo só 1 token, o antigo foi trocado pelo novo.
-        $this->assertDatabaseCount('personal_access_tokens', 1);
-        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $original->accessToken->id]);
-
-        $newToken = PersonalAccessToken::sole();
-        $this->assertSame(['staff'], $newToken->abilities);
-        $this->assertTrue($newToken->expires_at->between(now()->addMinutes(119), now()->addMinutes(121)));
-
-        // Sanctum's RequestGuard memoiza o usuário resolvido na própria instância
-        // do guard (`RequestGuard::$user`), que fica viva entre múltiplas chamadas
-        // dentro do mesmo teste — sem isso, a próxima requisição "herdaria" o
-        // usuário já resolvido na chamada de refresh acima, mesmo mandando um
-        // token diferente/inválido no header.
-        Auth::forgetGuards();
-
-        // Token antigo não autentica mais.
-        $this->postJson('/api/logout', [], ['Authorization' => "Bearer {$original->plainTextToken}"])
-            ->assertStatus(401);
-
-        Auth::forgetGuards();
-
-        // Token novo autentica normalmente.
-        $this->getJson('/api/me', ['Authorization' => "Bearer {$newPlainTextToken}"])->assertOk();
+        $this->postJson('/api/refresh', [], ['Authorization' => "Bearer {$token}"])->assertNotFound();
     }
 
-    public function test_refresh_requires_authentication(): void
+    public function test_customer_bearer_token_works_on_customer_me_only(): void
     {
-        $this->postJson('/api/refresh')->assertStatus(401);
+        $customer = Customer::factory()->create();
+        $token = $customer->createToken('spa', ['customer'], now()->addHours(4))->plainTextToken;
+
+        $this->getJson('/api/customer/me', ['Authorization' => "Bearer {$token}"])->assertOk()->assertJsonPath('id', $customer->id);
+        $this->app['auth']->forgetGuards();
+        $this->getJson('/api/me', ['Authorization' => "Bearer {$token}"])->assertUnauthorized();
     }
 
     public function test_logout_revokes_only_the_current_token(): void

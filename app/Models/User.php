@@ -24,7 +24,7 @@ use Laravel\Sanctum\HasApiTokens;
 // continuam resolvendo o nome via withTrashed() nessas relações. Ver
 // BACKEND_SPECS.md §3.4.3.
 #[Fillable(['name', 'email', 'password', 'grupo_solucao_id'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'sessoes_invalidadas_em'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -40,6 +40,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'sessoes_invalidadas_em' => 'datetime',
         ];
     }
 

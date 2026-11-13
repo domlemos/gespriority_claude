@@ -28,6 +28,10 @@ use Illuminate\Support\Facades\Route;
 
 // Staff (guard "web") e Cliente (guard "customer") têm login e recuperação de
 // senha em rotas próprias, pois cada guard resolve contra seu próprio model/tabela.
+// O SPA autentica por sessão em cookie HttpOnly: antes de qualquer escrita
+// (inclusive o login) busca o token CSRF aqui — ver BACKEND_SPECS.md §1.3.
+Route::get('/csrf-token', [AuthController::class, 'csrf']);
+
 Route::post('/login', [AuthController::class, 'login'])
     ->middleware('throttle:login');
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])
@@ -61,13 +65,20 @@ Route::prefix('customer')->middleware('auth:customer')->group(function () {
         ->middleware('throttle:portal-abertura');
 });
 
-// Sessão autenticada: funciona para qualquer um dos dois guards, resolvido
-// pelo token Bearer apresentado (o primeiro guard que autenticar vence).
-Route::middleware('auth:web,customer')->group(function () {
+// Sessão de cada perfil em rotas próprias: o mesmo navegador pode estar
+// logado como staff e como cliente ao mesmo tempo (um cookie, dois guards),
+// então "quem sou eu"/"sair" precisam dizer de qual perfil. Sem /refresh: a
+// sessão expira por inatividade (session.lifetime) e por duração máxima.
+Route::middleware('auth:web')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
-    Route::post('/refresh', [AuthController::class, 'refresh'])->middleware('throttle:login');
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
+});
+
+Route::prefix('customer')->middleware('auth:customer')->group(function () {
+    Route::get('/me', [AuthController::class, 'me']);
+    Route::post('/logout', [AuthController::class, 'logout'])->defaults('guard', 'customer');
+    Route::post('/logout-all', [AuthController::class, 'logoutAll'])->defaults('guard', 'customer');
 });
 
 // Cliente (empresa contratante) — só staff (guard "web") com a permissão

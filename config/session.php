@@ -169,7 +169,9 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // Sem SESSION_SECURE_COOKIE, só HTTPS em produção (o cookie de sessão é a
+    // credencial do SPA — nunca trafegar em claro).
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV') === 'production'),
 
     /*
     |--------------------------------------------------------------------------

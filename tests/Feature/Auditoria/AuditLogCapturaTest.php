@@ -13,11 +13,12 @@ use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\UsaSessaoSpa;
 use Tests\TestCase;
 
 class AuditLogCapturaTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, UsaSessaoSpa;
 
     private function staff(array $permissionSlugs): User
     {
@@ -156,9 +157,9 @@ class AuditLogCapturaTest extends TestCase
     {
         $user = User::factory()->create(['email' => 'ana@ex.com', 'password' => 'segredo123']);
 
-        $this->postJson('/api/login', ['email' => 'ana@ex.com', 'password' => 'errada'])->assertStatus(422);
-        $this->postJson('/api/login', ['email' => 'ninguem@ex.com', 'password' => 'errada'])->assertStatus(422);
-        $this->postJson('/api/login', ['email' => 'ana@ex.com', 'password' => 'segredo123'])->assertOk();
+        $this->spa('POST', '/api/login', ['email' => 'ana@ex.com', 'password' => 'errada'])->assertStatus(422);
+        $this->spa('POST', '/api/login', ['email' => 'ninguem@ex.com', 'password' => 'errada'])->assertStatus(422);
+        $this->spa('POST', '/api/login', ['email' => 'ana@ex.com', 'password' => 'segredo123'])->assertOk();
 
         $logs = AuditLog::query()->orderBy('id')->get();
 
@@ -169,6 +170,20 @@ class AuditLogCapturaTest extends TestCase
         $this->assertSame('ninguem@ex.com', $logs[1]->ator_nome);
         $this->assertSame($user->id, $logs[2]->ator_id);
         $this->assertSame($user->name, $logs[2]->ator_nome);
+    }
+
+    public function test_unauthenticated_route_does_not_borrow_another_profile_session_as_actor(): void
+    {
+        User::factory()->create(['email' => 'ana@ex.com', 'password' => 'segredo123']);
+        $this->spa('POST', '/api/login', ['email' => 'ana@ex.com', 'password' => 'segredo123'])->assertOk();
+
+        // Mesmo navegador (sessão do staff ativa) tentando o login de cliente.
+        $this->spa('POST', '/api/customer/login', ['email' => 'cliente@ex.com', 'password' => 'errada'])->assertStatus(422);
+
+        $log = AuditLog::query()->where('acao', 'login_falhou')->sole();
+        $this->assertSame('customer', $log->ator_type);
+        $this->assertSame('cliente@ex.com', $log->ator_nome);
+        $this->assertNull($log->ator_id);
     }
 
     public function test_customer_actions_on_the_portal_are_logged_with_the_customer_as_actor(): void

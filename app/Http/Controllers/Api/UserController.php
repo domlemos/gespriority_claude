@@ -72,6 +72,10 @@ class UserController extends Controller
 
         if (! empty($data['password'])) {
             $user->password = Hash::make($data['password']);
+            // Senha trocada pelo admin derruba as sessões abertas da conta
+            // (OWASP) — ver App\Support\Auth\GuardSessaoOuToken.
+            $user->sessoes_invalidadas_em = now();
+            $user->tokens()->delete();
         }
 
         $user->save();

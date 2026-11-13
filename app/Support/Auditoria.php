@@ -71,6 +71,20 @@ final class Auditoria
     /** Usuário do guard que autenticou o request (web ou customer), ou null fora de request autenticado. */
     public static function atorAutenticado(): User|Customer|null
     {
+        // hasUser(), não user(): só quem o middleware `auth:` já autenticou
+        // neste request. Em rota sem login (login, redefinição de senha), o
+        // navegador pode carregar a sessão de outro perfil (staff e cliente
+        // no mesmo navegador) e `user()` a resolveria como autor.
+        if (! Auth::hasUser()) {
+            return null;
+        }
+
+        // Defesa extra: dentro de uma rota, só conta se ela exige `auth:`.
+        $rota = request()?->route();
+        if ($rota !== null && ! collect($rota->gatherMiddleware())->contains(fn ($m) => is_string($m) && ($m === 'auth' || str_starts_with($m, 'auth:')))) {
+            return null;
+        }
+
         $user = Auth::user();
 
         return $user instanceof User || $user instanceof Customer ? $user : null;

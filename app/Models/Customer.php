@@ -15,7 +15,7 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['client_id', 'name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'sessoes_invalidadas_em'])]
 class Customer extends Authenticatable
 {
     /** @use HasFactory<CustomerFactory> */
@@ -26,6 +26,7 @@ class Customer extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'sessoes_invalidadas_em' => 'datetime',
         ];
     }
 
