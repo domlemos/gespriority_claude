@@ -12,6 +12,7 @@ use App\Models\IncidenteEvento;
 use App\Models\Item;
 use App\Models\PoliticaSla;
 use App\Models\User;
+use App\Notifications\ChamadoFechado;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -203,11 +204,16 @@ class IncidenteController extends Controller
             $incidente->update($data);
 
             if ($fechando) {
-                $incidente->descricoes()->create([
+                $encerramento = $incidente->descricoes()->create([
                     'user_id' => $request->user()->id,
                     'tipo' => IncidenteDescricao::TIPO_ENCERRAMENTO,
                     'descricao' => $mensagemEncerramento,
                 ]);
+
+                // Avisa o cliente (solicitante, já com um eventual customer_id
+                // novo deste PUT). afterCommit() na notificação: só sai se a
+                // transação confirmar.
+                $incidente->customer()->first()?->notify(new ChamadoFechado($encerramento));
             }
 
             if ($recalcularSla) {
