@@ -784,6 +784,8 @@ Em `config/sanctum.php`:
 
 ### 3.4. Endpoints
 
+> Referência navegável (OpenAPI 3.1, gerada do código): `/docs/api` — ver §3.4.12. Esta seção continua sendo a fonte das regras de negócio; o Swagger cobre o contrato (rotas, parâmetros, validações e formato das respostas).
+
 Todos sob prefixo `/api`. Guard `web` é o default para as rotas sem prefixo; as rotas `/customer/*` usam `->defaults('guard', 'customer')` no mesmo `AuthController`. Escritas vindas do SPA exigem o header `X-CSRF-TOKEN` (§1.3).
 
 | Método | Rota | Guard | Middleware | Body | Resposta (200) |
@@ -2160,6 +2162,26 @@ Regras:
 - **Retenção de 6 meses:** `model:prune --model=App\Models\AuditLog` agendado diariamente às 03:30
   em `routes/console.php`; em produção roda no container `scheduler` (`php artisan schedule:work`,
   `docker-compose.vps.yml`), que o deploy sobe junto com `app` e `queue`.
+
+### 3.4.12. Documentação OpenAPI / Swagger (`dedoc/scramble`)
+
+Doc da API gerada automaticamente pelo [Scramble](https://scramble.dedoc.co) a partir do código — rotas de `routes/api.php`, regras de `$request->validate()`, tipos de retorno e `JsonResource`s. **Não há anotações para manter**: mudou o controller, mudou a doc. Adicionado em 2026-11-17.
+
+| Rota | O que é |
+|---|---|
+| `GET /docs/api` | UI (Stoplight Elements) com "Try it" |
+| `GET /docs/api.json` | Spec OpenAPI 3.1 em JSON (importável no Postman/Insomnia, geração de client) |
+
+Rotas web (fora do prefixo `/api`), registradas pelo próprio pacote.
+
+- **Acesso:** middleware padrão do Scramble (`RestrictedDocsAccess`). Em `APP_ENV=local` é livre; em qualquer outro ambiente exige o gate `viewApiDocs`, que **não está definido** → `403` em produção/homologação. Para liberar fora do local, definir o gate em `AuthServiceProvider` (ex.: só staff com `users.manage`) — decisão consciente, pois a spec expõe toda a superfície da API.
+- **Config:** `config/scramble.php` — `api_path = 'api'` (servidor `/api`, paths sem o prefixo), título `ITSM API`, descrição explicando o fluxo de autenticação. O "Try it" usa `tryItCredentialsPolicy = include`: abrindo a doc na mesma origem do backend, a chamada leva o cookie de sessão; escritas exigem `X-CSRF-TOKEN` (pegar em `GET /csrf-token`, §1.3).
+- **Exportar arquivo estático:** `php artisan scramble:export` (gera `api.json` na raiz; não versionado). `php artisan scramble:analyze` lista o que o Scramble não conseguiu inferir.
+- **Ajustes no código para a geração funcionar:**
+  - `ConsultaRelatorio::regraCruzada()` e `ConsultaIndicadores::regraComDados()`: as classes anônimas de regra deixaram de usar *constructor promotion* (propriedade declarada + atribuição explícita, comportamento idêntico). O Scramble 0.13 não resolve propriedade promovida de classe anônima e falhava em documentar `GET /relatorios/chamados` e `GET /relatorios/indicadores` inteiros (`Undefined array key "verificar"`).
+  - `@mixin` do model em `PortalIncidenteResource`, `PortalDescricaoResource` (`IncidenteDescricao`) e `IncidenteDashboardResource` (`Incidente`) — os nomes fogem da convenção `XResource → X` e o Scramble não inferia os tipos dos campos.
+- **Limitações conhecidas (avisos do `scramble:analyze`):** regras montadas com `self::CONSTANTE`/`self::metodo()` não são avaliadas estaticamente e ficam de fora da doc daquele parâmetro — `AnexoController@store` (`extensions:`) e `FluxosController@index/chamados` (`self::regras()`). As demais regras desses endpoints são documentadas normalmente.
+- **Teste:** `tests/Feature/ApiDocsTest.php` — `403` fora do local; e, com o gate liberado, o spec contém `/login`, `/incidentes`, `/customer/incidentes` e os dois endpoints de relatório sem erro de geração. O segundo roda em `#[RunInSeparateProcess]`: a análise do spec inteiro retém ~40MB e estourava o `memory_limit` de 128MB no resto da suíte.
 
 ### 3.5. Outras decisões de implementação
 

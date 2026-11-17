@@ -2,12 +2,15 @@
 
 namespace App\Http\Resources;
 
+use App\Models\IncidenteDescricao;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Entrada do feed na visão do cliente: só texto, data e o nome de quem
  * escreveu (`equipe` = staff). Sem ids de usuário nem grupo.
+ *
+ * @mixin IncidenteDescricao
  */
 class PortalDescricaoResource extends JsonResource
 {

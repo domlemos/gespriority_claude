@@ -136,7 +136,18 @@ final readonly class ConsultaIndicadores
         {
             private array $dados = [];
 
-            public function __construct(private Closure $verificar, public bool $implicit) {}
+            private Closure $verificar;
+
+            public bool $implicit;
+
+            // Sem constructor promotion de propósito: o Scramble (doc da API)
+            // não resolve propriedade promovida de classe anônima e deixa de
+            // documentar o endpoint inteiro.
+            public function __construct(Closure $verificar, bool $implicit)
+            {
+                $this->verificar = $verificar;
+                $this->implicit = $implicit;
+            }
 
             public function setData(array $data): static
             {
