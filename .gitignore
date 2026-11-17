@@ -35,3 +35,4 @@ frankenphp
 frankenphp-worker.php
 
 /.worktrees
+/api.json

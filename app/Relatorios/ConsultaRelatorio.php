@@ -237,7 +237,15 @@ final readonly class ConsultaRelatorio
         {
             private array $dados = [];
 
-            public function __construct(private Closure $verificar) {}
+            private Closure $verificar;
+
+            // Sem constructor promotion de propósito: o Scramble (doc da API)
+            // não resolve propriedade promovida de classe anônima e deixa de
+            // documentar o endpoint inteiro.
+            public function __construct(Closure $verificar)
+            {
+                $this->verificar = $verificar;
+            }
 
             public function setData(array $data): static
             {

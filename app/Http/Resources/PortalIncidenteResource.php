@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Incidente;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -9,6 +10,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * Visão do cliente sobre o próprio chamado — de propósito sem grupo,
  * responsável, prioridade, SLA ou classificação (dados internos do
  * atendimento).
+ *
+ * @mixin Incidente
  */
 class PortalIncidenteResource extends JsonResource
 {
