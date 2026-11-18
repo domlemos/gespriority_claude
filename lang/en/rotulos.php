@@ -1,5 +1,5 @@
 <?php
 
 return [
-    'entidade_client' => 'Company',
+    'entidade_client' => 'Client',
 ];

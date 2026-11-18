@@ -133,7 +133,7 @@ class RotulosTraduzidosTest extends TestCase
         }
     }
 
-    public function test_cliente_e_customer_no_no_do_mapa_e_company_na_entidade_de_auditoria(): void
+    public function test_cliente_e_customer_no_no_do_mapa_e_client_na_entidade_de_auditoria(): void
     {
         $this->chamadoSemGrupo();
         $h = [...$this->headers(['relatorios.view', 'auditoria.view'], admin: true), 'Accept-Language' => 'en'];
@@ -143,7 +143,7 @@ class RotulosTraduzidosTest extends TestCase
 
         $this->app['auth']->forgetGuards();
         $opcoes = $this->getJson('/api/audit-logs/opcoes', $h)->json('entidades');
-        $this->assertSame('Company', collect($opcoes)->firstWhere('value', 'client')['title']);
+        $this->assertSame('Client', collect($opcoes)->firstWhere('value', 'client')['title']);
 
         $this->app['auth']->forgetGuards();
         $pt = $this->getJson('/api/audit-logs/opcoes', ['Accept-Language' => 'pt-BR'] + $h)->json('entidades');
