@@ -27,7 +27,7 @@ class PoliticaSlaController extends Controller
                 }
 
                 if (! is_numeric($value) || ! Client::whereKey($value)->exists()) {
-                    $fail('Cliente inválido.');
+                    $fail(__('Cliente inválido.'));
                 }
             }],
         ]);

@@ -63,7 +63,7 @@ class IndicadoresController extends Controller
         $colunas = PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra);
         $coluna = $validado['coluna'] ?? null;
         if ($coluna !== null && ! isset($colunas[$coluna])) {
-            throw ValidationException::withMessages(['coluna' => 'Coluna inexistente neste período.']);
+            throw ValidationException::withMessages(['coluna' => __('Coluna inexistente neste período.')]);
         }
 
         $chave = $validado['chave'];

@@ -90,7 +90,7 @@ class IncidenteController extends Controller
         // cancelamento, e o comentário avisa o agente por e-mail como os demais.
         if ($incidente->status === 'fechado') {
             throw ValidationException::withMessages([
-                'descricao' => 'Este chamado foi fechado e não aceita novos comentários. Se o problema continua, reabra o chamado.',
+                'descricao' => __('Este chamado foi fechado e não aceita novos comentários. Se o problema continua, reabra o chamado.'),
             ]);
         }
 
@@ -128,19 +128,19 @@ class IncidenteController extends Controller
 
         $motivo = trim($data['motivo']);
         if ($motivo === '') {
-            throw ValidationException::withMessages(['motivo' => 'Informe o motivo da reabertura.']);
+            throw ValidationException::withMessages(['motivo' => __('Informe o motivo da reabertura.')]);
         }
 
         if ($incidente->status !== 'fechado') {
             throw ValidationException::withMessages([
-                'status' => 'Só chamados fechados podem ser reabertos.',
+                'status' => __('Só chamados fechados podem ser reabertos.'),
             ]);
         }
 
         $ate = $incidente->reaberturaPortalPermitidaAte();
         if ($ate === null || $ate->isPast()) {
             throw ValidationException::withMessages([
-                'status' => 'O prazo de '.Incidente::PRAZO_REABERTURA_PORTAL_DIAS.' dias para reabrir este chamado terminou. Abra um novo chamado.',
+                'status' => __('O prazo de :dias dias para reabrir este chamado terminou. Abra um novo chamado.', ['dias' => Incidente::PRAZO_REABERTURA_PORTAL_DIAS]),
             ]);
         }
 

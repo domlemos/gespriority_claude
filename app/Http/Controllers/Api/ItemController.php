@@ -58,7 +58,7 @@ class ItemController extends Controller
     {
         if ($item->incidentes()->exists()) {
             return response()->json([
-                'message' => 'Não é possível excluir um item com incidentes vinculados.',
+                'message' => __('Não é possível excluir um item com incidentes vinculados.'),
             ], 409);
         }
 

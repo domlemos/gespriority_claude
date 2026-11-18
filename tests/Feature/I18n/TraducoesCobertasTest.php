@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\I18n;
 
+use App\Models\Incidente;
 use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
@@ -16,7 +17,7 @@ class TraducoesCobertasTest extends TestCase
     private static function constantesDeRotulo(): array
     {
         return [
-            // 'Classe::CONSTANTE' => Classe::CONSTANTE,
+            'Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA' => Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA,
         ];
     }
 

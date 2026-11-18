@@ -31,7 +31,7 @@ class GrupoSolucaoPermissaoController extends Controller
 
         if (array_intersect($liberadas, $bloqueadas) !== []) {
             throw ValidationException::withMessages([
-                'liberadas' => 'Uma permission não pode estar liberada e bloqueada ao mesmo tempo.',
+                'liberadas' => __('Uma permission não pode estar liberada e bloqueada ao mesmo tempo.'),
             ]);
         }
 

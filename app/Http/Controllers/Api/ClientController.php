@@ -54,7 +54,7 @@ class ClientController extends Controller
     {
         if ($client->customers()->exists()) {
             return response()->json([
-                'message' => 'Não é possível excluir um cliente com customers vinculados.',
+                'message' => __('Não é possível excluir um cliente com customers vinculados.'),
             ], 409);
         }
 

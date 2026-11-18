@@ -89,7 +89,7 @@ class CustomerController extends Controller
 
         Auditoria::registrar('convite_enviado', $customer);
 
-        return response()->json(['message' => 'Convite enviado.']);
+        return response()->json(['message' => __('Convite enviado.')]);
     }
 
     public function destroy(Customer $customer)
@@ -103,7 +103,7 @@ class CustomerController extends Controller
 
         if ($temVinculo) {
             return response()->json([
-                'message' => 'Não é possível excluir um customer com incidentes vinculados.',
+                'message' => __('Não é possível excluir um customer com incidentes vinculados.'),
             ], 409);
         }
 

@@ -100,9 +100,9 @@ class IncidenteDescricaoController extends Controller
             $descricao->tipo === IncidenteDescricao::TIPO_COMENTARIO
                 && $descricao->user_id === $request->user()->id,
             403,
-            'Só é possível editar ou excluir a própria anotação.'
+            __('Só é possível editar ou excluir a própria anotação.')
         );
 
-        abort_if($descricao->trashed(), 403, 'Este comentário já foi excluído.');
+        abort_if($descricao->trashed(), 403, __('Este comentário já foi excluído.'));
     }
 }

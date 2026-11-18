@@ -160,7 +160,7 @@ class IncidenteController extends Controller
 
         if ($fechando && $mensagemEncerramento === '') {
             throw ValidationException::withMessages([
-                'mensagem_encerramento' => 'Escreva a mensagem de encerramento para o cliente.',
+                'mensagem_encerramento' => __('Escreva a mensagem de encerramento para o cliente.'),
             ]);
         }
 
@@ -402,7 +402,7 @@ class IncidenteController extends Controller
 
         foreach (Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA as $campo => $rotulo) {
             if (array_key_exists($campo, $data) && $data[$campo] !== $incidente->{$campo}) {
-                $erros[$campo] = "Você não tem permissão para alterar o campo {$rotulo} de um chamado já aberto.";
+                $erros[$campo] = __('Você não tem permissão para alterar o campo :campo de um chamado já aberto.', ['campo' => __($rotulo)]);
             }
         }
 
@@ -423,7 +423,7 @@ class IncidenteController extends Controller
     {
         if ($item->prioridade_padrao === null) {
             throw ValidationException::withMessages([
-                'item_id' => 'O item selecionado não possui prioridade padrão configurada. Defina uma no cadastro do item antes de usá-lo.',
+                'item_id' => __('O item selecionado não possui prioridade padrão configurada. Defina uma no cadastro do item antes de usá-lo.'),
             ]);
         }
 

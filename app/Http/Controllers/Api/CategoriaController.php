@@ -49,7 +49,7 @@ class CategoriaController extends Controller
     {
         if ($categoria->subcategorias()->exists()) {
             return response()->json([
-                'message' => 'Não é possível excluir uma categoria com subcategorias vinculadas.',
+                'message' => __('Não é possível excluir uma categoria com subcategorias vinculadas.'),
             ], 409);
         }
 

@@ -52,13 +52,13 @@ class GrupoSolucaoController extends Controller
     {
         if ($grupo_solucao->users()->exists()) {
             return response()->json([
-                'message' => 'Não é possível excluir um grupo de solução com usuários vinculados.',
+                'message' => __('Não é possível excluir um grupo de solução com usuários vinculados.'),
             ], 409);
         }
 
         if ($grupo_solucao->incidentes()->exists()) {
             return response()->json([
-                'message' => 'Não é possível excluir um grupo de solução com incidentes vinculados.',
+                'message' => __('Não é possível excluir um grupo de solução com incidentes vinculados.'),
             ], 409);
         }
 

@@ -62,7 +62,7 @@ class RelatorioConsultaController extends Controller
 
         $colunas = $c->temPeriodo() ? PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra) : ['total' => 'Total'];
         if ($coluna !== null && ! isset($colunas[$coluna])) {
-            throw ValidationException::withMessages(['coluna' => 'Coluna inexistente neste período.']);
+            throw ValidationException::withMessages(['coluna' => __('Coluna inexistente neste período.')]);
         }
 
         $chave = $validado['chave'];

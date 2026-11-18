@@ -96,7 +96,7 @@ class FluxosController extends Controller
         $porNo = filled($validado['no'] ?? null) && filled($validado['metrica'] ?? null);
         $porSeta = filled($validado['origem'] ?? null) && filled($validado['destino'] ?? null);
         if ($porNo === $porSeta) {
-            throw ValidationException::withMessages(['no' => 'Informe um nó e uma métrica, ou uma origem e um destino.']);
+            throw ValidationException::withMessages(['no' => __('Informe um nó e uma métrica, ou uma origem e um destino.')]);
         }
 
         $corpo = AgregadorFluxos::agregar($c, $u);
@@ -105,11 +105,11 @@ class FluxosController extends Controller
         if ($porNo) {
             $no = collect($corpo['nos'])->firstWhere('chave', $validado['no']);
             if ($no === null) {
-                throw ValidationException::withMessages(['no' => 'Nó inexistente neste mapa.']);
+                throw ValidationException::withMessages(['no' => __('Nó inexistente neste mapa.')]);
             }
             $metrica = $validado['metrica'];
             if ($no[$metrica] === null) {
-                throw ValidationException::withMessages(['metrica' => 'Este número não existe para este nó.']);
+                throw ValidationException::withMessages(['metrica' => __('Este número não existe para este nó.')]);
             }
             $rotulo = "{$no['rotulo']} · ".self::METRICAS[$metrica];
             $selecionadas = $this->selecionarDoNo($c, $u, $no['chave'], $metrica);

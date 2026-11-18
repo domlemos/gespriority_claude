@@ -136,7 +136,7 @@ class AnexoController extends Controller
         $mimesPermitidos = self::MIME_TYPES_POR_EXTENSAO[$extensao] ?? [];
 
         if (! in_array($arquivo->getMimeType(), $mimesPermitidos, true)) {
-            $fail('O conteúdo do arquivo não corresponde à extensão informada.');
+            $fail(__('O conteúdo do arquivo não corresponde à extensão informada.'));
         }
     }
 

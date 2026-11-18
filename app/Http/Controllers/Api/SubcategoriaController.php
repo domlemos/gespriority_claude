@@ -57,7 +57,7 @@ class SubcategoriaController extends Controller
     {
         if ($subcategoria->itens()->exists()) {
             return response()->json([
-                'message' => 'Não é possível excluir uma subcategoria com itens vinculados.',
+                'message' => __('Não é possível excluir uma subcategoria com itens vinculados.'),
             ], 409);
         }
 

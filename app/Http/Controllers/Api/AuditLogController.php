@@ -40,7 +40,7 @@ class AuditLogController extends Controller
 
         if (Carbon::parse($filtros['data_inicio'])->diffInDays(Carbon::parse($filtros['data_fim'])) >= self::MAX_DIAS) {
             throw ValidationException::withMessages([
-                'data_fim' => 'O período máximo da consulta é de '.self::MAX_DIAS.' dias.',
+                'data_fim' => __('O período máximo da consulta é de :dias dias.', ['dias' => self::MAX_DIAS]),
             ]);
         }
 

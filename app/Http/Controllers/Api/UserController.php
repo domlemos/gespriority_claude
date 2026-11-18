@@ -97,14 +97,14 @@ class UserController extends Controller
 
         Auditoria::registrar('convite_enviado', $user);
 
-        return response()->json(['message' => 'Convite enviado.']);
+        return response()->json(['message' => __('Convite enviado.')]);
     }
 
     public function destroy(Request $request, User $user)
     {
         if ($user->id === $request->user()->id) {
             return response()->json([
-                'message' => 'Não é possível desativar a própria conta.',
+                'message' => __('Não é possível desativar a própria conta.'),
             ], 409);
         }
 

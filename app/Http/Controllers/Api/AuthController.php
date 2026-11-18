@@ -50,7 +50,7 @@ class AuthController extends Controller
      */
     public function csrf(Request $request): JsonResponse
     {
-        abort_unless($request->hasSession(), 400, 'Sessão indisponível para esta origem.');
+        abort_unless($request->hasSession(), 400, __('Sessão indisponível para esta origem.'));
 
         return response()->json(['csrf_token' => $request->session()->token()]);
     }
@@ -66,7 +66,7 @@ class AuthController extends Controller
 
         // Sem sessão = origem fora de `sanctum.stateful` (não é o SPA): não
         // há onde guardar o login, e nenhum token é emitido no lugar.
-        abort_unless($request->hasSession(), 400, 'Login disponível apenas pelo aplicativo web.');
+        abort_unless($request->hasSession(), 400, __('Login disponível apenas pelo aplicativo web.'));
 
         $model = $config['model']::query()->where('email', $credentials['email'])->first();
 
