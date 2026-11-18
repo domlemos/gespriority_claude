@@ -63,7 +63,7 @@ class FluxosController extends Controller
                 'exportado',
                 alteracoes: ['parametros' => $this->parametros($c)],
                 entidadeType: 'relatorio',
-                entidadeLabel: $corpo['titulo'],
+                entidadeLabel: fn () => TextosFluxos::titulo($c),
             );
 
             return Excel::download(new FluxosExport($corpo, $u, now()), 'mapa-de-fluxos.xlsx');
@@ -102,6 +102,18 @@ class FluxosController extends Controller
         $corpo = AgregadorFluxos::agregar($c, $u);
         $rotulos = array_column($corpo['nos'], 'rotulo', 'chave');
 
+        // Texto da linha/seta selecionada, no idioma corrente (o log reavalia em PT).
+        $rotuloDe = function (array $corpo) use ($porNo, $validado): string {
+            if ($porNo) {
+                $no = collect($corpo['nos'])->firstWhere('chave', $validado['no']);
+
+                return "{$no['rotulo']} · ".__(self::METRICAS[$validado['metrica']]);
+            }
+            $nomes = array_column($corpo['nos'], 'rotulo', 'chave');
+
+            return ($nomes[$validado['origem']] ?? $validado['origem']).' → '.($nomes[$validado['destino']] ?? $validado['destino']);
+        };
+
         if ($porNo) {
             $no = collect($corpo['nos'])->firstWhere('chave', $validado['no']);
             if ($no === null) {
@@ -111,10 +123,10 @@ class FluxosController extends Controller
             if ($no[$metrica] === null) {
                 throw ValidationException::withMessages(['metrica' => __('Este número não existe para este nó.')]);
             }
-            $rotulo = "{$no['rotulo']} · ".__(self::METRICAS[$metrica]);
+            $rotulo = $rotuloDe($corpo);
             $selecionadas = $this->selecionarDoNo($c, $u, $no['chave'], $metrica);
         } else {
-            $rotulo = ($rotulos[$validado['origem']] ?? $validado['origem']).' → '.($rotulos[$validado['destino']] ?? $validado['destino']);
+            $rotulo = $rotuloDe($corpo);
             $selecionadas = $this->ordenar(FonteFluxos::passagens($c, $u)
                 ->filter(fn (Passagem $p) => $p->origem === $validado['origem'] && $p->destino === $validado['destino'])
                 ->map(fn (Passagem $p) => $p->base));
@@ -127,7 +139,11 @@ class FluxosController extends Controller
                 'exportado',
                 alteracoes: ['parametros' => $this->parametros($c) + $request->only(['no', 'metrica', 'origem', 'destino'])],
                 entidadeType: 'relatorio',
-                entidadeLabel: "{$corpo['titulo']} — {$rotulo}",
+                entidadeLabel: function () use ($c, $u, $rotuloDe): string {
+                    $pt = AgregadorFluxos::agregar($c, $u);
+
+                    return "{$pt['titulo']} — ".$rotuloDe($pt);
+                },
             );
 
             return Excel::download(

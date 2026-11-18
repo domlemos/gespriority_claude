@@ -63,7 +63,7 @@ class AuditLogController extends Controller
                 ] : null,
                 'entidade' => $log->entidade_type ? [
                     'type' => $log->entidade_type,
-                    'type_rotulo' => isset(AuditLog::ENTIDADES[$log->entidade_type]) ? __(AuditLog::ENTIDADES[$log->entidade_type][1]) : $log->entidade_type,
+                    'type_rotulo' => AuditLog::rotuloEntidade($log->entidade_type),
                     'id' => $log->entidade_id,
                     'label' => $log->entidade_label,
                 ] : null,
@@ -84,7 +84,7 @@ class AuditLogController extends Controller
     {
         return response()->json([
             'acoes' => collect(AuditLog::ACOES)->map(fn ($rotulo, $slug) => ['value' => $slug, 'title' => __($rotulo)])->values(),
-            'entidades' => collect(AuditLog::ENTIDADES)->map(fn ($e, $slug) => ['value' => $slug, 'title' => __($e[1])])->values(),
+            'entidades' => collect(AuditLog::ENTIDADES)->map(fn ($e, $slug) => ['value' => $slug, 'title' => AuditLog::rotuloEntidade($slug)])->values(),
             'max_dias' => self::MAX_DIAS,
             'retencao_meses' => AuditLog::RETENCAO_MESES,
         ]);

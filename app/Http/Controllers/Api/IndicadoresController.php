@@ -10,6 +10,7 @@ use App\Relatorios\Indicadores\AgregadorIndicadores;
 use App\Relatorios\Indicadores\ConsultaIndicadores;
 use App\Relatorios\Indicadores\FonteIndicadores;
 use App\Relatorios\Indicadores\LinhaIndicador;
+use App\Relatorios\Indicadores\TextosIndicadores;
 use App\Relatorios\LinhaBase;
 use App\Relatorios\ListaChamados;
 use App\Support\Auditoria;
@@ -82,7 +83,14 @@ class IndicadoresController extends Controller
                 'exportado',
                 alteracoes: ['parametros' => $request->except('formato')],
                 entidadeType: 'relatorio',
-                entidadeLabel: "{$corpo['titulo']} — {$descricao}",
+                entidadeLabel: function () use ($c, $linhas, $u, $chave, $indicador, $coluna): string {
+                    $pt = AgregadorIndicadores::agregar($c, $linhas, $u);
+                    $colunaPt = $coluna === null ? null : PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra)[$coluna];
+
+                    return "{$pt['titulo']} — ".__('Linha: :linha', ['linha' => collect($pt['linhas'])->firstWhere('chave', $chave)['rotulo'] ?? "#{$chave}"])
+                        .' · '.collect($pt['indicadores'])->firstWhere('chave', $indicador)['rotulo']
+                        .($colunaPt ? " · {$colunaPt}" : '');
+                },
             );
 
             return Excel::download(
@@ -132,7 +140,7 @@ class IndicadoresController extends Controller
                 'exportado',
                 alteracoes: ['parametros' => $this->parametros($c)],
                 entidadeType: 'relatorio',
-                entidadeLabel: $corpo['titulo'],
+                entidadeLabel: fn () => TextosIndicadores::titulo($c),
             );
 
             return Excel::download(new IndicadoresExport($corpo, $u, now()), 'relatorio-indicadores.xlsx');

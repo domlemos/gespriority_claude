@@ -83,6 +83,19 @@ class AuditLog extends Model
         ];
     }
 
+    /**
+     * Rótulo traduzido da entidade. "Cliente" aqui é a empresa (`clients`) e
+     * não o solicitante, então tem chave própria em lang/{pt_BR,en}/rotulos.php.
+     */
+    public static function rotuloEntidade(string $alias): string
+    {
+        if ($alias === 'client') {
+            return __('rotulos.entidade_client');
+        }
+
+        return isset(self::ENTIDADES[$alias]) ? __(self::ENTIDADES[$alias][1]) : $alias;
+    }
+
     public static function aliasDe(Model $model): ?string
     {
         foreach (self::ENTIDADES as $alias => [$classe]) {

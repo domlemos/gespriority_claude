@@ -20,6 +20,7 @@ final class Auditoria
      * @param  Model|null  $entidade  alvo da ação (null em login/logout/exportação)
      * @param  array|null  $alteracoes  `{campo: {de, para}}` ou contexto livre (ex.: filtros da exportação)
      * @param  User|Customer|null  $ator  default: usuário autenticado no request
+     * @param  string|\Closure|null  $entidadeLabel  texto, ou closure avaliada com o locale pt_BR
      */
     public static function registrar(
         string $acao,
@@ -27,13 +28,24 @@ final class Auditoria
         ?array $alteracoes = null,
         User|Customer|null $ator = null,
         ?string $entidadeType = null,
-        ?string $entidadeLabel = null,
+        string|\Closure|null $entidadeLabel = null,
         ?string $atorNome = null,
         ?string $atorType = null,
         ?int $atorId = null,
     ): void {
         $ator ??= self::atorAutenticado();
         $request = request();
+
+        // O log é um registro: o rótulo é sempre gravado em PT, qualquer que seja o idioma da requisição.
+        if ($entidadeLabel instanceof \Closure) {
+            $atual = app()->getLocale();
+            app()->setLocale('pt_BR');
+            try {
+                $entidadeLabel = $entidadeLabel();
+            } finally {
+                app()->setLocale($atual);
+            }
+        }
 
         AuditLog::query()->create([
             'ator_type' => $ator ? AuditLog::aliasDe($ator) : $atorType,

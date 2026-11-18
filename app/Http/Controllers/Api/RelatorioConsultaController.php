@@ -79,7 +79,12 @@ class RelatorioConsultaController extends Controller
                 'exportado',
                 alteracoes: ['parametros' => $request->except('formato')],
                 entidadeType: 'relatorio',
-                entidadeLabel: "{$titulo} — {$descricao}",
+                entidadeLabel: function () use ($c, $fonte, $chave, $coluna): string {
+                    $colunasPt = $c->temPeriodo() ? PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra) : ['total' => __('Total')];
+                    $linhaPt = $fonte->rotulos($c, [$chave])[$chave] ?? "#{$chave}";
+
+                    return TituloRelatorio::montar($c).' — '.__('Linha: :linha', ['linha' => $linhaPt]).($coluna === null ? '' : " · {$colunasPt[$coluna]}");
+                },
             );
 
             return Excel::download(
@@ -126,7 +131,7 @@ class RelatorioConsultaController extends Controller
                 'exportado',
                 alteracoes: ['parametros' => request()->except('formato')],
                 entidadeType: 'relatorio',
-                entidadeLabel: $resultado->titulo,
+                entidadeLabel: fn () => TituloRelatorio::montar($c),
             );
 
             return Excel::download(

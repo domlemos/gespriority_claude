@@ -114,4 +114,39 @@ class RotulosTraduzidosTest extends TestCase
         $en = $this->getJson('/api/relatorios/incidentes?agrupar_por=status_sla', [...$h, 'Accept-Language' => 'en'])->assertOk();
         $this->assertSame(['Within SLA', 'SLA breached', 'No applicable SLA'], array_column($en->json('data'), 'rotulo'));
     }
+
+    public function test_rotulo_de_auditoria_da_exportacao_e_sempre_pt(): void
+    {
+        $this->chamadoSemGrupo();
+        $h = [...$this->headers(['relatorios.view'], admin: true), 'Accept-Language' => 'en'];
+
+        $urls = [
+            '/api/relatorios/incidentes?contar=abertos&agrupar_por=categoria&data_inicio=2026-10-01&data_fim=2026-10-31&formato=xlsx' => 'Chamados abertos (criados) de 01/10/2026 a 31/10/2026 por categoria',
+            '/api/relatorios/indicadores?data_inicio=2026-10-01&data_fim=2026-10-31&formato=xlsx' => 'Indicadores por grupo de solução — de 01/10/2026 a 31/10/2026',
+            '/api/relatorios/fluxos?data_inicio=2026-10-01&data_fim=2026-10-31&formato=xlsx' => 'Mapa de fluxos — de 01/10/2026 a 31/10/2026',
+        ];
+        foreach ($urls as $url => $esperado) {
+            $this->app['auth']->forgetGuards();
+            AuditLog::query()->delete();
+            $this->get($url, $h)->assertOk();
+            $this->assertSame($esperado, AuditLog::query()->where('acao', 'exportado')->latest('id')->value('entidade_label'), $url);
+        }
+    }
+
+    public function test_cliente_e_customer_no_no_do_mapa_e_company_na_entidade_de_auditoria(): void
+    {
+        $this->chamadoSemGrupo();
+        $h = [...$this->headers(['relatorios.view', 'auditoria.view'], admin: true), 'Accept-Language' => 'en'];
+
+        $nos = $this->getJson('/api/relatorios/fluxos?data_inicio=2026-10-01&data_fim=2026-10-31', $h)->json('nos');
+        $this->assertSame('Customer', collect($nos)->firstWhere('chave', 'cliente')['rotulo']);
+
+        $this->app['auth']->forgetGuards();
+        $opcoes = $this->getJson('/api/audit-logs/opcoes', $h)->json('entidades');
+        $this->assertSame('Company', collect($opcoes)->firstWhere('value', 'client')['title']);
+
+        $this->app['auth']->forgetGuards();
+        $pt = $this->getJson('/api/audit-logs/opcoes', ['Accept-Language' => 'pt-BR'] + $h)->json('entidades');
+        $this->assertSame('Cliente', collect($pt)->firstWhere('value', 'client')['title']);
+    }
 }
