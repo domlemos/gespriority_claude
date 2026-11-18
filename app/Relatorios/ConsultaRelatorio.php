@@ -155,7 +155,7 @@ final readonly class ConsultaRelatorio
 
         // `contar` inválido já tem o próprio erro; não duplica aqui.
         if ($permitidos !== null && ! in_array($valor, $permitidos, true)) {
-            $falhar("Agrupamento \"{$valor}\" não está disponível para contar={$dados['contar']}.");
+            $falhar(__('Agrupamento ":valor" não está disponível para contar=:contar.', ['valor' => $valor, 'contar' => $dados['contar']]));
         }
     }
 
@@ -165,11 +165,11 @@ final readonly class ConsultaRelatorio
             return;
         }
 
-        $nome = self::NOME_QUEBRA[$valor];
+        $nome = __(self::NOME_QUEBRA[$valor]);
         $periodo = self::periodoDosDados($dados);
 
         if ($periodo === null) {
-            $falhar("Informe um período para quebrar por {$nome}.");
+            $falhar(__('Informe um período para quebrar por :nome.', ['nome' => $nome]));
 
             return;
         }
@@ -181,7 +181,7 @@ final readonly class ConsultaRelatorio
 
         $limite = PeriodoRelatorio::LIMITE_COLUNAS[$valor];
         if (self::excedeLimite($inicio, $fim, $valor, $limite)) {
-            $falhar("Período longo demais para quebra por {$nome}: máximo de {$limite} colunas.");
+            $falhar(__('Período longo demais para quebra por :nome: máximo de :limite colunas.', ['nome' => $nome, 'limite' => $limite]));
         }
     }
 

@@ -45,9 +45,9 @@ class IndicadoresExport extends DefaultValueBinder implements FromArray, WithCus
         $colunas = $comQuebra ? $b['colunas'] : [];
         $emBrasilia = $this->geradoEm->copy()->setTimezone(config('app.timezone_exibicao'));
 
-        $cabecalho = [$b['por_integrante'] ? 'Integrante' : 'Grupo'];
+        $cabecalho = [$b['por_integrante'] ? __('Integrante') : __('Grupo')];
         foreach ($b['indicadores'] as $ind) {
-            array_push($cabecalho, ...[...array_column($colunas, 'rotulo'), "{$ind['rotulo']} — Total"]);
+            array_push($cabecalho, ...[...array_column($colunas, 'rotulo'), __(':indicador — Total', ['indicador' => $ind['rotulo']])]);
         }
 
         // Linha de valores de um bloco {indicador => {celulas, total}}, na ordem do cabeçalho.
@@ -65,7 +65,7 @@ class IndicadoresExport extends DefaultValueBinder implements FromArray, WithCus
 
         $linhas = [
             [$b['titulo']],
-            ['Gerado em '.$emBrasilia->format('d/m/Y H:i')." (horário de Brasília) por {$this->geradoPor->name}"],
+            [__('Gerado em :data (horário de Brasília) por :nome', ['data' => $emBrasilia->format(__('d/m/Y H:i')), 'nome' => $this->geradoPor->name])],
             [''],
             $cabecalho,
         ];
@@ -74,16 +74,16 @@ class IndicadoresExport extends DefaultValueBinder implements FromArray, WithCus
             $linhas[] = [$linha['rotulo'], ...$valores($linha['valores'])];
         }
 
-        $linhas[] = ['Total', ...$valores($b['totais'])];
+        $linhas[] = [__('Total'), ...$valores($b['totais'])];
 
         $distintos = [];
         foreach ($b['indicadores'] as $ind) {
             array_push($distintos, ...[...array_fill(0, count($colunas), ''), $b['distintos'][$ind['chave']]]);
         }
-        $linhas[] = ['Chamados distintos', ...$distintos];
+        $linhas[] = [__('Chamados distintos'), ...$distintos];
 
         $linhas[] = [''];
-        $linhas[] = ['Legenda'];
+        $linhas[] = [__('Legenda')];
         foreach ($b['legenda'] as $texto) {
             $linhas[] = [$texto];
         }

@@ -55,18 +55,34 @@ final class TituloRelatorio
     public static function montar(ConsultaRelatorio $c): string
     {
         $periodo = $c->temPeriodo()
-            ? 'de '.self::data($c->inicio).' a '.self::data($c->fim)
-            : 'em todo o período';
+            ? __('de :inicio a :fim', ['inicio' => self::data($c->inicio), 'fim' => self::data($c->fim)])
+            : __('em todo o período');
 
-        $titulo = self::SUJEITOS[$c->contar]." {$periodo} por ".self::AGRUPAMENTOS[$c->agruparPor];
+        $titulo = __(':sujeito :periodo por :agrupamento', [
+            'sujeito' => __(self::SUJEITOS[$c->contar]),
+            'periodo' => $periodo,
+            'agrupamento' => self::agrupamento($c->agruparPor),
+        ]);
 
         if (isset(self::QUEBRAS[$c->quebra])) {
-            $titulo .= ', por '.self::QUEBRAS[$c->quebra];
+            $titulo .= __(', por :quebra', ['quebra' => __(self::QUEBRAS[$c->quebra])]);
         }
 
         $filtros = self::filtros($c->filtros);
 
         return $filtros === [] ? $titulo : $titulo.' — '.implode('; ', $filtros);
+    }
+
+    /** Nome do agrupamento "por ...", no idioma da requisição. */
+    public static function agrupamento(string $agruparPor): string
+    {
+        return __(self::AGRUPAMENTOS[$agruparPor]);
+    }
+
+    /** Rótulo de um status do chamado, no idioma da requisição. */
+    public static function status(string $status): string
+    {
+        return isset(self::STATUS[$status]) ? __(self::STATUS[$status]) : $status;
     }
 
     /**
@@ -84,23 +100,23 @@ final class TituloRelatorio
             }
         };
 
-        $nome('grupo_analista_id', 'grupo do analista', RotulosRelatorio::grupos(...));
-        $nome('grupo_solucao_id', 'grupo de solução', RotulosRelatorio::grupos(...));
-        $nome('client_id', 'cliente', RotulosRelatorio::clientes(...));
+        $nome('grupo_analista_id', __('grupo do analista'), RotulosRelatorio::grupos(...));
+        $nome('grupo_solucao_id', __('grupo de solução'), RotulosRelatorio::grupos(...));
+        $nome('client_id', __('cliente'), RotulosRelatorio::clientes(...));
         // `customer_id` é o usuário do portal, não a empresa (spec 6A.8).
-        $nome('customer_id', 'usuário do cliente', RotulosRelatorio::customers(...));
-        $nome('categoria_id', 'categoria', RotulosRelatorio::categorias(...));
-        $nome('subcategoria_id', 'subcategoria', RotulosRelatorio::subcategorias(...));
-        $nome('item_id', 'item', RotulosRelatorio::itens(...));
+        $nome('customer_id', __('usuário do cliente'), RotulosRelatorio::customers(...));
+        $nome('categoria_id', __('categoria'), RotulosRelatorio::categorias(...));
+        $nome('subcategoria_id', __('subcategoria'), RotulosRelatorio::subcategorias(...));
+        $nome('item_id', __('item'), RotulosRelatorio::itens(...));
 
         if (isset($f['tipo'])) {
-            $partes[] = 'tipo: '.(Incidente::TIPO_ROTULOS[$f['tipo']] ?? $f['tipo']);
+            $partes[] = __('tipo').': '.(isset(Incidente::TIPO_ROTULOS[$f['tipo']]) ? __(Incidente::TIPO_ROTULOS[$f['tipo']]) : $f['tipo']);
         }
 
-        $nome('responsavel_id', 'responsável', RotulosRelatorio::usuarios(...));
+        $nome('responsavel_id', __('responsável'), RotulosRelatorio::usuarios(...));
 
         if (isset($f['status'])) {
-            $partes[] = 'status: '.(self::STATUS[$f['status']] ?? $f['status']);
+            $partes[] = __('status').': '.self::status($f['status']);
         }
 
         return $partes;
@@ -108,6 +124,6 @@ final class TituloRelatorio
 
     private static function data(string $ymd): string
     {
-        return Carbon::createFromFormat('Y-m-d', $ymd)->format('d/m/Y');
+        return Carbon::createFromFormat('Y-m-d', $ymd)->format(__('d/m/Y'));
     }
 }

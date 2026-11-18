@@ -47,22 +47,22 @@ class RelatorioChamadosExport extends DefaultValueBinder implements FromArray, W
     public function array(): array
     {
         $fuso = config('app.timezone_exibicao');
-        $cabecalho = ['Nº', 'Título', 'Status', 'Data', 'Analista', 'Grupo de Solução'];
+        $cabecalho = [__('Nº'), __('Título'), __('Status'), __('Data'), __('Analista'), __('Grupo de Solução')];
 
         $linhas = [
             [$this->titulo],
             [$this->descricaoLinha],
-            ['Gerado em '.$this->geradoEm->copy()->setTimezone($fuso)->format('d/m/Y H:i')." (horário de Brasília) por {$this->geradoPor->name}"],
+            [__('Gerado em :data (horário de Brasília) por :nome', ['data' => $this->geradoEm->copy()->setTimezone($fuso)->format(__('d/m/Y H:i')), 'nome' => $this->geradoPor->name])],
             [''],
-            $this->comDestino ? [...$cabecalho, 'Destino'] : $cabecalho,
+            $this->comDestino ? [...$cabecalho, __('Destino')] : $cabecalho,
         ];
 
         foreach ($this->itens as $item) {
             $linha = [
                 $item['incidente_id'],
                 $item['titulo'],
-                TituloRelatorio::STATUS[$item['status']] ?? $item['status'],
-                CarbonImmutable::parse($item['data'])->setTimezone($fuso)->format('d/m/Y H:i'),
+                TituloRelatorio::status($item['status']),
+                CarbonImmutable::parse($item['data'])->setTimezone($fuso)->format(__('d/m/Y H:i')),
                 $item['autor']['name'] ?? '',
                 $item['grupo_chamado']['nome'] ?? '',
             ];

@@ -22,6 +22,6 @@ class RelatorioIncidentesExport implements FromCollection, WithHeadings
 
     public function headings(): array
     {
-        return [$this->rotuloAgrupamento, 'Total'];
+        return [__($this->rotuloAgrupamento), __('Total')];
     }
 }

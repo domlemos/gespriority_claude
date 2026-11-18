@@ -58,7 +58,7 @@ final class AgregadorFluxos
 
         $especial = fn (string $chave, ?int $abertos = null) => [
             'chave' => $chave,
-            'rotulo' => TextosFluxos::ROTULOS[$chave],
+            'rotulo' => TextosFluxos::rotulo($chave),
             'tipo' => $chave,
             'vizinho' => false,
             'abertos' => $abertos,
@@ -100,7 +100,7 @@ final class AgregadorFluxos
             'grupos' => $c->grupos,
             'nos' => $nos,
             'arestas' => $arestas,
-            'legenda' => TextosFluxos::LEGENDA,
+            'legenda' => TextosFluxos::legenda(),
             'aviso' => TextosFluxos::aviso(FonteFluxos::retroativos($c)),
         ];
     }

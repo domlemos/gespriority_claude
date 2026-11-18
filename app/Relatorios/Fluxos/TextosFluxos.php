@@ -29,13 +29,24 @@ final class TextosFluxos
         'As setas contam passagens no período. Recebidos menos encaminhados menos resolvidos não é o número de chamados em aberto.',
     ];
 
+    public static function rotulo(string $chave): string
+    {
+        return __(self::ROTULOS[$chave]);
+    }
+
+    /** @return list<string> */
+    public static function legenda(): array
+    {
+        return array_map(fn (string $texto) => __($texto), self::LEGENDA);
+    }
+
     public static function titulo(ConsultaIndicadores $c): string
     {
-        $titulo = 'Mapa de fluxos — de '.self::data($c->inicio).' a '.self::data($c->fim);
+        $titulo = __('Mapa de fluxos — de :inicio a :fim', ['inicio' => self::data($c->inicio), 'fim' => self::data($c->fim)]);
 
         if ($c->grupos !== []) {
             $nomes = RotulosRelatorio::grupos($c->grupos);
-            $titulo .= ' — grupos: '.implode(', ', array_map(fn (int $id) => $nomes[$id] ?? "#{$id}", $c->grupos));
+            $titulo .= __(' — grupos: ').implode(', ', array_map(fn (int $id) => $nomes[$id] ?? "#{$id}", $c->grupos));
         }
 
         return $titulo;
@@ -48,13 +59,13 @@ final class TextosFluxos
             return null;
         }
 
-        $data = Carbon::instance($ultimo)->setTimezone(config('app.timezone_exibicao'))->format('d/m/Y');
+        $data = Carbon::instance($ultimo)->setTimezone(config('app.timezone_exibicao'))->format(__('d/m/Y'));
 
-        return "Dados aproximados: registros até {$data} foram reconstruídos; nesses casos a origem de um encaminhamento pode aparecer como desconhecida e o grupo de quem abriu é o grupo atual da pessoa.";
+        return __('Dados aproximados: registros até :data foram reconstruídos; nesses casos a origem de um encaminhamento pode aparecer como desconhecida e o grupo de quem abriu é o grupo atual da pessoa.', ['data' => $data]);
     }
 
     private static function data(string $ymd): string
     {
-        return Carbon::createFromFormat('Y-m-d', $ymd)->format('d/m/Y');
+        return Carbon::createFromFormat('Y-m-d', $ymd)->format(__('d/m/Y'));
     }
 }

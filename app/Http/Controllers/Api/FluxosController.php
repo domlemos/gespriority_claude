@@ -111,7 +111,7 @@ class FluxosController extends Controller
             if ($no[$metrica] === null) {
                 throw ValidationException::withMessages(['metrica' => __('Este número não existe para este nó.')]);
             }
-            $rotulo = "{$no['rotulo']} · ".self::METRICAS[$metrica];
+            $rotulo = "{$no['rotulo']} · ".__(self::METRICAS[$metrica]);
             $selecionadas = $this->selecionarDoNo($c, $u, $no['chave'], $metrica);
         } else {
             $rotulo = ($rotulos[$validado['origem']] ?? $validado['origem']).' → '.($rotulos[$validado['destino']] ?? $validado['destino']);
@@ -176,7 +176,7 @@ class FluxosController extends Controller
             if ($comDestino) {
                 // Passagens têm `chave` "{origem}>{destino}".
                 $destino = substr((string) $linha->chave, strpos((string) $linha->chave, '>') + 1);
-                $itens[$i]['destino'] = $rotulos[$destino] ?? TextosFluxos::ROTULOS[FonteFluxos::OUTROS];
+                $itens[$i]['destino'] = $rotulos[$destino] ?? TextosFluxos::rotulo(FonteFluxos::OUTROS);
             }
             $grupo = $itens[$i]['grupo_chamado']['id'] ?? null;
             if ($visiveis !== null && $grupo !== null && ! in_array($grupo, $visiveis, true)) {

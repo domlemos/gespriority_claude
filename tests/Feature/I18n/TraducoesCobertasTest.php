@@ -2,7 +2,13 @@
 
 namespace Tests\Feature\I18n;
 
+use App\Http\Controllers\Api\RelatorioController;
+use App\Models\AuditLog;
 use App\Models\Incidente;
+use App\Relatorios\Fluxos\TextosFluxos;
+use App\Relatorios\Indicadores\TextosIndicadores;
+use App\Relatorios\RotulosRelatorio;
+use App\Relatorios\TituloRelatorio;
 use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
@@ -18,6 +24,20 @@ class TraducoesCobertasTest extends TestCase
     {
         return [
             'Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA' => Incidente::CAMPOS_RESTRITOS_APOS_ABERTURA,
+            'Incidente::TIPO_ROTULOS' => Incidente::TIPO_ROTULOS,
+            'AuditLog::ACOES' => AuditLog::ACOES,
+            'AuditLog::ENTIDADES' => array_column(AuditLog::ENTIDADES, 1),
+            'TextosFluxos::ROTULOS' => TextosFluxos::ROTULOS,
+            'TextosFluxos::LEGENDA' => TextosFluxos::LEGENDA,
+            'TextosIndicadores::ROTULOS' => TextosIndicadores::ROTULOS,
+            'TextosIndicadores::LEGENDA' => TextosIndicadores::LEGENDA,
+            'TextosIndicadores::ROTULO_PORTAL' => [TextosIndicadores::ROTULO_PORTAL],
+            'TextosIndicadores::ROTULO_SEM_AUTOR' => [TextosIndicadores::ROTULO_SEM_AUTOR],
+            'RotulosRelatorio::VAZIOS' => RotulosRelatorio::VAZIOS,
+            'RotulosRelatorio::STATUS_SLA' => RotulosRelatorio::STATUS_SLA,
+            'TituloRelatorio::AGRUPAMENTOS' => TituloRelatorio::AGRUPAMENTOS,
+            'TituloRelatorio::STATUS' => TituloRelatorio::STATUS,
+            'RelatorioController::ROTULOS_AGRUPAMENTO' => RelatorioController::ROTULOS_AGRUPAMENTO,
         ];
     }
 

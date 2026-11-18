@@ -25,7 +25,7 @@ final class AgregadorRelatorio
     {
         $colunas = $c->temPeriodo()
             ? PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra)
-            : ['total' => 'Total'];
+            : ['total' => __('Total')];
         $zeroPorColuna = array_fill_keys(array_keys($colunas), 0);
 
         // [chave][coluna][id contado] = true — conjunto, para contar distintos.

@@ -55,7 +55,7 @@ class AuditLogController extends Controller
                 'id' => $log->id,
                 'created_at' => $log->created_at,
                 'acao' => $log->acao,
-                'acao_rotulo' => AuditLog::ACOES[$log->acao] ?? $log->acao,
+                'acao_rotulo' => isset(AuditLog::ACOES[$log->acao]) ? __(AuditLog::ACOES[$log->acao]) : $log->acao,
                 'ator' => $log->ator_type || $log->ator_nome ? [
                     'type' => $log->ator_type,
                     'id' => $log->ator_id,
@@ -63,7 +63,7 @@ class AuditLogController extends Controller
                 ] : null,
                 'entidade' => $log->entidade_type ? [
                     'type' => $log->entidade_type,
-                    'type_rotulo' => AuditLog::ENTIDADES[$log->entidade_type][1] ?? $log->entidade_type,
+                    'type_rotulo' => isset(AuditLog::ENTIDADES[$log->entidade_type]) ? __(AuditLog::ENTIDADES[$log->entidade_type][1]) : $log->entidade_type,
                     'id' => $log->entidade_id,
                     'label' => $log->entidade_label,
                 ] : null,
@@ -83,8 +83,8 @@ class AuditLogController extends Controller
     public function opcoes(): JsonResponse
     {
         return response()->json([
-            'acoes' => collect(AuditLog::ACOES)->map(fn ($rotulo, $slug) => ['value' => $slug, 'title' => $rotulo])->values(),
-            'entidades' => collect(AuditLog::ENTIDADES)->map(fn ($e, $slug) => ['value' => $slug, 'title' => $e[1]])->values(),
+            'acoes' => collect(AuditLog::ACOES)->map(fn ($rotulo, $slug) => ['value' => $slug, 'title' => __($rotulo)])->values(),
+            'entidades' => collect(AuditLog::ENTIDADES)->map(fn ($e, $slug) => ['value' => $slug, 'title' => __($e[1])])->values(),
             'max_dias' => self::MAX_DIAS,
             'retencao_meses' => AuditLog::RETENCAO_MESES,
         ]);

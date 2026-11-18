@@ -34,21 +34,42 @@ final class TextosIndicadores
 
     private const QUEBRAS = ['dia' => 'dia', 'semana' => 'semana', 'mes' => 'mês'];
 
+    public static function rotulo(string $chave): string
+    {
+        return __(self::ROTULOS[$chave]);
+    }
+
+    public static function rotuloPortal(): string
+    {
+        return __(self::ROTULO_PORTAL);
+    }
+
+    public static function rotuloSemAutor(): string
+    {
+        return __(self::ROTULO_SEM_AUTOR);
+    }
+
+    /** @return list<string> */
+    public static function legenda(): array
+    {
+        return array_map(fn (string $texto) => __($texto), self::LEGENDA);
+    }
+
     public static function titulo(ConsultaIndicadores $c): string
     {
-        $titulo = 'Indicadores por grupo de solução — de '.self::data($c->inicio).' a '.self::data($c->fim);
+        $titulo = __('Indicadores por grupo de solução — de :inicio a :fim', ['inicio' => self::data($c->inicio), 'fim' => self::data($c->fim)]);
 
         if (isset(self::QUEBRAS[$c->quebra])) {
-            $titulo .= ', por '.self::QUEBRAS[$c->quebra];
+            $titulo .= __(', por :quebra', ['quebra' => __(self::QUEBRAS[$c->quebra])]);
         }
 
         if ($c->grupos !== []) {
             $nomes = RotulosRelatorio::grupos($c->grupos);
-            $titulo .= ' — grupos: '.implode(', ', array_map(fn (int $id) => $nomes[$id] ?? "#{$id}", $c->grupos));
+            $titulo .= __(' — grupos: ').implode(', ', array_map(fn (int $id) => $nomes[$id] ?? "#{$id}", $c->grupos));
         }
 
         if ($c->porIntegrante) {
-            $titulo .= ' — por integrante';
+            $titulo .= __(' — por integrante');
         }
 
         return $titulo;
@@ -67,16 +88,16 @@ final class TextosIndicadores
             return null;
         }
 
-        $rotulos = array_values(array_intersect_key(self::ROTULOS, array_flip($indicadores)));
+        $rotulos = array_map(fn (string $r) => __($r), array_values(array_intersect_key(self::ROTULOS, array_flip($indicadores))));
         $ultimoRotulo = array_pop($rotulos);
-        $colunas = $rotulos === [] ? $ultimoRotulo : implode(', ', $rotulos).' e '.$ultimoRotulo;
-        $data = Carbon::instance($ultimo)->setTimezone(config('app.timezone_exibicao'))->format('d/m/Y');
+        $colunas = $rotulos === [] ? $ultimoRotulo : implode(', ', $rotulos).__(' e ').$ultimoRotulo;
+        $data = Carbon::instance($ultimo)->setTimezone(config('app.timezone_exibicao'))->format(__('d/m/Y'));
 
-        return "Dados aproximados em {$colunas}: registros até {$data} foram reconstruídos e usam o grupo atual da pessoa, não o da época.";
+        return __('Dados aproximados em :colunas: registros até :data foram reconstruídos e usam o grupo atual da pessoa, não o da época.', ['colunas' => $colunas, 'data' => $data]);
     }
 
     private static function data(string $ymd): string
     {
-        return Carbon::createFromFormat('Y-m-d', $ymd)->format('d/m/Y');
+        return Carbon::createFromFormat('Y-m-d', $ymd)->format(__('d/m/Y'));
     }
 }

@@ -80,7 +80,7 @@ final class AgregadorIndicadores
 
         $tabela = [...$principais, [
             'chave' => FonteIndicadores::CHAVE_PORTAL,
-            'rotulo' => TextosIndicadores::ROTULO_PORTAL,
+            'rotulo' => TextosIndicadores::rotuloPortal(),
             'tipo' => 'portal',
             'valores' => $valores(FonteIndicadores::CHAVE_PORTAL),
         ]];
@@ -89,7 +89,7 @@ final class AgregadorIndicadores
         if (isset($contados[FonteIndicadores::CHAVE_SEM_AUTOR])) {
             $tabela[] = [
                 'chave' => FonteIndicadores::CHAVE_SEM_AUTOR,
-                'rotulo' => TextosIndicadores::ROTULO_SEM_AUTOR,
+                'rotulo' => TextosIndicadores::rotuloSemAutor(),
                 'tipo' => 'sem_autor',
                 'valores' => $valores(FonteIndicadores::CHAVE_SEM_AUTOR),
             ];
@@ -115,7 +115,7 @@ final class AgregadorIndicadores
             'grupos' => $c->grupos,
             'por_integrante' => $c->porIntegrante,
             'indicadores' => array_map(
-                fn (string $chave) => ['chave' => $chave, 'rotulo' => TextosIndicadores::ROTULOS[$chave]],
+                fn (string $chave) => ['chave' => $chave, 'rotulo' => TextosIndicadores::rotulo($chave)],
                 $indicadores,
             ),
             'colunas' => array_map(
@@ -126,7 +126,7 @@ final class AgregadorIndicadores
             'linhas' => $tabela,
             'totais' => $totais,
             'distintos' => array_map('count', $distintos),
-            'legenda' => TextosIndicadores::LEGENDA,
+            'legenda' => TextosIndicadores::legenda(),
             'aviso' => TextosIndicadores::aviso($retroativos, $ultimoRetroativo),
         ];
     }

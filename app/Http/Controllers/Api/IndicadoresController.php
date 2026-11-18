@@ -76,7 +76,7 @@ class IndicadoresController extends Controller
         $selecionadas = $this->selecionar($c, $linhas, $chave, $indicador, $coluna);
 
         if (($validado['formato'] ?? 'json') === 'xlsx') {
-            $descricao = "Linha: {$rotulo} · {$rotuloIndicador}".($colunaInfo ? " · {$colunaInfo['rotulo']}" : '');
+            $descricao = __('Linha: :linha', ['linha' => $rotulo])." · {$rotuloIndicador}".($colunaInfo ? " · {$colunaInfo['rotulo']}" : '');
 
             Auditoria::registrar(
                 'exportado',

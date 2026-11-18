@@ -46,10 +46,10 @@ class FluxosExport extends DefaultValueBinder implements FromArray, WithCustomVa
 
         $linhas = [
             [$b['titulo']],
-            ['Gerado em '.$emBrasilia->format('d/m/Y H:i')." (horário de Brasília) por {$this->geradoPor->name}"],
+            [__('Gerado em :data (horário de Brasília) por :nome', ['data' => $emBrasilia->format(__('d/m/Y H:i')), 'nome' => $this->geradoPor->name])],
             [''],
-            ['Nós'],
-            ['Grupo', 'Abertos pelo grupo', 'Recebidos', 'Encaminhados', 'Resolvidos'],
+            [__('Nós')],
+            [__('Grupo'), __('Abertos pelo grupo'), __('Recebidos'), __('Encaminhados'), __('Resolvidos')],
         ];
 
         // Métrica `null` (nó especial ou vizinho) = célula vazia.
@@ -58,14 +58,14 @@ class FluxosExport extends DefaultValueBinder implements FromArray, WithCustomVa
         }
 
         $linhas[] = [''];
-        $linhas[] = ['Fluxos'];
-        $linhas[] = ['Origem', 'Destino', 'Quantidade'];
+        $linhas[] = [__('Fluxos')];
+        $linhas[] = [__('Origem'), __('Destino'), __('Quantidade')];
         foreach ($b['arestas'] as $aresta) {
             $linhas[] = [$rotulos[$aresta['origem']] ?? $aresta['origem'], $rotulos[$aresta['destino']] ?? $aresta['destino'], $aresta['quantidade']];
         }
 
         $linhas[] = [''];
-        $linhas[] = ['Legenda'];
+        $linhas[] = [__('Legenda')];
         foreach ($b['legenda'] as $texto) {
             $linhas[] = [$texto];
         }

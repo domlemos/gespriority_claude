@@ -55,7 +55,7 @@ final class PeriodoRelatorio
     public static function colunas(string $inicio, string $fim, string $quebra): array
     {
         if ($quebra === 'nenhuma') {
-            return ['total' => 'Total'];
+            return ['total' => __('Total')];
         }
 
         $tz = config('app.timezone_exibicao');
@@ -101,9 +101,9 @@ final class PeriodoRelatorio
     private static function rotulo(Carbon $data, string $quebra): string
     {
         return match ($quebra) {
-            'dia' => $data->format('d/m'),
-            'semana' => 'Sem '.$data->format('d/m'),
-            'mes' => self::MESES[$data->month - 1].'/'.$data->year,
+            'dia' => $data->format(__('d/m')),
+            'semana' => __('Sem :data', ['data' => $data->format(__('d/m'))]),
+            'mes' => __(self::MESES[$data->month - 1]).'/'.$data->year,
         };
     }
 

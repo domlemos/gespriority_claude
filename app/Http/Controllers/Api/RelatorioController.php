@@ -12,6 +12,7 @@ use App\Models\Item;
 use App\Models\RelatorioSalvo;
 use App\Models\Subcategoria;
 use App\Models\User;
+use App\Relatorios\RotulosRelatorio;
 use App\Support\Auditoria;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -201,7 +202,7 @@ class RelatorioController extends Controller
                     in_array($agruparPor, self::CONTAGEM_POR_CHAMADO, true) ? 'incidente_id' : null,
                 ),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
-                '(usuário desconhecido)',
+                __('(usuário desconhecido)'),
             );
         }
 
@@ -212,7 +213,7 @@ class RelatorioController extends Controller
                     'alvo_id'
                 ),
                 fn (array $ids) => GrupoSolucao::whereIn('id', $ids)->pluck('nome', 'id'),
-                '(sem grupo)',
+                __('(sem grupo)'),
             );
         }
 
@@ -223,7 +224,7 @@ class RelatorioController extends Controller
                     'alvo_id'
                 ),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
-                '(sem responsável)',
+                __('(sem responsável)'),
             );
         }
 
@@ -239,7 +240,7 @@ class RelatorioController extends Controller
             $linhas = $this->comRotulos(
                 $this->contarAgrupado($query, 'criado_por_id'),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
-                '(desconhecido)',
+                __('(desconhecido)'),
             );
 
             // Chamado do portal não tem analista criador: some com o filtro.
@@ -257,22 +258,22 @@ class RelatorioController extends Controller
             'responsavel' => $this->comRotulos(
                 $this->contarAgrupado($query, 'responsavel_id'),
                 fn (array $ids) => User::withTrashed()->whereIn('id', $ids)->pluck('name', 'id'),
-                '(sem responsável)',
+                __('(sem responsável)'),
             ),
             'grupo_solucao' => $this->comRotulos(
                 $this->contarAgrupado($query, 'grupo_solucao_id'),
                 fn (array $ids) => GrupoSolucao::whereIn('id', $ids)->pluck('nome', 'id'),
-                '(sem grupo de solução)',
+                __('(sem grupo de solução)'),
             ),
             'item' => $this->comRotulos(
                 $this->contarAgrupado($query, 'item_id'),
                 fn (array $ids) => Item::whereIn('id', $ids)->pluck('nome', 'id'),
-                '(sem item)',
+                __('(sem item)'),
             ),
             'subcategoria' => $this->comRotulos(
                 $this->contarAgrupado($query->join('itens', 'itens.id', '=', 'incidentes.item_id'), 'itens.subcategoria_id'),
                 fn (array $ids) => Subcategoria::whereIn('id', $ids)->pluck('nome', 'id'),
-                '(sem subcategoria)',
+                __('(sem subcategoria)'),
             ),
             'categoria' => $this->comRotulos(
                 $this->contarAgrupado(
@@ -281,7 +282,7 @@ class RelatorioController extends Controller
                     'subcategorias.categoria_id'
                 ),
                 fn (array $ids) => Categoria::whereIn('id', $ids)->pluck('nome', 'id'),
-                '(sem categoria)',
+                __('(sem categoria)'),
             ),
         };
     }
@@ -301,15 +302,9 @@ class RelatorioController extends Controller
             $contagem[$incidente->statusSlaResolucao()]++;
         }
 
-        $rotulos = [
-            Incidente::SLA_DENTRO_PRAZO => 'Dentro do prazo',
-            Incidente::SLA_ESTOURADO => 'Fora do prazo',
-            Incidente::SLA_SEM_SLA => 'Sem SLA aplicável',
-        ];
-
         return collect($contagem)->map(fn (int $total, string $chave) => [
             'chave' => $chave,
-            'rotulo' => $rotulos[$chave],
+            'rotulo' => __(RotulosRelatorio::STATUS_SLA[$chave]),
             'total' => $total,
         ])->values();
     }
@@ -336,7 +331,7 @@ class RelatorioController extends Controller
                 ? [...$linha, 'total' => $linha['total'] - $doPortal]
                 : $linha)
             ->reject(fn (array $linha) => $linha['chave'] === null && $linha['total'] === 0)
-            ->push(['chave' => 'portal', 'rotulo' => 'Portal (cliente)', 'total' => $doPortal])
+            ->push(['chave' => 'portal', 'rotulo' => __('Portal (cliente)'), 'total' => $doPortal])
             ->values();
     }
 

@@ -70,15 +70,15 @@ final class RotulosRelatorio
             'grupo_chamado', 'grupo_analista', 'para_grupo' => self::grupos($ids),
             'responsavel', 'para_responsavel', 'analista', 'quem_encaminhou', 'aberto_por' => self::usuarios($ids),
             'cliente' => self::clientes($ids),
-            'tipo' => Incidente::TIPO_ROTULOS,
-            'status_sla' => self::STATUS_SLA,
+            'tipo' => array_map(fn (string $r) => __($r), Incidente::TIPO_ROTULOS),
+            'status_sla' => array_map(fn (string $r) => __($r), self::STATUS_SLA),
         };
 
         $rotulos = [];
         foreach ($chaves as $chave) {
             $rotulos[$chave] = match (true) {
-                $chave === self::CHAVE_VAZIA => self::VAZIOS[$agruparPor],
-                $chave === self::CHAVE_PORTAL && $agruparPor === 'aberto_por' => 'Portal (cliente)',
+                $chave === self::CHAVE_VAZIA => __(self::VAZIOS[$agruparPor]),
+                $chave === self::CHAVE_PORTAL && $agruparPor === 'aberto_por' => __('Portal (cliente)'),
                 default => $nomes[$chave] ?? "#{$chave}",
             };
         }

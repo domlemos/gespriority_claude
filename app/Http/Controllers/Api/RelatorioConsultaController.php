@@ -60,7 +60,7 @@ class RelatorioConsultaController extends Controller
         $u = $request->user();
         $coluna = $validado['coluna'] ?? null;
 
-        $colunas = $c->temPeriodo() ? PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra) : ['total' => 'Total'];
+        $colunas = $c->temPeriodo() ? PeriodoRelatorio::colunas($c->inicio, $c->fim, $c->quebra) : ['total' => __('Total')];
         if ($coluna !== null && ! isset($colunas[$coluna])) {
             throw ValidationException::withMessages(['coluna' => __('Coluna inexistente neste período.')]);
         }
@@ -73,7 +73,7 @@ class RelatorioConsultaController extends Controller
         $selecionadas = ListaChamados::selecionar($c, $u, $chave, $coluna);
 
         if (($validado['formato'] ?? 'json') === 'xlsx') {
-            $descricao = "Linha: {$linha['rotulo']}".($colunaInfo ? " · {$colunaInfo['rotulo']}" : '');
+            $descricao = __('Linha: :linha', ['linha' => $linha['rotulo']]).($colunaInfo ? " · {$colunaInfo['rotulo']}" : '');
 
             Auditoria::registrar(
                 'exportado',

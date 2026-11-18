@@ -46,15 +46,15 @@ class RelatorioTabelaExport extends DefaultValueBinder implements FromArray, Wit
         $colunas = $comQuebra ? $r->colunas() : [];
         $emBrasilia = $this->geradoEm->copy()->setTimezone(config('app.timezone_exibicao'));
 
-        $rotulo = TituloRelatorio::AGRUPAMENTOS[$r->consulta->agruparPor];
+        $rotulo = TituloRelatorio::agrupamento($r->consulta->agruparPor);
         $linhas = [
             [$this->titulo],
-            ['Gerado em '.$emBrasilia->format('d/m/Y H:i')." (horário de Brasília) por {$this->geradoPor->name}"],
+            [__('Gerado em :data (horário de Brasília) por :nome', ['data' => $emBrasilia->format(__('d/m/Y H:i')), 'nome' => $this->geradoPor->name])],
             [''],
             [
                 mb_strtoupper(mb_substr($rotulo, 0, 1)).mb_substr($rotulo, 1),
                 ...array_column($colunas, 'rotulo'),
-                'Total',
+                __('Total'),
                 '%',
             ],
         ];
@@ -70,7 +70,7 @@ class RelatorioTabelaExport extends DefaultValueBinder implements FromArray, Wit
 
         $totais = $r->totais();
         $linhas[] = [
-            'Total',
+            __('Total'),
             ...array_map(fn (array $c) => $totais['celulas'][$c['chave']] ?? 0, $colunas),
             $totais['total'],
             $totais['total'] > 0 ? 100.0 : 0.0,
@@ -78,7 +78,7 @@ class RelatorioTabelaExport extends DefaultValueBinder implements FromArray, Wit
 
         // Mesma regra do rodapé da UI: só aparece quando difere do total geral.
         if ($r->chamadosDistintos() !== $totais['total']) {
-            $linhas[] = ["Chamados distintos no resultado: {$r->chamadosDistintos()}"];
+            $linhas[] = [__('Chamados distintos no resultado: :n', ['n' => $r->chamadosDistintos()])];
         }
 
         return $linhas;

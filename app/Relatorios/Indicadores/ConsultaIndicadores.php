@@ -92,7 +92,7 @@ final readonly class ConsultaIndicadores
         $erros = [];
         foreach ($this->grupos as $i => $grupo) {
             if (! in_array($grupo, $visiveis, true)) {
-                $erros["grupos.{$i}"] = 'Grupo fora dos seus grupos visíveis.';
+                $erros["grupos.{$i}"] = __('Grupo fora dos seus grupos visíveis.');
             }
         }
 
@@ -108,7 +108,7 @@ final readonly class ConsultaIndicadores
             $vazio = fn (string $campo) => ($dados[$campo] ?? null) === null || $dados[$campo] === '';
 
             if ($vazio('periodo') && $vazio('data_inicio') && $vazio('data_fim')) {
-                $falhar('Informe um período.');
+                $falhar(__('Informe um período.'));
             }
         }, implicita: true);
     }
@@ -119,7 +119,7 @@ final readonly class ConsultaIndicadores
             $grupos = $dados['grupos'] ?? [];
 
             if (filter_var($valor, FILTER_VALIDATE_BOOLEAN) && (! is_array($grupos) || count($grupos) !== 1)) {
-                $falhar('Selecione um único grupo para detalhar por integrante.');
+                $falhar(__('Selecione um único grupo para detalhar por integrante.'));
             }
         });
     }
