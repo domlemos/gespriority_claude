@@ -3,21 +3,20 @@
 namespace Tests\Feature\I18n;
 
 use App\Http\Middleware\SetLocaleFromRequest;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class LocaleMiddlewareTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const MENSAGEM_PT = 'O campo e-mail é obrigatório.';
 
     private const MENSAGEM_EN = 'The email field is required.';
 
     private function erroDeEmail(array $headers = []): string
     {
-        // O Symfony injeta `Accept-Language: en-us,en;q=0.5` em toda Request
-        // de teste; um valor vazio explícito simula "sem header".
-        $headers += ['Accept-Language' => ''];
-
         return $this->postJson('/api/forgot-password', [], $headers)
             ->assertStatus(422)
             ->json('errors.email.0');
@@ -25,7 +24,25 @@ class LocaleMiddlewareTest extends TestCase
 
     public function test_sem_header_responde_em_portugues(): void
     {
+        // Header vazio explícito (sobrepõe o padrão pt-BR do TestCase).
+        $this->assertSame(self::MENSAGEM_PT, $this->erroDeEmail(['Accept-Language' => '']));
+    }
+
+    public function test_base_dos_testes_envia_pt_br_por_padrao(): void
+    {
         $this->assertSame(self::MENSAGEM_PT, $this->erroDeEmail());
+    }
+
+    public function test_status_do_broker_de_senha_em_ingles(): void
+    {
+        $this->postJson('/api/reset-password', [
+            'token' => 'invalido',
+            'email' => 'x@example.com',
+            'password' => 'Senha-Forte-123',
+            'password_confirmation' => 'Senha-Forte-123',
+        ], ['Accept-Language' => 'en'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.email.0', "We can't find a user with that email address.");
     }
 
     public function test_header_en_responde_em_ingles(): void
@@ -49,7 +66,7 @@ class LocaleMiddlewareTest extends TestCase
     public function test_locale_nao_vaza_para_a_proxima_requisicao(): void
     {
         $this->assertSame(self::MENSAGEM_EN, $this->erroDeEmail(['Accept-Language' => 'en']));
-        $this->assertSame(self::MENSAGEM_PT, $this->erroDeEmail());
+        $this->assertSame(self::MENSAGEM_PT, $this->erroDeEmail(['Accept-Language' => '']));
     }
 
     #[DataProvider('cabecalhos')]
