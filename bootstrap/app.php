@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\SetLocaleFromRequest;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -22,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Sessão por cookie HttpOnly + CSRF para requisições do SPA (origens
         // de `sanctum.stateful`); demais chamadas seguem sem estado (Bearer).
         $middleware->statefulApi();
+
+        // Idioma das respostas (pt_BR | en) a partir do Accept-Language.
+        $middleware->api(append: [SetLocaleFromRequest::class]);
 
         // Sem trustProxies de propósito: na EC2 (infra2) não há ALB — o
         // nginx recebe direto da internet e repassa os X-Forwarded-* que o
