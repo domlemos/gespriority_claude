@@ -19,6 +19,7 @@ class UserResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'email_verified_at' => $this->email_verified_at,
+            'locale' => $this->locale,
             'ativo' => is_null($this->deleted_at),
             'grupo_solucao_id' => $this->grupo_solucao_id,
             'grupo_solucao' => $this->whenLoaded('grupoSolucao', fn () => [

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\Auditavel;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
+use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
@@ -23,12 +24,17 @@ use Laravel\Sanctum\HasApiTokens;
 // históricas (Incidente.responsavel, IncidenteDescricao.user, Anexo.user)
 // continuam resolvendo o nome via withTrashed() nessas relações. Ver
 // BACKEND_SPECS.md §3.4.3.
-#[Fillable(['name', 'email', 'password', 'grupo_solucao_id'])]
+#[Fillable(['name', 'email', 'password', 'grupo_solucao_id', 'locale'])]
 #[Hidden(['password', 'remember_token', 'sessoes_invalidadas_em'])]
-class User extends Authenticatable
+class User extends Authenticatable implements HasLocalePreference
 {
     /** @use HasFactory<UserFactory> */
     use Auditavel, HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+
+    public function preferredLocale(): string
+    {
+        return $this->locale ?: config('app.locale');
+    }
 
     /**
      * Get the attributes that should be cast.

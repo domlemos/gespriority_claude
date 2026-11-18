@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditavel;
 use Database\Factories\CustomerFactory;
+use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,12 +15,17 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['client_id', 'name', 'email', 'password'])]
+#[Fillable(['client_id', 'name', 'email', 'password', 'locale'])]
 #[Hidden(['password', 'remember_token', 'sessoes_invalidadas_em'])]
-class Customer extends Authenticatable
+class Customer extends Authenticatable implements HasLocalePreference
 {
     /** @use HasFactory<CustomerFactory> */
     use Auditavel, HasApiTokens, HasFactory, Notifiable;
+
+    public function preferredLocale(): string
+    {
+        return $this->locale ?: config('app.locale');
+    }
 
     protected function casts(): array
     {

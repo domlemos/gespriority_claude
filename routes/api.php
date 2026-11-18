@@ -71,12 +71,14 @@ Route::prefix('customer')->middleware('auth:customer')->group(function () {
 // sessão expira por inatividade (session.lifetime) e por duração máxima.
 Route::middleware('auth:web')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
+    Route::patch('/me/locale', [AuthController::class, 'updateLocale']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/logout-all', [AuthController::class, 'logoutAll']);
 });
 
 Route::prefix('customer')->middleware('auth:customer')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
+    Route::patch('/me/locale', [AuthController::class, 'updateLocale']);
     Route::post('/logout', [AuthController::class, 'logout'])->defaults('guard', 'customer');
     Route::post('/logout-all', [AuthController::class, 'logoutAll'])->defaults('guard', 'customer');
 });

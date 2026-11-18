@@ -45,6 +45,7 @@ class UserController extends Controller
             // enviarConvite() e BACKEND_SPECS.md seção 3.4.3.1).
             'password' => Hash::make($data['password'] ?? Str::password(40)),
             'grupo_solucao_id' => $data['grupo_solucao_id'],
+            'locale' => $data['locale'] ?? 'pt_BR',
         ]);
 
         $user->roles()->sync($data['role_ids'] ?? []);
@@ -68,6 +69,7 @@ class UserController extends Controller
             'name' => $data['name'],
             'email' => $data['email'],
             'grupo_solucao_id' => $data['grupo_solucao_id'],
+            ...(isset($data['locale']) ? ['locale' => $data['locale']] : []),
         ]);
 
         if (! empty($data['password'])) {
@@ -135,6 +137,7 @@ class UserController extends Controller
             // sem senha utilizável, pendente de convite (ver enviarConvite()).
             'password' => ['nullable', 'string', 'min:8'],
             'grupo_solucao_id' => ['required', 'integer', 'exists:grupos_solucao,id'],
+            'locale' => ['sometimes', 'string', Rule::in(['pt_BR', 'en'])],
             'role_ids' => ['sometimes', 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],
         ]);

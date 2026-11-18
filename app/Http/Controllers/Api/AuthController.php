@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -103,6 +104,24 @@ class AuthController extends Controller
         return response()->json(
             $this->presentAuthenticatable($request->user())
         );
+    }
+
+    /**
+     * Preferência de idioma da própria conta. Sem auditoria (spec): é uma
+     * preferência de interface, não um dado cadastral — saveQuietly() evita
+     * o gancho `updated` do trait Auditavel.
+     */
+    public function updateLocale(Request $request)
+    {
+        $data = $request->validate([
+            'locale' => ['required', 'string', Rule::in(['pt_BR', 'en'])],
+        ]);
+
+        $user = $request->user();
+        $user->locale = $data['locale'];
+        $user->saveQuietly();
+
+        return response()->noContent();
     }
 
     public function logout(Request $request, string $guard = 'web')

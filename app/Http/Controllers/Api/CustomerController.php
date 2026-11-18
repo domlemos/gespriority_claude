@@ -46,6 +46,7 @@ class CustomerController extends Controller
             // customer só entra depois de definir a própria via convite (ver
             // enviarConvite() e BACKEND_SPECS.md seção 3.4.3.1).
             'password' => Hash::make($data['password'] ?? Str::password(40)),
+            'locale' => $data['locale'] ?? 'pt_BR',
         ]);
 
         return (new CustomerResource($customer->load('client')))
@@ -66,6 +67,7 @@ class CustomerController extends Controller
             'client_id' => $data['client_id'],
             'name' => $data['name'],
             'email' => $data['email'],
+            ...(isset($data['locale']) ? ['locale' => $data['locale']] : []),
         ]);
 
         if (! empty($data['password'])) {
@@ -124,6 +126,7 @@ class CustomerController extends Controller
             // sem senha utilizável, pendente de convite (ver enviarConvite()).
             'password' => ['nullable', 'string', 'min:8'],
             'client_id' => ['required', 'integer', 'exists:clients,id'],
+            'locale' => ['sometimes', 'string', Rule::in(['pt_BR', 'en'])],
         ]);
     }
 }

@@ -19,6 +19,7 @@ class CustomerResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'email_verified_at' => $this->email_verified_at,
+            'locale' => $this->locale,
             'client' => $this->whenLoaded('client', fn () => [
                 'id' => $this->client->id,
                 'name' => $this->client->name,
