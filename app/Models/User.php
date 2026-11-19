@@ -43,7 +43,7 @@ class User extends Authenticatable implements HasLocalePreference
 
     public function preferredLocale(): string
     {
-        return $this->locale ?: config('app.locale');
+        return $this->locale ?: 'pt_BR';
     }
 
     /**

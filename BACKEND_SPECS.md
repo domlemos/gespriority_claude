@@ -810,6 +810,7 @@ Toda rota sob `/api` passa pelo middleware `App\Http\Middleware\SetLocaleFromReq
 - **Traduzido na leitura** (sem alterar o dado gravado): mensagens de erro/sucesso dos controllers, validações, rótulos de relatórios e do mapa de fluxos, `acao_rotulo` da auditoria, cabeçalhos e rótulos das planilhas exportadas, e-mails.
 - **Não traduzido**: histórico do chamado (`incidente_descricoes`, inclusive o texto gerado ao gravar), dados cadastrados (nomes, categorias, políticas…), nomes de arquivo de `Content-Disposition` e as mensagens já em inglês do `AuthController` (`Logged out from all devices.` etc.; o front não as exibe). O `entidade_label` da auditoria é gravado **sempre em PT** (snapshot, avaliado com o locale `pt_BR`) e o `acao_rotulo` é traduzido ao ler.
 - **Preferência da conta**: `locale` (`pt_BR` \| `en`) em `users`/`customers` (§3.1). Não decide o idioma das respostas HTTP (quem decide é o header), mas define o idioma dos e-mails e é usado pelo front para sincronizar o seletor de idioma.
+- **Sincronia no front** (`auth.syncLocale`): com escolha explícita no navegador (`upITSM.locale`, gravada só pelo seletor), ela vence e, se diferir da conta, é enviada via `PATCH /me/locale`. Sem escolha explícita: `locale` `en` da conta é adotado **sem gravar** no navegador; `pt_BR` mantém o idioma detectado pelo navegador (toda conta nasce `pt_BR`, então não é evidência de escolha). Só o seletor altera a conta.
 - **Testes de cobertura**: `tests/Feature/I18n/TraducoesCobertasTest.php` falha se uma frase PT passada a `__()` (ou um valor das constantes de rótulo) não existir em `lang/en.json`; `tests/TestCase.php` envia `Accept-Language: pt-BR` por padrão, então os asserts de texto PT existentes seguem valendo.
 - **Deploy**: backend e frontend precisam subir juntos. Enquanto o front não enviar `Accept-Language`, a API passa a seguir o idioma do navegador (o browser envia o seu próprio header), divergindo do idioma escolhido na interface.
 
@@ -1009,7 +1010,7 @@ recurso, uma barreira já mais forte que throttle por IP.
 > chamada sem senha veio do fluxo de convite ou de um "Salvar" incompleto, ambos batem no mesmo
 > `POST /users`), então a guarda vive no componente que sabe qual botão foi clicado.
 
-> 📌 **Idioma dos e-mails (2026-11-18).** `User` e `Customer` implementam `HasLocalePreference` (`preferredLocale()` devolve o `locale` salvo, com `config('app.locale')` de reserva), então o convite (`ConviteUsuario`) e as notificações em fila `ChamadoFechado` e `ComentarioDoCliente` saem no idioma **do destinatário**, não no de quem disparou a ação nem no da requisição (cada destinatário de um mesmo comentário recebe no seu). O e-mail de **redefinição de senha** é a exceção: quem pede não está logado, então segue o `Accept-Language` da requisição de `/forgot-password` (`sendPasswordResetNotification()` em `User`/`Customer` aplica `->locale(App::getLocale())`); os textos do layout vêm de `lang/pt_BR.json` e `lang/en.json`.
+> 📌 **Idioma dos e-mails (2026-11-18).** `User` e `Customer` implementam `HasLocalePreference` (`preferredLocale()` devolve o `locale` salvo, com `'pt_BR'` fixo de reserva (não `config('app.locale')`, que o middleware reescreve para o idioma da requisição)), então o convite (`ConviteUsuario`) e as notificações em fila `ChamadoFechado` e `ComentarioDoCliente` saem no idioma **do destinatário**, não no de quem disparou a ação nem no da requisição (cada destinatário de um mesmo comentário recebe no seu). O e-mail de **redefinição de senha** é a exceção: quem pede não está logado, então segue o `Accept-Language` da requisição de `/forgot-password` (`sendPasswordResetNotification()` em `User`/`Customer` aplica `->locale(App::getLocale())`); os textos do layout vêm de `lang/pt_BR.json` e `lang/en.json`.
 
 ### 3.4.4. Endpoints — CRUD de `PoliticaSla` (`App\Http\Controllers\Api\PoliticaSlaController`)
 
@@ -2443,7 +2444,7 @@ Rodar com `docker compose exec app php artisan test` (ou `./vendor/bin/phpunit`)
 >
 > **Lição para qualquer novo ambiente Docker + PHPUnit deste tipo:** `env_file` no `docker-compose.yml` é exatamente o tipo de configuração que faz esse problema aparecer — não é geral a todo projeto Laravel, é específico de rodar os testes dentro de um container cujas variáveis já vêm setadas no processo antes do PHP iniciar. Se decidir buildar contra Postgres real em vez de sqlite no futuro, usar um banco `_testing` dedicado (nunca o mesmo `DB_DATABASE` do dev) reduziria o dano de uma futura recorrência desse tipo de bug de configuração.
 
-### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles,PoliticasSla,Categorias,GruposSolucao,Incidentes,Dashboard,Relatorios,Portal,Seeders,Auditoria}`)
+### 3.9. Suíte de testes automatizados — CRUD administrativo (`tests/Feature/{Clients,Users,Customers,Roles,PoliticasSla,Categorias,GruposSolucao,Incidentes,Dashboard,Relatorios,Portal,Seeders,Auditoria,I18n}`)
 
 Mesmo padrão do §3.8: `RefreshDatabase`, dados via factories, permissions/roles montadas ad-hoc por
 teste (nunca via `RolesAndPermissionsSeeder`).

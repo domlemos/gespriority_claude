@@ -39,7 +39,7 @@ class ComentarioDoCliente extends Notification implements ShouldQueue
             agente: $notifiable->name,
             numero: $incidente->id,
             titulo: $incidente->titulo,
-            cliente: $descricao->customer?->name ?? 'Cliente',
+            cliente: $descricao->customer?->name ?? __('Cliente'),
             empresa: $descricao->customer?->client?->name,
             comentario: $descricao->descricao,
             reabertura: str_starts_with($descricao->descricao, 'Chamado reaberto pelo cliente.'),

@@ -10,6 +10,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\App;
 use Tests\TestCase;
 
 class PreferenciaIdiomaTest extends TestCase
@@ -130,5 +131,15 @@ class PreferenciaIdiomaTest extends TestCase
         $this->assertSame('en', User::factory()->create(['locale' => 'en'])->preferredLocale());
         $this->assertSame('en', Customer::factory()->create(['locale' => 'en'])->preferredLocale());
         $this->assertSame('pt_BR', Customer::factory()->create()->fresh()->preferredLocale());
+    }
+
+    public function test_preferred_locale_fallback_is_fixed_pt_br_even_after_request_locale_changes(): void
+    {
+        App::setLocale('en');
+
+        $this->assertSame('pt_BR', (new User(['locale' => null]))->preferredLocale());
+        $this->assertSame('pt_BR', (new Customer(['locale' => '']))->preferredLocale());
+
+        App::setLocale('pt_BR');
     }
 }
