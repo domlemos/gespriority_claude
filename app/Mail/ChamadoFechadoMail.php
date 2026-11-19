@@ -23,7 +23,7 @@ class ChamadoFechadoMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: "[#{$this->numero}] Seu chamado foi fechado: {$this->titulo}");
+        return new Envelope(subject: "[#{$this->numero}] ".__('Seu chamado foi fechado').": {$this->titulo}");
     }
 
     public function content(): Content

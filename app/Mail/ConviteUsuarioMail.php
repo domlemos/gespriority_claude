@@ -20,7 +20,7 @@ class ConviteUsuarioMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Você foi convidado para o '.config('app.name'),
+            subject: __('Você foi convidado para o :app', ['app' => config('app.name')]),
         );
     }
 

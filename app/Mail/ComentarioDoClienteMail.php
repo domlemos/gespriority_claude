@@ -25,7 +25,7 @@ class ComentarioDoClienteMail extends Mailable
 
     public function envelope(): Envelope
     {
-        $assunto = $this->reabertura ? 'Chamado reaberto pelo cliente' : 'Novo comentário do cliente';
+        $assunto = $this->reabertura ? __('Chamado reaberto pelo cliente') : __('Novo comentário do cliente');
 
         return new Envelope(subject: "[#{$this->numero}] {$assunto}: {$this->titulo}");
     }

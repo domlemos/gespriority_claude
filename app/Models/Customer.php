@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditavel;
 use Database\Factories\CustomerFactory;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\App;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['client_id', 'name', 'email', 'password', 'locale'])]
@@ -21,6 +23,14 @@ class Customer extends Authenticatable implements HasLocalePreference
 {
     /** @use HasFactory<CustomerFactory> */
     use Auditavel, HasApiTokens, HasFactory, Notifiable;
+
+    /**
+     * O idioma da requisição de "esqueci a senha" vence a preferência salva.
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        $this->notify((new ResetPassword($token))->locale(App::getLocale()));
+    }
 
     public function preferredLocale(): string
     {
