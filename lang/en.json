@@ -208,5 +208,9 @@
     "reabriu este chamado pelo portal:": "reopened this ticket through the portal:",
     "comentou neste chamado pelo portal:": "commented on this ticket through the portal:",
     "Abrir o chamado": "Open ticket",
-    "e-mail automático, não responda — responda pelo chamado.": "automated email, do not reply — reply on the ticket."
+    "e-mail automático, não responda — responda pelo chamado.": "automated email, do not reply — reply on the ticket.",
+    "Nova resposta ao seu chamado": "New reply to your ticket",
+    "Nova resposta": "New reply",
+    "Olá, :cliente. :agente, da equipe de suporte, respondeu ao seu chamado:": "Hello, :cliente. :agente, from the support team, replied to your ticket:",
+    "Você pode acompanhar e comentar o chamado pelo portal.": "You can follow and comment on the ticket in the portal."
 }

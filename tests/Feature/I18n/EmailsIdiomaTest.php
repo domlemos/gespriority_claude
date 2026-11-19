@@ -5,6 +5,7 @@ namespace Tests\Feature\I18n;
 use App\Mail\ChamadoFechadoMail;
 use App\Mail\ComentarioDoClienteMail;
 use App\Mail\ConviteUsuarioMail;
+use App\Mail\RespostaAoClienteMail;
 use App\Models\Customer;
 use App\Models\GrupoSolucao;
 use App\Models\Incidente;
@@ -14,6 +15,7 @@ use App\Models\User;
 use App\Notifications\ChamadoFechado;
 use App\Notifications\ComentarioDoCliente;
 use App\Notifications\ConviteUsuario;
+use App\Notifications\RespostaAoCliente;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\App;
@@ -102,6 +104,33 @@ class EmailsIdiomaTest extends TestCase
         $this->assertStringContainsString('Ver o chamado', $pt[1]);
         $this->assertStringContainsString('Olá, Bia. Seu chamado foi fechado pela equipe de suporte', $pt[1]);
         $this->assertStringContainsString('em até 7 dias', $pt[1]);
+    }
+
+    public function test_resposta_vai_no_locale_do_customer_mesmo_com_analista_em_pt(): void
+    {
+        Notification::fake();
+        $headers = $this->staffHeaders('tickets.view', 'tickets.manage') + ['Accept-Language' => 'pt-BR'];
+        $customer = Customer::factory()->create(['locale' => 'en']);
+        $incidente = Incidente::factory()->create(['customer_id' => $customer->id]);
+
+        $this->postJson("/api/incidentes/{$incidente->id}/respostas", ['descricao' => 'On it.'], $headers)->assertCreated();
+
+        Notification::assertSentTo($customer, RespostaAoCliente::class, fn ($n, $c, $m, $locale) => $locale === 'en');
+    }
+
+    public function test_resposta_renderiza_em_en_e_pt(): void
+    {
+        $mail = new RespostaAoClienteMail('Bia', 7, 'Rede', 'Carlos', 'Feito.', 'https://x.test/c');
+
+        $en = $this->emLocale('en', fn () => [$mail->envelope()->subject, $mail->render()]);
+        $this->assertSame('[#7] New reply to your ticket: Rede', $en[0]);
+        $this->assertStringContainsString('Hello, Bia. Carlos, from the support team, replied to your ticket:', $en[1]);
+        $this->assertStringContainsString('View ticket', $en[1]);
+
+        $pt = $this->emLocale('pt_BR', fn () => [$mail->envelope()->subject, $mail->render()]);
+        $this->assertSame('[#7] Nova resposta ao seu chamado: Rede', $pt[0]);
+        $this->assertStringContainsString('Olá, Bia. Carlos, da equipe de suporte, respondeu ao seu chamado:', $pt[1]);
+        $this->assertStringContainsString('Ver o chamado', $pt[1]);
     }
 
     public function test_comentario_do_cliente_vai_no_locale_de_cada_destinatario(): void

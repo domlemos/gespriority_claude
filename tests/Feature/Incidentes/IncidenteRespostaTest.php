@@ -10,7 +10,9 @@ use App\Models\IncidenteDescricao;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Notifications\RespostaAoCliente;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 /**
@@ -169,5 +171,54 @@ class IncidenteRespostaTest extends TestCase
         $log = AuditLog::query()->where('entidade_type', 'incidente_descricao')->where('entidade_id', $id)->sole();
         $this->assertSame('criado', $log->acao);
         $this->assertStringNotContainsString('Texto da resposta', json_encode($log->alteracoes));
+    }
+
+    public function test_resposta_envia_email_ao_cliente(): void
+    {
+        Notification::fake();
+        $customer = Customer::factory()->create();
+        $grupo = GrupoSolucao::factory()->create();
+        $responsavel = User::factory()->create(['grupo_solucao_id' => $grupo->id]);
+        $incidente = Incidente::factory()->create([
+            'customer_id' => $customer->id, 'grupo_solucao_id' => $grupo->id, 'responsavel_id' => $responsavel->id,
+        ]);
+
+        $this->responder($incidente, ['descricao' => 'Já estamos verificando.'])->assertCreated();
+
+        Notification::assertSentTo($customer, RespostaAoCliente::class, fn (RespostaAoCliente $n) => $n->resposta->descricao === 'Já estamos verificando.'
+            && $n->resposta->incidente_id === $incidente->id);
+        Notification::assertCount(1);
+    }
+
+    public function test_resposta_recusada_nao_envia(): void
+    {
+        Notification::fake();
+        $incidente = Incidente::factory()->create();
+
+        $this->responder($incidente, ['descricao' => '   '])->assertStatus(422);
+
+        Notification::assertNothingSent();
+    }
+
+    public function test_conteudo_do_email(): void
+    {
+        config(['app.frontend_url' => 'https://app.test/']);
+        $customer = Customer::factory()->create(['name' => 'Bia', 'email' => 'bia@cliente.test']);
+        $incidente = Incidente::factory()->create(['customer_id' => $customer->id, 'titulo' => 'Rede caiu']);
+        $agente = User::factory()->create(['name' => 'Carlos Agente']);
+        $resposta = IncidenteDescricao::query()->create([
+            'incidente_id' => $incidente->id, 'user_id' => $agente->id, 'tipo' => 'resposta', 'descricao' => '<script>alert(1)</script> Trocamos o cabo.',
+        ]);
+
+        $mail = (new RespostaAoCliente($resposta))->toMail($customer);
+        $html = $mail->render();
+
+        $this->assertTrue($mail->hasTo('bia@cliente.test'));
+        $this->assertSame("[#{$incidente->id}] Nova resposta ao seu chamado: Rede caiu", $mail->envelope()->subject);
+        $this->assertStringContainsString('Carlos Agente', $html);
+        $this->assertStringContainsString('Trocamos o cabo.', $html);
+        $this->assertStringContainsString("https://app.test/portal/incidentes/{$incidente->id}", $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+        $this->assertStringNotContainsString('<script>alert', $html);
     }
 }
