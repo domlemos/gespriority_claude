@@ -267,6 +267,7 @@ Esta seção documenta, com precisão de coluna e payload, o que foi efetivament
 | `email_verified_at` | `timestamp` nullable | |
 | `password` | `string` | `bcrypt` via cast `'hashed'` no model |
 | `remember_token` | `string` nullable | padrão do Laravel |
+| `locale` | `string(5)` | idioma preferido da conta: `pt_BR` \| `en`, default `pt_BR` (migration `2026_11_18_100000_add_locale_to_users_and_customers`). Define o idioma dos e-mails enviados à conta e o idioma inicial da interface — ver §3.4 (Idioma) |
 | `sessoes_invalidadas_em` | `timestamp` nullable | sessão por cookie iniciada até este instante deixa de valer — preenchida por "sair de todos os dispositivos", redefinição de senha e troca de senha pelo admin; oculta no JSON (`#[Hidden]`), fora do log de ações. Ver §1.3 (2026-11-13) |
 | `deleted_at` | `timestamp` nullable | soft delete (`SoftDeletes`) — "excluir" um `User` é desativação, não remoção; ver §3.4.3 |
 | `created_at`, `updated_at` | `timestamp` | |
@@ -303,6 +304,7 @@ Esta seção documenta, com precisão de coluna e payload, o que foi efetivament
 | `email_verified_at` | `timestamp` nullable | |
 | `password` | `string` | `bcrypt` via cast `'hashed'` |
 | `remember_token` | `string` nullable | |
+| `locale` | `string(5)` | idioma preferido da conta: `pt_BR` \| `en`, default `pt_BR` (migration `2026_11_18_100000_add_locale_to_users_and_customers`). Define o idioma dos e-mails enviados à conta e o idioma inicial da interface — ver §3.4 (Idioma) |
 | `sessoes_invalidadas_em` | `timestamp` nullable | sessão por cookie iniciada até este instante deixa de valer — preenchida por "sair de todos os dispositivos", redefinição de senha e troca de senha pelo admin; oculta no JSON (`#[Hidden]`), fora do log de ações. Ver §1.3 (2026-11-13) |
 | `created_at`, `updated_at` | `timestamp` | |
 
@@ -800,6 +802,17 @@ Todos sob prefixo `/api`. Guard `web` é o default para as rotas sem prefixo; as
 | `POST` | `/forgot-password` (+ `/customer/forgot-password`) | `web` / `customer` | — | `{email}` | `{message}` genérica (não revela se o e-mail existe) |
 | `POST` | `/reset-password` (+ `/customer/reset-password`) | `web` / `customer` | — | `{token, email, password, password_confirmation}` | `{message}` — invalida as sessões e revoga os tokens do usuário/cliente ao concluir |
 
+#### Idioma (PT-BR/EN) — `Accept-Language`
+
+Toda rota sob `/api` passa pelo middleware `App\Http\Middleware\SetLocaleFromRequest` (grupo `api`, registrado em `bootstrap/app.php`), que define o locale da **requisição** pelo primeiro item do header `Accept-Language`: `en*` (`en`, `en-US`, `EN`…) → `en`; `pt*` → `pt_BR`; qualquer outro valor, vazio ou ausente → `pt_BR`. O locale é redefinido **em toda requisição**, inclusive para o padrão (`pt_BR` fixo no middleware): no Octane o worker é reaproveitado, e `App::setLocale()` reescreve `config('app.locale')`, então sem isso uma requisição `en` vazaria para a seguinte. O frontend envia o header em toda chamada.
+
+- **Textos**: a frase em português vira a chave de `__()` byte a byte; `lang/en.json` traz o inglês (interpolação `:nome`). `lang/en/{validation,auth,passwords}.php` cobrem as mensagens do framework e `lang/en/rotulos.php` os rótulos; `lang/pt_BR.json` existe **só** para strings em inglês do próprio Laravel usadas no e-mail de redefinição de senha/layout de e-mail (ex.: "Reset Password").
+- **Traduzido na leitura** (sem alterar o dado gravado): mensagens de erro/sucesso dos controllers, validações, rótulos de relatórios e do mapa de fluxos, `acao_rotulo` da auditoria, cabeçalhos e rótulos das planilhas exportadas, e-mails.
+- **Não traduzido**: histórico do chamado (`incidente_descricoes`, inclusive o texto gerado ao gravar), dados cadastrados (nomes, categorias, políticas…), nomes de arquivo de `Content-Disposition` e as mensagens já em inglês do `AuthController` (`Logged out from all devices.` etc.; o front não as exibe). O `entidade_label` da auditoria é gravado **sempre em PT** (snapshot, avaliado com o locale `pt_BR`) e o `acao_rotulo` é traduzido ao ler.
+- **Preferência da conta**: `locale` (`pt_BR` \| `en`) em `users`/`customers` (§3.1). Não decide o idioma das respostas HTTP (quem decide é o header), mas define o idioma dos e-mails e é usado pelo front para sincronizar o seletor de idioma.
+- **Testes de cobertura**: `tests/Feature/I18n/TraducoesCobertasTest.php` falha se uma frase PT passada a `__()` (ou um valor das constantes de rótulo) não existir em `lang/en.json`; `tests/TestCase.php` envia `Accept-Language: pt-BR` por padrão, então os asserts de texto PT existentes seguem valendo.
+- **Deploy**: backend e frontend precisam subir juntos. Enquanto o front não enviar `Accept-Language`, a API passa a seguir o idioma do navegador (o browser envia o seu próprio header), divergindo do idioma escolhido na interface.
+
 `POST /refresh` foi **removido** em 2026-11-13 (a sessão expira por inatividade e por duração máxima).
 
 Validação de erro: credenciais inválidas ou payload malformado → `422` (`ValidationException`); acima do rate limit → `429`; sem sessão/token válido em rota protegida → `401`; token CSRF ausente ou inválido → `419`.
@@ -817,11 +830,14 @@ O campo `user` de `/login` e o corpo de `/me` (quando o guard é `web`) passam p
   "created_at": "2026-07-09T21:52:23.000000Z",
   "updated_at": "2026-07-09T21:52:23.000000Z",
   "roles": ["admin"],
-  "permissions": ["users.manage", "roles.manage", "clients.manage", "tickets.view", "tickets.assign"]
+  "permissions": ["users.manage", "roles.manage", "clients.manage", "tickets.view", "tickets.assign"],
+  "locale": "pt_BR"
 }
 ```
 
-`Customer` não tem `UserResource` equivalente — é devolvido como model puro (sem roles/permissions, que não se aplicam a esse guard), com `client: {id, name}` carregado (o portal exibe a empresa na abertura de incidente). Vale para `/me` e para o `user` do login.
+`Customer` não tem `UserResource` equivalente — é devolvido como model puro (sem roles/permissions, que não se aplicam a esse guard), com `client: {id, name}` carregado (o portal exibe a empresa na abertura de incidente). Vale para `/me` e para o `user` do login. Como é o model puro, `locale` (`pt_BR` | `en`) vem no JSON de `/customer/me` e do login de customer, assim como vem em `UserResource` para staff.
+
+**Preferência de idioma da própria conta** — `PATCH /api/me/locale` (guard `web`, `auth:web`) e `PATCH /api/customer/me/locale` (guard `customer`, `auth:customer`), ambos em `AuthController::updateLocale`. Body `{locale: "pt_BR" | "en"}` (obrigatório); respostas: `204` (sem corpo), `401` sem sessão, `422` para valor inválido ou ausente. Grava com `saveQuietly()`: é preferência de interface, **não** gera linha no log de ações (§3.4.11).
 
 ### 3.4.2. Endpoints — CRUD de `Client` (`App\Http\Controllers\Api\ClientController`)
 
@@ -854,12 +870,14 @@ Validação: `name` ausente/vazio → `422`; sem token → `401`; `User` autenti
 | Método | Rota | Body | Resposta |
 |---|---|---|---|
 | `GET` | `/users` | — | `200` — paginado (`?per_page=`), `UserResource::collection` com `roles`/`permissions`/`grupoSolucao` carregados; aceita filtros opcionais `?name=` (`LIKE` parcial), `?email=` (`LIKE` parcial), `?grupo_solucao_id=` (`exists:grupos_solucao,id`), `?role_id=` (`exists:roles,id`, via `User::scopeFiltros()`/`whereHas('roles', ...)`) |
-| `POST` | `/users` | `{name, email, password?, grupo_solucao_id, role_ids?: number[]}` | `201` — `UserResource`; `password` opcional (ver 3.4.3.1) |
+| `POST` | `/users` | `{name, email, password?, grupo_solucao_id, role_ids?: number[], locale?: 'pt_BR'\|'en'}` | `201` — `UserResource`; `password` opcional (ver 3.4.3.1) |
 | `GET` | `/users/{user}` | — | `200` — `UserResource` |
-| `PUT`/`PATCH` | `/users/{user}` | `{name, email, password?, grupo_solucao_id, role_ids?: number[]}` | `200` — `UserResource`; `password` omitido/vazio mantém o hash atual |
+| `PUT`/`PATCH` | `/users/{user}` | `{name, email, password?, grupo_solucao_id, role_ids?: number[], locale?: 'pt_BR'\|'en'}` | `200` — `UserResource`; `password` omitido/vazio mantém o hash atual |
 | `DELETE` | `/users/{user}` | — | **desativa** (soft delete), não apaga — `204`; **`409`** só se `$user->id` for o do próprio autenticado |
 | `POST` | `/users/{user}/convite` | — | `200` — `{message}`; envia e-mail de convite (ver 3.4.3.1) |
 | `GET` | `/roles` | — | `200` — `{data: [{id, name, slug}, ...]}`, sem paginação |
+
+> 📌 **`locale` em `User` e `Customer`.** Opcional no create (omitido grava `pt_BR`) e no update (omitido mantém o atual); valores aceitos `pt_BR` \| `en`, senão `422`. O mesmo vale para `POST`/`PUT`/`PATCH` de `/customers`, e `locale` aparece em `UserResource` e `CustomerResource`.
 
 > 📌 **`DELETE` desativa, não apaga.** `User` usa `SoftDeletes` (`deleted_at`) — o registro nunca
 > some de verdade. Motivação: `responsavel_id` de `Incidente`, `user_id` de `IncidenteDescricao` e de
@@ -990,6 +1008,8 @@ recurso, uma barreira já mais forte que throttle por IP.
 > chama a API) — não dá pra expressar essa regra como validação de backend (a API não tem como saber se a
 > chamada sem senha veio do fluxo de convite ou de um "Salvar" incompleto, ambos batem no mesmo
 > `POST /users`), então a guarda vive no componente que sabe qual botão foi clicado.
+
+> 📌 **Idioma dos e-mails (2026-11-18).** `User` e `Customer` implementam `HasLocalePreference` (`preferredLocale()` devolve o `locale` salvo, com `config('app.locale')` de reserva), então o convite (`ConviteUsuario`) e as notificações em fila `ChamadoFechado` e `ComentarioDoCliente` saem no idioma **do destinatário**, não no de quem disparou a ação nem no da requisição (cada destinatário de um mesmo comentário recebe no seu). O e-mail de **redefinição de senha** é a exceção: quem pede não está logado, então segue o `Accept-Language` da requisição de `/forgot-password` (`sendPasswordResetNotification()` em `User`/`Customer` aplica `->locale(App::getLocale())`); os textos do layout vêm de `lang/pt_BR.json` e `lang/en.json`.
 
 ### 3.4.4. Endpoints — CRUD de `PoliticaSla` (`App\Http\Controllers\Api\PoliticaSlaController`)
 
@@ -2415,6 +2435,8 @@ Feature tests com `RefreshDatabase`, dados montados via factories (`UserFactory`
 
 Rodar com `docker compose exec app php artisan test` (ou `./vendor/bin/phpunit`).
 
+> Idioma (2026-11-18): `tests/TestCase.php` envia `Accept-Language: pt-BR` por padrão em todas as requisições de teste. Os testes específicos ficam em `tests/Feature/I18n` (ver §3.9).
+
 > 🚨 **Incidente durante a implementação — banco de dev real foi zerado por engano.** A primeira versão do `phpunit.xml` (herdada do skeleton do Laravel) configurava `DB_CONNECTION=sqlite`/`DB_DATABASE=:memory:` via `<env>`, mas isso **não tinha efeito**: como o `docker-compose.yml` usa `env_file: .env` no serviço `app`, as variáveis do `.env` (incluindo `DB_CONNECTION=pgsql`) já chegam setadas tanto em `$_ENV`/`getenv()` quanto em `$_SERVER` antes do PHPUnit subir. O `<env force="true">` do PHPUnit só sobrescreve `$_ENV`/`putenv()` — **não toca em `$_SERVER`** — e o resolvedor de env do Laravel (`Illuminate\Support\Env`, via `vlucas/phpdotenv`) prioriza `$_SERVER`. Resultado: o override para sqlite era ignorado silenciosamente, os testes rodavam contra o Postgres de desenvolvimento de verdade, e o primeiro `RefreshDatabase` da suíte executou o equivalente a um `migrate:fresh` no banco `itsm` real, apagando os dados de dev (foram restaurados depois com `php artisan db:seed`).
 >
 > **Fix:** todo `<env>` em `phpunit.xml` tem agora um `<server>` espelhado com o mesmo nome/valor/`force="true"` — o `PhpHandler` do PHPUnit escreve `<server>` direto em `$_SERVER` incondicionalmente, cobrindo a lacuna. Validado forçando um dump de `getenv()`/`$_ENV`/`$_SERVER`/`Env::getRepository()->get()`/`config('database.default')` dentro de um teste até os 5 baterem em `sqlite`.
@@ -2460,6 +2482,17 @@ teste (nunca via `RolesAndPermissionsSeeder`).
 | `Customers/CustomerCrudTest.php` | (atualizado) `409` (não `500`) ao excluir um customer que abriu pelo portal um chamado depois trocado de cliente |
 | `Auditoria/AuditLogCapturaTest.php` | Nada é gravado sem usuário autenticado (factories); CRUD via API grava `criado`/`atualizado`/`excluido` com autor, diff e rótulo snapshot; update sem mudança não grava; troca de senha vira `senha: (alterada)` sem o hash; `sync()` de papéis e permissões do grupo grava diff de relação; chamado grava só nomes de campos (coluna de sistema ignorada); feed grava só `comentario`, sem texto; `login`/`login_falhou` (com e sem conta existente); ação do portal com autor `customer`; `model:prune` apaga só o que passou de 6 meses |
 | `Auditoria/AuditLogConsultaTest.php` | `403` sem `auditoria.view`; `422` sem período e acima de 93 dias; filtros combinados (período em dias de Brasília, autor, ação, tipo de registro, busca); `/audit-logs/opcoes` |
+
+Idioma PT-BR/EN (2026-11-18) — `tests/Feature/I18n`:
+
+| Arquivo | Cobre |
+|---|---|
+| `I18n/LocaleMiddlewareTest.php` | Sem header, `pt-BR` e idioma desconhecido (`fr`) respondem em PT; `en` em inglês (validação, broker de senha); variações do header (`en-US,en;q=0.9`, `EN`, `pt`, vazio) via `resolver()`; locale de uma requisição `en` não vaza para a seguinte; base dos testes envia `pt-BR` |
+| `I18n/MensagensControllersTest.php` | Mensagens de controllers (excluir categoria com subcategorias, reenviar convite, desativar a própria conta) no idioma da requisição |
+| `I18n/RotulosTraduzidosTest.php` | Mapa de fluxos, `acao_rotulo` e tipo de entidade da auditoria, cabeçalho da planilha e relatório legado traduzidos; `entidade_label` gravado sempre em PT; "Customer"/"Client" corretos |
+| `I18n/PreferenciaIdiomaTest.php` | `locale` default `pt_BR` em `/me` de staff e customer; `PATCH /me/locale` e `/customer/me/locale` (`204`, sem linha de auditoria, `422` para inválido, `401` sem login); admin define `locale` de `User`/`Customer`; `preferredLocale()` |
+| `I18n/EmailsIdiomaTest.php` | Convite, chamado fechado e comentário do cliente saem (e renderizam) no `locale` de cada destinatário; esqueci-a-senha (staff e customer) usa o idioma da requisição; sem header, em PT com assunto traduzido |
+| `I18n/TraducoesCobertasTest.php` | Todo literal passado a `__()` e todo valor das constantes de rótulo existem em `lang/en.json`; `lang/pt_BR.json` não traduz chaves usadas em `app/` |
 
 ### 3.10. Histórico de entregas — Tipo do chamado e portal do cliente (2026-11-09)
 
@@ -2539,3 +2572,32 @@ antiga é copiada e removida na mesma migration (Postgres faz DDL transacional).
 `grupo_solucao_id: 2 → 5`), sem resolução de nome; a busca textual não usa índice (o período
 obrigatório limita a varredura); a listagem de autores usa `/lookups/*`, que não traz usuários
 desativados — a busca textual pelo nome ainda os encontra.
+
+### 3.12. Histórico de entregas — Idioma PT-BR/EN (2026-11-18)
+
+Pedido: o front já tinha seletor PT-BR/EN (vue-i18n), mas o texto vindo da API (erros, rótulos de
+relatório, auditoria, planilhas, e-mails) saía sempre em português. Decisões com o produto: o
+idioma de cada **resposta** é decidido pelo `Accept-Language` da requisição; cada conta guarda uma
+**preferência** (`locale`) usada para os e-mails e para sincronizar o seletor; o texto PT existente
+não muda (a frase vira a chave de tradução); histórico do chamado e dados cadastrados **não** são
+traduzidos.
+
+- Backend: middleware `SetLocaleFromRequest` no grupo `api`; `lang/en.json` (chave = frase PT),
+  `lang/en/{validation,auth,passwords,rotulos}.php`, `lang/pt_BR.json` só para strings em inglês do
+  Laravel (e-mail de reset); mensagens dos controllers, rótulos de relatório/auditoria e planilhas
+  traduzidos na leitura; coluna `locale` em `users`/`customers` (default `pt_BR`),
+  `HasLocalePreference`, `locale` em `UserResource`/`CustomerResource`, `/me` e create/update
+  administrativo; `PATCH /api/me/locale` e `/api/customer/me/locale` (`204`/`401`/`422`, sem
+  auditoria); e-mails no idioma do destinatário (convite, chamado fechado, comentário do cliente) e
+  redefinição de senha no idioma da requisição. Testes em `tests/Feature/I18n` (§3.9).
+- Frontend (`gespriority_claude_front`): envia `Accept-Language` em toda chamada, sincroniza o
+  seletor com o `locale` da conta (e o grava via `PATCH /me/locale`) e traz o campo **Idioma** nos
+  formulários de usuário e customer da Administração.
+
+**Deploy**: backend e frontend devem subir **juntos**. A migration adiciona `locale` com default
+`pt_BR`, então contas existentes ficam em PT. Enquanto o front não enviar `Accept-Language`, a API
+seguiria o idioma do navegador.
+
+**Pendências conhecidas (não bloqueantes)**: o histórico do chamado e os dados cadastrados ficam no
+idioma em que foram gravados; `entidade_label` da auditoria é sempre PT (snapshot); mensagens do
+`AuthController` já em inglês permanecem fixas.
