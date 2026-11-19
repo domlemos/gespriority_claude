@@ -4,7 +4,8 @@ resource "random_password" "db" {
 }
 
 resource "aws_secretsmanager_secret" "db_password" {
-  name = "${var.project_name}/db-password"
+  name                    = "${var.project_name}/db-password"
+  recovery_window_in_days = 0 # TEMP — só pra teardown, ver docs/deploy/aws-teardown.md
 }
 
 resource "aws_secretsmanager_secret_version" "db_password" {
@@ -13,7 +14,8 @@ resource "aws_secretsmanager_secret_version" "db_password" {
 }
 
 resource "aws_secretsmanager_secret" "app_key" {
-  name = "${var.project_name}/app-key"
+  name                    = "${var.project_name}/app-key"
+  recovery_window_in_days = 0 # TEMP — só pra teardown, ver docs/deploy/aws-teardown.md
 }
 
 resource "aws_secretsmanager_secret_version" "app_key" {
@@ -47,7 +49,7 @@ resource "aws_db_instance" "this" {
   vpc_security_group_ids    = [var.rds_security_group_id]
   multi_az                  = var.db_multi_az
   publicly_accessible       = false
-  skip_final_snapshot       = false
+  skip_final_snapshot       = true # TEMP — só pra teardown, ver docs/deploy/aws-teardown.md
   final_snapshot_identifier = "${var.project_name}-db-final"
   backup_retention_period   = 7
   storage_encrypted         = true
