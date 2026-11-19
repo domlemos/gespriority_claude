@@ -155,16 +155,29 @@ class IncidentesSeeder extends Seeder
         );
 
         // {titulo, item, grupo, responsavel, prioridade, origem, status, dias atrás da abertura, horas até a conclusão (null = sem SLA), customer, criador}
+        //
+        // Prioridade de cada incidente casa com o `prioridade_padrao` do seu
+        // item (ver CategoriasSeeder) — demonstra o fluxo padrão da feature
+        // "SLA por Categorização" (a prioridade vem da categorização, sem
+        // personalização). $itemChassiGravame/$itemQsaErro (usados em
+        // $incidente1/$incidente2 acima) e $itemDossieWorkflowAprovacao têm
+        // `prioridade_padrao` nulo — mantêm prioridade de escolha livre
+        // (fluxo de antes da feature). Uma exceção deliberada, marcada
+        // abaixo, simula um Admin personalizando a prioridade pra um valor
+        // diferente do padrão do item.
         $incidentes = [
-            ['Dossiê detalhado retorna com falha para o CPF informado', $itemDossieDetalhadoFalha, $grupoN1, $agente, 'alta', 'telefone', 'fechado', 10, 7, $customerPrincipal, $agente],
+            ['Dossiê detalhado retorna com falha para o CPF informado', $itemDossieDetalhadoFalha, $grupoN1, $agente, 'baixa', 'telefone', 'fechado', 10, 7, $customerPrincipal, $agente],
             ['Divergência de dados no dossiê analítico', $itemDossieAnaliticoDivergencia, $grupoN2, $supervisor, 'media', 'portal', 'resolvido', 8, 30, $customerPrincipal, $admin],
-            ['Consulta de QSA extremamente lenta', $itemUplinkQsaLentidao, $grupoRedes, $agente, 'urgente', 'email', 'fechado', 5, 3, $customerPrincipal, $agente],
-            ['Erro ao calcular o Upscore do cliente', $itemDossieUpscoreErro, $grupoN1, $admin, 'baixa', 'chat', 'cancelado', 3, 1, $customerPrincipal, $supervisor],
-            ['Erro ao acessar o Upminer Upacademy', $itemUpminerUpacademyErro, $grupoN2, null, 'alta', 'portal', 'fechado', 15, 20, $customerPrincipal, $admin],
-            ['Manutenção preventiva de fonte não executada no prazo', $itemFonteMonitoramentoPreventivo, $grupoRedes, $agente, 'baixa', 'presencial', 'resolvido', 20, 40, $customerPrincipal, $agente],
+            ['Consulta de QSA extremamente lenta', $itemUplinkQsaLentidao, $grupoRedes, $agente, 'baixa', 'email', 'fechado', 5, 3, $customerPrincipal, $agente],
+            ['Erro ao calcular o Upscore do cliente', $itemDossieUpscoreErro, $grupoN1, $admin, 'media', 'chat', 'cancelado', 3, 1, $customerPrincipal, $supervisor],
+            // Personalização: prioridade_padrao do item é 'alta', mas o
+            // Admin abriu como 'urgente' — mostra que a categorização só
+            // define o padrão, não trava o valor (só Admin pode fazer isso).
+            ['Erro ao acessar o Upminer Upacademy', $itemUpminerUpacademyErro, $grupoN2, null, 'urgente', 'portal', 'fechado', 15, 20, $customerPrincipal, $admin],
+            ['Manutenção preventiva de fonte não executada no prazo', $itemFonteMonitoramentoPreventivo, $grupoRedes, $agente, 'alta', 'presencial', 'resolvido', 20, 40, $customerPrincipal, $agente],
             ['Fluxo de aprovação do dossiê travado', $itemDossieWorkflowAprovacao, null, $supervisor, 'media', 'portal', 'fechado', 2, 10, $segundoCustomer, $supervisor],
-            ['Erro ao consultar chassi do veículo', $itemVeiculoChassiErro, $grupoN1, $agente, 'baixa', 'portal', 'fechado', 1, null, $customerPrincipal, $agente],
-            ['Erro ao consultar fonte do dossiê', $itemDossieFonteErro, $grupoN2, $admin, 'media', 'monitoramento', 'fechado', 25, 30, $segundoCustomer, $admin],
+            ['Erro ao consultar chassi do veículo', $itemVeiculoChassiErro, $grupoN1, $agente, 'media', 'portal', 'fechado', 1, null, $customerPrincipal, $agente],
+            ['Erro ao consultar fonte do dossiê', $itemDossieFonteErro, $grupoN2, $admin, 'urgente', 'monitoramento', 'fechado', 25, 30, $segundoCustomer, $admin],
             ['Chamado sem classificação de item', null, $grupoN1, $agente, 'media', 'telefone', 'fechado', 4, 10, $customerPrincipal, $agente],
         ];
 

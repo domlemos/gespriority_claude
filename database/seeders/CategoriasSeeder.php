@@ -45,6 +45,16 @@ class CategoriasSeeder extends Seeder
      */
     public function run(): void
     {
+        // Índice corrido por TODO o catálogo (não reiniciado a cada
+        // subcategoria) — com só 2 itens na maioria das subcategorias, um
+        // índice reiniciado nunca passaria de baixa/media, e nenhum item de
+        // demonstração teria alta/urgente nem `null` (item sem SLA padrão,
+        // que precisa continuar existindo pra exercitar o fluxo antigo de
+        // prioridade livre — ver "SLA por Categorização" no BACKEND_SPECS.md
+        // §3.1). `null` primeiro no ciclo pra alternar com as 4 prioridades.
+        $prioridadesPadraoCiclo = [null, ...PoliticaSla::PRIORIDADES];
+        $indice = 0;
+
         foreach (self::TAXONOMIA as $categoriaNome => $subcategorias) {
             $categoria = Categoria::query()->updateOrCreate(
                 ['nome' => $categoriaNome],
@@ -57,14 +67,16 @@ class CategoriasSeeder extends Seeder
                     ['ativo' => true]
                 );
 
-                foreach ($itens as $indice => $itemNome) {
+                foreach ($itens as $itemNome) {
                     $subcategoria->itens()->updateOrCreate(
                         ['nome' => $itemNome],
                         [
                             'ativo' => true,
-                            'prioridade_padrao' => PoliticaSla::PRIORIDADES[$indice % count(PoliticaSla::PRIORIDADES)],
+                            'prioridade_padrao' => $prioridadesPadraoCiclo[$indice % count($prioridadesPadraoCiclo)],
                         ]
                     );
+
+                    $indice++;
                 }
             }
         }
