@@ -54,21 +54,24 @@ class IncidenteDescricao extends Model
 
     public const TIPO_ALTERACAO = 'alteracao';
 
-    // Mensagem obrigatória de quem fecha o chamado — a única entrada do staff
-    // que o cliente vê no portal (o resto do feed é interno).
+    // Mensagem obrigatória de quem fecha o chamado — visível no portal.
     public const TIPO_ENCERRAMENTO = 'encerramento';
 
-    public const TIPOS = [self::TIPO_COMENTARIO, self::TIPO_ESCALONAMENTO, self::TIPO_ALTERACAO, self::TIPO_ENCERRAMENTO];
+    // Resposta do staff ao cliente: visível no portal e enviada por e-mail.
+    // As únicas entradas do staff que o cliente vê são esta e o encerramento.
+    public const TIPO_RESPOSTA = 'resposta';
+
+    public const TIPOS = [self::TIPO_COMENTARIO, self::TIPO_ESCALONAMENTO, self::TIPO_ALTERACAO, self::TIPO_ENCERRAMENTO, self::TIPO_RESPOSTA];
 
     /**
-     * Log de ações (Auditavel): só comentários escritos por alguém — as
-     * entradas de sistema (escalonamento/alteração/encerramento) são efeito
-     * colateral de uma ação no chamado, já registrada nele. Sem o texto
-     * (fica no feed).
+     * Log de ações (Auditavel): só comentários e respostas ao cliente
+     * escritos por alguém — as entradas de sistema (escalonamento/alteração/
+     * encerramento) são efeito colateral de uma ação no chamado, já
+     * registrada nele. Sem o texto (fica no feed).
      */
     public function deveAuditar(): bool
     {
-        return $this->tipo === self::TIPO_COMENTARIO;
+        return in_array($this->tipo, [self::TIPO_COMENTARIO, self::TIPO_RESPOSTA], true);
     }
 
     public function auditoriaResumida(): bool

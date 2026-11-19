@@ -58,7 +58,8 @@ class IncidenteController extends Controller
 
         // O feed do staff é interno. O cliente vê só a descrição de abertura
         // (a primeira entrada, mesmo quando o staff abriu em nome dele), os
-        // próprios comentários e a mensagem de encerramento de quem fechou.
+        // próprios comentários, as respostas do staff ao cliente e a mensagem
+        // de encerramento de quem fechou.
         $aberturaId = $incidente->descricoes()->withoutTrashed()->min('id');
 
         $descricoes = IncidenteDescricao::query()
@@ -67,7 +68,7 @@ class IncidenteController extends Controller
                 // Só os comentários do cliente: a linha de "status alterado"
                 // gravada na reabertura (autoria dele) é registro do staff.
                 ->where(fn ($qc) => $qc->where('customer_id', $request->user()->id)->where('tipo', IncidenteDescricao::TIPO_COMENTARIO))
-                ->orWhere('tipo', IncidenteDescricao::TIPO_ENCERRAMENTO)
+                ->orWhereIn('tipo', [IncidenteDescricao::TIPO_ENCERRAMENTO, IncidenteDescricao::TIPO_RESPOSTA])
                 ->orWhere('id', $aberturaId))
             ->with(['user:id,name', 'customer:id,name'])
             ->orderBy('created_at')

@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\GrupoSolucaoController;
 use App\Http\Controllers\Api\GrupoSolucaoPermissaoController;
 use App\Http\Controllers\Api\IncidenteController;
 use App\Http\Controllers\Api\IncidenteDescricaoController;
+use App\Http\Controllers\Api\IncidenteRespostaController;
 use App\Http\Controllers\Api\IndicadoresController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LookupController;
@@ -189,6 +190,12 @@ Route::middleware(['auth:web', 'can:tickets.manage'])
     ->apiResource('incidentes.descricoes', IncidenteDescricaoController::class)
     ->parameters(['descricoes' => 'descricao'])
     ->only(['store', 'update', 'destroy']);
+
+// Resposta ao cliente: entrada 'resposta' no feed, visível no portal e
+// enviada por e-mail ao cliente. Imutável depois de criada (é editada/excluída
+// só por /descricoes, que recusa tudo que não é 'comentario').
+Route::middleware(['auth:web', 'can:tickets.manage'])
+    ->post('incidentes/{incidente}/respostas', [IncidenteRespostaController::class, 'store']);
 
 // Anexos — aninhados em /incidentes/{incidente}/anexos. Sem 'update' (arquivo
 // é substituído via delete + novo upload, não editado no lugar) e sem
